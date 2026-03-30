@@ -1,0 +1,38 @@
+services:
+  # ── Backend (FastAPI + WebSocket) ──────────────────────────
+  backend:
+    build: ./backend
+    ports:
+      - "8001:8001"
+    volumes:
+      - backend_data:/data
+      - ${HOST_FILES_PATH:-/home/nvidia/documents}:/home/nvidia/documents:ro
+    environment:
+      OFFICE_AGENTS_LLM_BASE_URL: http://${OLLAMA_HOST:-host-gateway}:11434/v1
+      OFFICE_AGENTS_LLM_MODEL: ${LLM_MODEL:-qwen3.5:35b}
+      OFFICE_AGENTS_LLM_API_KEY: not-needed
+      OFFICE_AGENTS_TICK_INTERVAL: ${TICK_INTERVAL:-4.0}
+      OFFICE_AGENTS_TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      OFFICE_AGENTS_ALLOWED_FILE_PATHS: '["/home/nvidia/documents"]'
+      OFFICE_AGENTS_DB_PATH: /data/office_agents.db
+    extra_hosts:
+      - "host-gateway:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Frontend (Nginx + React SPA) ───────────────────────────
+  frontend:
+    build: ./frontend
+    ports:
+      - "${PORT:-4454}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  backend_data:
