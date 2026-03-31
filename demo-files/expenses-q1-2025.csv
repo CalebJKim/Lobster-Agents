@@ -1,0 +1,94 @@
+Date,Category,Description,Amount,Payment Method
+2025-01-02,Groceries,Whole Foods Market,87.43,Credit Card
+2025-01-03,Subscription,Netflix Monthly,15.99,Credit Card
+2025-01-05,Dining,Sushi Kawa dinner,62.50,Credit Card
+2025-01-07,Transport,Uber to airport,34.20,Debit Card
+2025-01-08,Travel,Flight to Denver (work conf),389.00,Credit Card
+2025-01-08,Travel,Denver Marriott 2 nights,478.00,Credit Card
+2025-01-10,Groceries,Trader Joe's,54.12,Debit Card
+2025-01-12,Subscription,Spotify Premium,10.99,Credit Card
+2025-01-13,Dining,Chipotle lunch,14.25,Debit Card
+2025-01-15,Utilities,Electric bill,142.30,Bank Transfer
+2025-01-15,Utilities,Internet - Comcast,79.99,Bank Transfer
+2025-01-17,Groceries,Costco bulk run,213.67,Credit Card
+2025-01-18,Shopping,Amazon - keyboard,149.99,Credit Card
+2025-01-20,Dining,Thai Palace takeout,38.90,Credit Card
+2025-01-22,Groceries,Whole Foods Market,72.18,Credit Card
+2025-01-23,Health,Gym membership - January,49.99,Credit Card
+2025-01-25,Subscription,iCloud Storage,2.99,Credit Card
+2025-01-26,Dining,Pizza Hut delivery,27.45,Debit Card
+2025-01-28,Transport,Lyft to downtown,18.50,Credit Card
+2025-01-30,Groceries,Safeway,43.88,Debit Card
+2025-01-31,Subscription,ChatGPT Plus,20.00,Credit Card
+2025-02-01,Groceries,Whole Foods Market,91.23,Credit Card
+2025-02-02,Dining,Olive Garden,55.80,Credit Card
+2025-02-03,Subscription,YouTube Premium,13.99,Credit Card
+2025-02-05,Shopping,Target - home supplies,67.43,Debit Card
+2025-02-06,Groceries,Trader Joe's,48.77,Debit Card
+2025-02-08,Dining,Starbucks x4 this week,28.60,Credit Card
+2025-02-09,Travel,Airbnb weekend getaway,312.00,Credit Card
+2025-02-10,Travel,Gas - road trip,58.40,Debit Card
+2025-02-12,Utilities,Water bill,45.20,Bank Transfer
+2025-02-13,Groceries,Costco,187.34,Credit Card
+2025-02-14,Dining,Valentine's dinner - Nobu,218.50,Credit Card
+2025-02-15,Shopping,Flowers for Valentine's,65.00,Credit Card
+2025-02-16,Health,Gym membership - February,49.99,Credit Card
+2025-02-18,Groceries,Whole Foods Market,63.45,Credit Card
+2025-02-19,Subscription,Anthropic Claude Pro,20.00,Credit Card
+2025-02-20,Dining,Pho King Good lunch,16.75,Debit Card
+2025-02-21,Transport,Uber rides x3,47.80,Credit Card
+2025-02-23,Groceries,Safeway,51.20,Debit Card
+2025-02-24,Shopping,Amazon - USB hub + cables,43.98,Credit Card
+2025-02-25,Utilities,Electric bill,138.60,Bank Transfer
+2025-02-26,Dining,McDonald's late night,12.49,Debit Card
+2025-02-27,Groceries,Trader Joe's,39.88,Debit Card
+2025-02-28,Subscription,Hulu + Live TV,75.99,Credit Card
+2025-03-01,Groceries,Whole Foods Market,78.56,Credit Card
+2025-03-02,Dining,Brunch at First Watch,42.30,Credit Card
+2025-03-03,Transport,Uber to dentist,15.60,Credit Card
+2025-03-04,Health,Dentist copay,35.00,Debit Card
+2025-03-05,Groceries,Costco,198.45,Credit Card
+2025-03-06,Subscription,Netflix Monthly,15.99,Credit Card
+2025-03-07,Dining,Korean BBQ with friends,87.00,Credit Card
+2025-03-08,Shopping,REI - hiking boots,179.99,Credit Card
+2025-03-09,Travel,Southwest flight to Austin,247.00,Credit Card
+2025-03-09,Travel,Austin hotel 3 nights,537.00,Credit Card
+2025-03-10,Dining,Austin BBQ - Franklin's,68.50,Credit Card
+2025-03-11,Travel,Rental car - Austin,142.00,Credit Card
+2025-03-12,Dining,Food truck festival,35.00,Debit Card
+2025-03-13,Travel,Gas - rental car,41.20,Debit Card
+2025-03-14,Groceries,Whole Foods Market,82.10,Credit Card
+2025-03-15,Utilities,Electric bill,135.40,Bank Transfer
+2025-03-15,Utilities,Internet - Comcast,79.99,Bank Transfer
+2025-03-16,Health,Gym membership - March,49.99,Credit Card
+2025-03-17,Groceries,Trader Joe's,44.56,Debit Card
+2025-03-18,Dining,Panera Bread lunch,13.89,Debit Card
+2025-03-19,Subscription,Spotify Premium,10.99,Credit Card
+2025-03-20,Shopping,Amazon - monitor stand,34.99,Credit Card
+2025-03-21,Groceries,Safeway,57.33,Debit Card
+2025-03-22,Dining,Taco Bell,9.87,Debit Card
+2025-03-23,Transport,Lyft to concert,22.40,Credit Card
+2025-03-23,Entertainment,Concert tickets x2,156.00,Credit Card
+2025-03-24,Groceries,Whole Foods Market,69.78,Credit Card
+2025-03-25,Dining,Thai takeout,32.50,Credit Card
+2025-03-26,Subscription,iCloud Storage,2.99,Credit Card
+2025-03-27,Shopping,Uniqlo - spring clothes,112.47,Credit Card
+2025-03-28,Groceries,Costco,176.89,Credit Card
+2025-03-29,Dining,Birthday dinner out,145.00,Credit Card
+2025-03-30,Health,Annual physical copay,40.00,Debit Card
+2025-03-31,Groceries,Trader Joe's,52.14,Debit Card
+2025-03-31,Subscription,ChatGPT Plus,20.00,Credit Card
+2025-01-04,Entertainment,Movie tickets x2,32.00,Credit Card
+2025-01-19,Entertainment,Bowling night,28.50,Debit Card
+2025-02-07,Entertainment,Escape room,35.00,Credit Card
+2025-02-22,Entertainment,Comedy show tickets,48.00,Credit Card
+2025-03-08,Entertainment,Hiking gear rental,25.00,Debit Card
+2025-01-09,Health,Pharmacy - vitamins,24.99,Debit Card
+2025-02-11,Health,Eye exam copay,30.00,Debit Card
+2025-03-04,Health,Pharmacy - allergy meds,18.75,Debit Card
+2025-01-14,Transport,Parking garage monthly,150.00,Bank Transfer
+2025-02-14,Transport,Parking garage monthly,150.00,Bank Transfer
+2025-03-14,Transport,Parking garage monthly,150.00,Bank Transfer
+2025-01-21,Insurance,Renters insurance,42.00,Bank Transfer
+2025-02-21,Insurance,Renters insurance,42.00,Bank Transfer
+2025-03-21,Insurance,Renters insurance,42.00,Bank Transfer
