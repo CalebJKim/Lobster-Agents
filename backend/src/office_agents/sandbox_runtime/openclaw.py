@@ -180,12 +180,36 @@ async def ensure_openclaw_agent(
     safe_skills = [s for s in (skills or []) if s.replace("-", "").replace("_", "").isalnum()]
     skills_arg = " ".join(safe_skills)
 
-    # NOTE on the cd dance: the openclaw inside the sandbox is older than the
-    # one on the host (2026.4.24 vs 2026.5.12). The older `skills install`
-    # subcommand has no `--agent` flag — it operates on the "active workspace"
-    # which is resolved from cwd. So we `cd` into each agent's workspace dir
-    # before installing skills, and they land in /sandbox/workspaces/<agent>/
-    # scoped to that agent.
+    # The in-sandbox openclaw (2026.4.24) installs skills sandbox-wide into
+    # the default workspace. Per-agent visibility is enforced by the runtime
+    # via `resolveEffectiveAgentSkillFilter` in openclaw.json — when
+    # agents.list[i].skills is set to a list of slugs, the agent only sees
+    # those at run time. So the script (1) registers the agent, (2) installs
+    # the shared skill bytes once, (3) patches openclaw.json so this agent's
+    # skills filter is its own slug list. Other agents' entries are
+    # preserved.
+    #
+    # IMPORTANT: openshell `sandbox exec` rejects shell args that contain
+    # newlines. So the patch step is a single-line `python3 -c`.
+    # Python is wrapped in single quotes in the shell, so the script itself
+    # must NOT contain single quotes. Use double quotes throughout.
+    # MERGE — never replace the existing agent entry, only add/update its
+    # `skills` field. Replacing wipes workspace/agentDir/identity.
+    patch_py = (
+        'import json,sys;'
+        'p="/sandbox/.openclaw/openclaw.json";'
+        'c=json.load(open(p));'
+        'a=c.setdefault("agents",{});'
+        'lst=a.setdefault("list",[]);'
+        'aid=sys.argv[1];'
+        'skills=[s for s in sys.argv[2].split() if s];'
+        'entry=next((x for x in lst if x.get("id")==aid),None);'
+        'entry is None and lst.append({"id":aid}) or None;'
+        'entry=entry or lst[-1];'
+        'entry.update({"skills":skills}) if skills else entry.pop("skills",None);'
+        'open(p,"w").write(json.dumps(c,indent=2));'
+        'print("FILTER OK",aid,skills)'
+    )
     script = (
         'set -u; '
         'agent_id="$1"; display_name="$2"; model="$3"; skills="$4"; '
@@ -195,13 +219,17 @@ async def ensure_openclaw_agent(
         '--non-interactive --json >/tmp/openclaw-agent-add.log 2>&1 || true; '
         'openclaw agents set-identity --agent "$agent_id" --name "$display_name" '
         '--json >/tmp/openclaw-agent-identity.log 2>&1 || true; '
-        '(cd "$workspace" && for slug in $skills; do '
+        'for slug in $skills; do '
         '  openclaw skills install "$slug" --force '
         '    >>/tmp/openclaw-skills-install.log 2>&1 || true; '
-        'done); '
+        'done; '
+        f'python3 -c \'{patch_py}\' "$agent_id" "$skills" '
+        '  >/tmp/openclaw-skill-filter.log 2>&1 || true; '
         'openclaw agents list --json; '
         'echo "==SKILLS=="; '
-        '(cd "$workspace" && openclaw skills list 2>/dev/null) || true'
+        '(cd "$workspace" && openclaw skills list 2>/dev/null) || true; '
+        'echo "==FILTER=="; '
+        'cat /tmp/openclaw-skill-filter.log 2>/dev/null'
     )
 
     proc: asyncio.subprocess.Process | None = None
