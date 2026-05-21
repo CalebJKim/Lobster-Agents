@@ -112,6 +112,74 @@ class Orchestrator:
     def get_sandbox_assignments(self) -> dict[str, list[str]]:
         return self.sandboxes.get_assignments()
 
+    # ------------------------------------------------------------------
+    # Dynamic population — add/remove lobsters at runtime
+    # ------------------------------------------------------------------
+
+    async def add_lobster(self, agent: Agent) -> Agent:
+        """Append a fresh Agent to the live roster and announce it.
+
+        Callers (routes) construct the Agent + AgentMemory + register the
+        claw metadata before handing it here, so this method only touches
+        orchestrator-shaped state.
+        """
+        if any(a.name == agent.name for a in self.agents):
+            raise ValueError(f"A lobster named {agent.name!r} already exists.")
+        self.agents.append(agent)
+        # Register with office state so the frontend sees them on the next
+        # /state poll + full_state broadcast.
+        from office_agents.claw_config import get_claw_metadata
+        self.office_state.register_agent(
+            name=agent.name,
+            role=agent.role,
+            location=agent.location,
+            position=agent.position,
+            metadata=get_claw_metadata(agent.name),
+        )
+        await self.broadcast({
+            "type": "lobster_added",
+            "name": agent.name,
+            "role": agent.role,
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self._broadcast_full_state()
+        return agent
+
+    async def remove_lobster(self, name: str) -> bool:
+        """Remove one lobster by name. Returns False if not found.
+
+        Cleans up the sandbox assignment first (so the SandboxManager's
+        seat-tracking stays consistent), then drops the agent from the
+        roster and the office state.
+        """
+        agent = next((a for a in self.agents if a.name == name), None)
+        if agent is None:
+            return False
+
+        # If they're in a sandbox, evict them by reassigning that sandbox
+        # to the rest of its current team minus this lobster.
+        if agent.sandbox_name:
+            sb = agent.sandbox_name
+            current = self.sandboxes.assignments.get(sb, [])
+            remaining = [n for n in current if n != name]
+            try:
+                await self.sandboxes.assign_team(sb, remaining)
+            except RuntimeError:
+                # Can't reassign while a run is active. Refuse removal so
+                # we don't strand the in-flight task.
+                raise
+
+        self.agents.remove(agent)
+        self.office_state.agent_states.pop(name, None)
+        await self.broadcast({
+            "type": "lobster_removed",
+            "name": name,
+            "role": agent.role,
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self._broadcast_full_state()
+        return True
+
     def get_sandbox_run_statuses(self) -> dict[str, dict[str, Any]]:
         return self.sandboxes.get_run_statuses()
 

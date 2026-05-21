@@ -26,6 +26,8 @@ export default defineConfig({
       "/sandboxes": BACKEND,
       "/approvals": BACKEND,
       "/query": BACKEND,
+      "/archetypes": BACKEND,
+      "/lobsters": BACKEND,
     },
   },
 });

@@ -34,6 +34,7 @@ from office_agents.llm.client import LLMClient
 from office_agents.office.state import OfficeState
 from office_agents.office.store import PersistentStore
 from office_agents.routes import health as health_route
+from office_agents.routes import lobsters as lobsters_route
 from office_agents.routes import query as query_route
 from office_agents.routes import sandbox as sandbox_route
 from office_agents.routes import state as state_route
@@ -132,6 +133,7 @@ app.add_middleware(
 app.include_router(state_route.router)
 app.include_router(query_route.router)
 app.include_router(sandbox_route.router)
+app.include_router(lobsters_route.router)
 app.include_router(health_route.router)
 app.include_router(ws_route.router)
 

@@ -251,15 +251,24 @@ function AgentChip({
   assignedTo,
   picked,
   onPick,
+  onRemove,
 }: {
   agent: AgentInfo;
   assignedTo?: string;
   picked: boolean;
   onPick: (agentName: string) => void;
+  onRemove?: (agentName: string) => void;
 }) {
   const color = AGENT_COLORS[agent.name] ?? "#94a3b8";
 
   return (
+    <div
+      className={`group relative flex min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left transition ${
+        picked
+          ? "border-cyan-200/55 bg-cyan-200/[0.16] shadow-[0_0_0_1px_rgba(165,243,252,0.12)]"
+          : "border-white/10 bg-white/[0.075] hover:bg-white/[0.12]"
+      }`}
+    >
     <button
       type="button"
       draggable
@@ -269,11 +278,7 @@ function AgentChip({
         event.dataTransfer.setData("text/plain", agent.name);
         onPick(agent.name);
       }}
-      className={`group flex min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left transition ${
-        picked
-          ? "border-cyan-200/55 bg-cyan-200/[0.16] shadow-[0_0_0_1px_rgba(165,243,252,0.12)]"
-          : "border-white/10 bg-white/[0.075] hover:bg-white/[0.12]"
-      }`}
+      className="flex min-w-0 flex-1 items-center gap-2 text-left"
       title={`Click or drag ${agent.name} into a sandbox`}
     >
       <span
@@ -317,6 +322,23 @@ function AgentChip({
         )}
       </span>
     </button>
+    {onRemove && (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          if (confirm(`Remove ${agent.name}? They'll be unassigned from any sandbox.`)) {
+            onRemove(agent.name);
+          }
+        }}
+        title={`Remove ${agent.name}`}
+        className="grid h-6 w-6 shrink-0 place-items-center rounded bg-white/[0.04] text-[12px] font-bold text-white/30 opacity-0 transition hover:bg-rose-500/30 hover:text-rose-100 group-hover:opacity-100"
+        aria-label={`Remove ${agent.name}`}
+      >
+        ✕
+      </button>
+    )}
+    </div>
   );
 }
 
@@ -505,6 +527,66 @@ export default function SandboxOrchestrator({
   const [assignmentSnapshot, setAssignmentSnapshot] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Population editor state — add/remove lobsters at runtime.
+  const [archetypes, setArchetypes] = useState<
+    { role: string; label: string; default_name: string; tools: string[]; openclaw_skills: string[] }[]
+  >([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newArchetype, setNewArchetype] = useState<string>("");
+  const [popBusy, setPopBusy] = useState(false);
+  const [popError, setPopError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/archetypes", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => {
+        const list = (d.archetypes ?? []) as typeof archetypes;
+        setArchetypes(list);
+        if (list.length && !newArchetype) setNewArchetype(list[0].role);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const spawnLobster = useCallback(async () => {
+    if (!newName.trim() || !newArchetype) return;
+    setPopBusy(true);
+    setPopError(null);
+    try {
+      const res = await fetch("/lobsters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archetype: newArchetype, name: newName.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.detail || `spawn failed (${res.status})`);
+      setNewName("");
+      setAddOpen(false);
+      await onStateRefresh?.();
+    } catch (err) {
+      setPopError(err instanceof Error ? err.message : "Could not spawn lobster");
+    } finally {
+      setPopBusy(false);
+    }
+  }, [newName, newArchetype, onStateRefresh]);
+
+  const removeLobster = useCallback(
+    async (name: string) => {
+      setPopError(null);
+      try {
+        const res = await fetch(`/lobsters/${encodeURIComponent(name)}`, {
+          method: "DELETE",
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body?.detail || `remove failed (${res.status})`);
+        await onStateRefresh?.();
+      } catch (err) {
+        setPopError(err instanceof Error ? err.message : "Could not remove lobster");
+      }
+    },
+    [onStateRefresh]
+  );
 
   const load = useCallback(async () => {
     try {
@@ -908,9 +990,71 @@ export default function SandboxOrchestrator({
 
       <div className="grid min-h-0 flex-1 grid-cols-[180px_minmax(0,1fr)] gap-4">
         <div className="min-h-0 min-w-0 overflow-y-auto pr-1">
-          <div className="mb-1.5 text-[11px] font-bold uppercase leading-4 text-white/40">
-            OpenClaw Profiles
+          <div className="mb-1.5 flex items-center justify-between gap-1">
+            <span className="text-[11px] font-bold uppercase leading-4 text-white/40">
+              OpenClaw Profiles
+            </span>
+            <button
+              type="button"
+              onClick={() => setAddOpen((open) => !open)}
+              title="Spawn a new lobster"
+              className="grid h-5 w-5 place-items-center rounded bg-white/[0.08] text-[11px] font-bold leading-3 text-white/70 hover:bg-cyan-300/30 hover:text-cyan-50"
+              aria-label="Add lobster"
+            >
+              +
+            </button>
           </div>
+          {addOpen && (
+            <div className="mb-2 rounded-md border border-white/12 bg-white/[0.05] p-2">
+              <select
+                value={newArchetype}
+                onChange={(event) => setNewArchetype(event.target.value)}
+                className="mb-1.5 w-full rounded border border-white/10 bg-slate-950/40 px-2 py-1 text-[11px] font-semibold text-white/86 outline-none focus:border-cyan-200/40"
+              >
+                {archetypes.map((a) => (
+                  <option key={a.role} value={a.role}>
+                    {a.label} ({a.openclaw_skills.join("+") || "no skills"})
+                  </option>
+                ))}
+              </select>
+              <input
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") spawnLobster();
+                  if (event.key === "Escape") setAddOpen(false);
+                }}
+                placeholder="Name (e.g. Pip)"
+                maxLength={40}
+                className="mb-1.5 w-full rounded border border-white/10 bg-slate-950/40 px-2 py-1 text-[11px] text-white/86 outline-none placeholder:text-white/30 focus:border-cyan-200/40"
+              />
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={spawnLobster}
+                  disabled={popBusy || !newName.trim()}
+                  className="flex-1 rounded bg-cyan-300/30 px-2 py-1 text-[10px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
+                >
+                  {popBusy ? "Spawning…" : "Spawn"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddOpen(false);
+                    setPopError(null);
+                  }}
+                  className="rounded bg-white/[0.08] px-2 py-1 text-[10px] font-bold uppercase text-white/65 hover:bg-white/[0.16]"
+                >
+                  Cancel
+                </button>
+              </div>
+              {popError && (
+                <div className="mt-1 text-[10px] font-medium leading-4 text-rose-200">
+                  {popError}
+                </div>
+              )}
+            </div>
+          )}
           <div className="space-y-1.5">
             {agents.map((agent) => (
               <AgentChip
@@ -919,6 +1063,7 @@ export default function SandboxOrchestrator({
                 assignedTo={agentAssignments[agent.name]}
                 picked={draggedAgent === agent.name}
                 onPick={setDraggedAgent}
+                onRemove={removeLobster}
               />
             ))}
           </div>

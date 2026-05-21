@@ -305,5 +305,69 @@ SAM = AgentRole(
     openclaw_skills=("taskflow", "skill-creator",),
 )
 
-# All roles in a convenient list
+# All roles in a convenient list (the starter population — 7 named lobsters)
 ALL_ROLES: list[AgentRole] = [MAYA, RAJ, SOPHIE, ALEX, JORDAN, DEV, SAM]
+
+
+# ── Archetypes — reusable templates so the population can be modulated ─────
+#
+# Each archetype maps role → one of the 7 existing AgentRole definitions.
+# `make_lobster(name, archetype)` clones the archetype, substituting the
+# chosen name everywhere the original name appeared (prompt + identity).
+# Use `STARTER_POPULATION` for what the backend boots with; use
+# `make_lobster` to spawn extras via the API.
+
+ARCHETYPES: dict[str, AgentRole] = {role.role: role for role in ALL_ROLES}
+
+
+def list_archetypes() -> list[dict[str, object]]:
+    """Lightweight catalog for the /archetypes endpoint."""
+    return [
+        {
+            "role": role.role,
+            "label": role.role.title(),
+            "default_name": role.name,
+            "personality": role.personality,
+            "tools": list(role.tools),
+            "openclaw_skills": list(role.openclaw_skills),
+        }
+        for role in ALL_ROLES
+    ]
+
+
+def make_lobster(name: str, archetype: str) -> AgentRole:
+    """Spawn a new AgentRole from an archetype with a custom name.
+
+    The archetype's system_prompt has the original lobster's name baked in
+    multiple times (e.g. "You are Clawdia, the Researcher" plus references
+    in the workflow rules). We substitute the original name with the new
+    one so the LLM still gets a coherent in-character prompt.
+    """
+    template = ARCHETYPES.get(archetype)
+    if template is None:
+        raise ValueError(
+            f"Unknown archetype {archetype!r}. "
+            f"Known: {sorted(ARCHETYPES.keys())}"
+        )
+    name = name.strip()
+    if not name:
+        raise ValueError("Lobster name cannot be empty.")
+    # Replace the template's name with the requested one in BOTH the
+    # personality blurb and the system prompt. Skip if user happens to ask
+    # for the template's own name.
+    if name == template.name:
+        return template
+    return AgentRole(
+        name=name,
+        role=template.role,
+        default_desk=template.default_desk,
+        personality=template.personality.replace(template.name, name),
+        system_prompt=template.system_prompt.replace(template.name, name),
+        tools=template.tools,
+        openclaw_skills=template.openclaw_skills,
+    )
+
+
+STARTER_POPULATION: list[tuple[str, str]] = [
+    (role.name, role.role) for role in ALL_ROLES
+]
