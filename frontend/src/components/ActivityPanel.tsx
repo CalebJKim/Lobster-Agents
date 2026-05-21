@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import type { ActivityEntry } from "../types";
+import { CLAW_ORDER } from "../utils/claws";
 import { AGENT_COLORS } from "../utils/sprites";
 
 interface ActivityPanelProps {
@@ -8,15 +9,15 @@ interface ActivityPanelProps {
   onFilterChange: (agent: string | null) => void;
 }
 
-const agentNames = ["Maya", "Raj", "Sophie", "Alex", "Jordan", "Dev", "Sam"];
+const agentNames = CLAW_ORDER;
 
 const ACTION_BADGES: Record<string, { label: string; icon: string; className: string }> = {
-  research: { label: "search", icon: "?", className: "bg-teal-100 text-teal-700" },
-  think: { label: "think", icon: "...", className: "bg-blue-100 text-blue-700" },
-  code: { label: "code", icon: "<>", className: "bg-emerald-100 text-emerald-700" },
-  move_to: { label: "move", icon: ">", className: "bg-orange-100 text-orange-700" },
-  read_file: { label: "read", icon: "#", className: "bg-purple-100 text-purple-700" },
-  idle: { label: "idle", icon: "-", className: "bg-gray-100 text-gray-500" },
+  research: { label: "search", icon: "", className: "bg-cyan-100 text-cyan-800" },
+  think: { label: "think", icon: "", className: "bg-blue-100 text-blue-800" },
+  code: { label: "claw", icon: "", className: "bg-emerald-100 text-emerald-800" },
+  move_to: { label: "move", icon: "", className: "bg-orange-100 text-orange-800" },
+  read_file: { label: "read", icon: "", className: "bg-violet-100 text-violet-800" },
+  idle: { label: "idle", icon: "", className: "bg-slate-100 text-slate-500" },
 };
 
 function formatTime(timestamp: string): string {
@@ -58,23 +59,23 @@ function ActivityItem({ entry }: { entry: ActivityEntry }) {
   const isResearch = entry.action === "research";
 
   return (
-    <div className={`px-3 py-1.5 border-b border-gray-100 animate-fade-in ${isResearch ? "bg-teal-50/50" : ""}`}>
+    <div className={`animate-fade-in rounded-2xl border border-white/55 bg-white/58 px-3 py-2 shadow-sm backdrop-blur ${isResearch ? "bg-cyan-50/70" : ""}`}>
       <div className="flex items-center gap-2">
-        <span className="text-gray-400 text-[10px] tabular-nums shrink-0">
+        <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
           {formatTime(entry.timestamp)}
         </span>
-        <span className="text-xs font-bold shrink-0" style={{ color }}>
+        <span className="shrink-0 text-sm font-semibold" style={{ color }}>
           {entry.agent}
         </span>
         <span
-          className={`px-1.5 py-0 rounded text-[9px] font-medium leading-relaxed shrink-0 ${badge.className}`}
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold leading-relaxed ${badge.className}`}
         >
-          <span className="mr-0.5">{badge.icon}</span>
+          {badge.icon && <span className="mr-0.5">{badge.icon}</span>}
           {badge.label}
         </span>
       </div>
       <div
-        className={`ml-16 mt-0.5 text-xs text-gray-600 ${isThink ? "italic text-gray-500" : ""} ${isResearch ? "text-teal-700" : ""}`}
+        className={`ml-0 mt-2 text-sm leading-relaxed text-slate-600 ${isThink ? "italic text-slate-500" : ""} ${isResearch ? "text-cyan-800" : ""}`}
       >
         {formatContent(entry.action, entry.content)}
       </div>
@@ -88,62 +89,77 @@ export default function ActivityPanel({
   onFilterChange,
 }: ActivityPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottomRef = useRef(true);
+  const showFilters = activity.length > 0 || !!agentFilter;
 
-  // Auto-scroll to bottom
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      pinnedToBottomRef.current = distanceFromBottom < 40;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Only snap to bottom when a new entry arrives AND the user is still pinned
+  // there. If they scrolled up to read, stop fighting them.
+  useEffect(() => {
+    if (!scrollRef.current || !pinnedToBottomRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [activity.length]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-white/24 bg-white/16 backdrop-blur">
       {/* Agent filter chips */}
-      <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <button
-          onClick={() => onFilterChange(null)}
-          className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-            !agentFilter
-              ? "bg-gray-200 text-gray-800"
-              : "bg-gray-100 text-gray-500 hover:text-gray-700"
-          }`}
-        >
-          All
-        </button>
-        {agentNames.map((name) => (
+      {showFilters && (
+        <div className="scrollbar-hide flex flex-nowrap gap-1.5 overflow-x-auto border-b border-white/45 px-3 py-2">
           <button
-            key={name}
-            onClick={() =>
-              onFilterChange(agentFilter === name ? null : name)
-            }
-            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-              agentFilter === name
-                ? "text-gray-800"
-                : "text-gray-500 hover:text-gray-700"
+            onClick={() => onFilterChange(null)}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+              !agentFilter
+                ? "bg-slate-950 text-white"
+                : "bg-white/55 text-slate-500 hover:text-slate-800"
             }`}
-            style={{
-              backgroundColor:
-                agentFilter === name
-                  ? AGENT_COLORS[name] + "33"
-                  : "#f3f4f6",
-              borderColor:
-                agentFilter === name ? AGENT_COLORS[name] : "transparent",
-              borderWidth: 1,
-              borderStyle: "solid",
-            }}
           >
-            {name}
+            All
           </button>
-        ))}
-      </div>
+          {agentNames.map((name) => (
+            <button
+              key={name}
+              onClick={() =>
+                onFilterChange(agentFilter === name ? null : name)
+              }
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                agentFilter === name
+                  ? "text-slate-900"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+              style={{
+                backgroundColor:
+                  agentFilter === name
+                    ? AGENT_COLORS[name] + "35"
+                    : "rgba(255,255,255,0.5)",
+                borderColor:
+                  agentFilter === name ? AGENT_COLORS[name] : "transparent",
+                borderWidth: 1,
+                borderStyle: "solid",
+              }}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Activity entries */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {activity.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-400 text-xs">
-            <div className="text-center">
-              <p className="text-lg mb-2 opacity-30">No activity yet</p>
-              <p>Agent research, thoughts, and movements appear here</p>
+          <div className="flex h-full items-center justify-center px-6 text-sm text-slate-400">
+            <div className="max-w-[230px] text-center">
+              <p className="mb-1 text-sm font-semibold text-slate-600">No activity yet</p>
+              <p className="text-xs leading-5">Research steps, thoughts, and movement will appear here.</p>
             </div>
           </div>
         ) : (

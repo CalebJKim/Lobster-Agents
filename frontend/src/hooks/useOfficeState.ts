@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeState, ChatMessage, ActivityEntry } from "../types";
+import { withoutLandOfficeIdleMessages } from "../utils/messageFilters";
 
 export type SidebarTab = "chat" | "activity" | "board" | "whiteboard" | "history";
 
@@ -56,7 +57,7 @@ export function useOfficeState(officeState: OfficeState) {
 
   // Chat messages: only speak, announce, ask_user (actual conversations)
   const chatMessages = useMemo(() => {
-    return officeState.messages.filter(
+    return withoutLandOfficeIdleMessages(officeState.messages).filter(
       (m) => m.type === "speak" || m.type === "announce" || m.type === "ask_user"
     );
   }, [officeState.messages]);
@@ -83,7 +84,7 @@ export function useOfficeState(officeState: OfficeState) {
   // Get messages for a specific agent (for AgentDetail)
   const getAgentMessages = useCallback(
     (agentName: string): ChatMessage[] => {
-      return officeState.messages.filter(
+      return withoutLandOfficeIdleMessages(officeState.messages).filter(
         (m) => m.agent === agentName || m.target === agentName
       );
     },

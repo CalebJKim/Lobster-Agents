@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React from "react";
 import type { AgentInfo, ChatMessage, ActivityEntry } from "../types";
+import { getClawMetadata } from "../utils/claws";
 import { AGENT_COLORS, ROLE_LABELS } from "../utils/sprites";
-import { generateAgentPortrait } from "../utils/SpriteGenerator";
 
 interface AgentDetailProps {
   agent: AgentInfo;
@@ -20,47 +20,6 @@ function formatTime(timestamp: string): string {
   } catch {
     return "";
   }
-}
-
-/**
- * Pixel art portrait of an agent, scaled up 4x from 16x24 to 64x96.
- * Uses nearest-neighbor rendering for crispy pixels.
- */
-function AgentPortrait({ agentName }: { agentName: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const portraitUrl = generateAgentPortrait(agentName);
-    if (!portraitUrl) return;
-
-    const img = new Image();
-    img.onload = () => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.imageSmoothingEnabled = false;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // Draw the 16x24 portrait scaled up to 64x96
-      ctx.drawImage(img, 0, 0, 16, 24, 0, 0, 64, 96);
-    };
-    img.src = portraitUrl;
-  }, [agentName]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      width={64}
-      height={96}
-      className="block"
-      style={{
-        imageRendering: "pixelated",
-        width: 64,
-        height: 96,
-      }}
-    />
-  );
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -92,29 +51,29 @@ export default function AgentDetail({
   onClose,
 }: AgentDetailProps) {
   const color = AGENT_COLORS[agent.name] ?? "#999";
+  const claw = getClawMetadata(agent.name);
+  const clawId = agent.claw_id ?? claw?.clawId;
+  const sandboxName = agent.sandbox_name;
+  const connectCommand = agent.connect_command;
 
   return (
-    <div className="flex flex-col h-full animate-fade-in">
-      {/* Header with pixel art portrait */}
-      <div
-        className="px-4 py-3 border-b border-gray-200"
-        style={{ backgroundColor: color + "14" }}
-      >
-        <div className="flex items-start justify-between mb-2">
+    <div className="animate-fade-in flex h-full flex-col overflow-hidden">
+      {/* Header */}
+      <div className="m-4 mb-3 rounded-2xl border border-white/55 bg-white/55 px-4 py-3 shadow-sm backdrop-blur">
+        <div className="mb-2 flex items-start justify-between">
           <div className="flex items-start gap-3">
-            {/* Pixel art portrait */}
             <div
-              className="border border-gray-200 bg-gray-100 p-1 flex-shrink-0"
-              style={{ imageRendering: "pixelated" }}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-base font-bold text-white shadow-sm"
+              style={{ backgroundColor: color }}
             >
-              <AgentPortrait agentName={agent.name} />
+              {agent.name[0]}
             </div>
             <div className="flex flex-col gap-1 pt-1">
-              <span className="text-sm font-bold" style={{ color }}>
+              <span className="text-base font-semibold" style={{ color }}>
                 {agent.name}
               </span>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
+                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                   {ROLE_LABELS[agent.role]}
                 </span>
                 <StateBadge state={agent.state} />
@@ -123,7 +82,7 @@ export default function AgentDetail({
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-lg leading-none transition-colors"
+            className="rounded-full bg-white/65 px-2.5 py-1 text-sm leading-none text-slate-400 transition-colors hover:text-slate-700"
           >
             x
           </button>
@@ -132,35 +91,69 @@ export default function AgentDetail({
 
       {/* Current task */}
       {agent.current_task && (
-        <div className="px-4 py-2 border-b border-gray-200 bg-gray-50">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+        <div className="mx-4 mb-2 rounded-2xl border border-white/55 bg-white/42 px-4 py-3 shadow-sm backdrop-blur">
+          <p className="mb-1 text-[10px] font-bold uppercase text-slate-400">
             Current Task
           </p>
-          <p className="text-xs text-gray-700">{agent.current_task}</p>
+          <p className="text-sm leading-relaxed text-slate-700">{agent.current_task}</p>
         </div>
       )}
 
       {/* Location */}
-      <div className="px-4 py-2 border-b border-gray-200 bg-gray-50">
-        <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+      <div className="mx-4 mb-2 rounded-2xl border border-white/55 bg-white/42 px-4 py-3 shadow-sm backdrop-blur">
+        <p className="mb-1 text-[10px] font-bold uppercase text-slate-400">
           Location
         </p>
-        <p className="text-xs text-gray-700">
+        <p className="text-sm text-slate-700">
           {agent.location.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
         </p>
       </div>
 
+      {(clawId || sandboxName || connectCommand) && (
+        <div className="mx-4 mb-2 rounded-2xl border border-white/55 bg-white/42 px-4 py-3 shadow-sm backdrop-blur">
+          <p className="mb-2 text-[10px] font-bold uppercase text-slate-400">
+            Runtime
+          </p>
+          <div className="space-y-2 text-sm text-slate-700">
+            {clawId && (
+              <div>
+                <span className="block text-[10px] font-bold uppercase tracking-normal text-slate-400">
+                  OpenClaw
+                </span>
+                <span className="font-mono text-[12px] text-slate-700">{clawId}</span>
+              </div>
+            )}
+            {sandboxName && (
+              <div>
+                <span className="block text-[10px] font-bold uppercase tracking-normal text-slate-400">
+                  NemoClaw Sandbox
+                </span>
+                <span className="font-mono text-[12px] text-slate-700">{sandboxName}</span>
+              </div>
+            )}
+            {connectCommand && (
+              <div>
+                <span className="block text-[10px] font-bold uppercase tracking-normal text-slate-400">
+                  Connect
+                </span>
+                <span className="font-mono text-[12px] text-slate-700">{connectCommand}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Thoughts */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {thoughts.length > 0 && (
-          <div className="px-4 py-2 border-b border-gray-200">
-            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">
+          <div className="mb-2 rounded-2xl border border-white/55 bg-white/42 px-4 py-3 shadow-sm backdrop-blur">
+            <p className="mb-2 text-[10px] font-bold uppercase text-slate-400">
               Recent Thoughts
             </p>
             <div className="space-y-1.5">
               {thoughts.slice(-5).map((t) => (
-                <div key={t.id} className="text-xs text-gray-500 italic">
-                  <span className="text-gray-400 text-[10px] mr-1">
+                <div key={t.id} className="text-sm italic text-slate-500">
+                  <span className="mr-1 text-[11px] text-slate-400">
                     {formatTime(t.timestamp)}
                   </span>
                   {t.content}
@@ -172,14 +165,14 @@ export default function AgentDetail({
 
         {/* Recent messages */}
         {recentMessages.length > 0 && (
-          <div className="px-4 py-2">
-            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">
+          <div className="rounded-2xl border border-white/55 bg-white/42 px-4 py-3 shadow-sm backdrop-blur">
+            <p className="mb-2 text-[10px] font-bold uppercase text-slate-400">
               Recent Activity
             </p>
             <div className="space-y-1.5">
               {recentMessages.slice(-8).map((m) => (
-                <div key={m.id} className="text-xs text-gray-600">
-                  <span className="text-gray-400 text-[10px] mr-1">
+                <div key={m.id} className="text-sm text-slate-600">
+                  <span className="mr-1 text-[11px] text-slate-400">
                     {formatTime(m.timestamp)}
                   </span>
                   {m.type === "think" ? (
@@ -189,7 +182,7 @@ export default function AgentDetail({
                   ) : (
                     <>
                       {m.target !== "all" && m.target !== "self" && (
-                        <span className="text-gray-500">
+                        <span className="text-slate-500">
                           to {m.target}:{" "}
                         </span>
                       )}
@@ -203,7 +196,7 @@ export default function AgentDetail({
         )}
 
         {thoughts.length === 0 && recentMessages.length === 0 && (
-          <div className="flex items-center justify-center h-32 text-gray-400 text-xs">
+          <div className="flex h-32 items-center justify-center rounded-2xl border border-white/45 bg-white/30 text-sm text-slate-400">
             No recent activity
           </div>
         )}

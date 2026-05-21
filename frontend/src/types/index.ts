@@ -41,6 +41,10 @@ export interface AgentInfo {
   location: Room;
   position: Position;
   current_task: string | null;
+  openclaw_capable?: boolean;
+  claw_id?: string;
+  sandbox_name?: string;
+  connect_command?: string;
 }
 
 export interface ChatMessage {
@@ -50,6 +54,8 @@ export interface ChatMessage {
   message: string;
   timestamp: string;
   type: "speak" | "announce" | "think" | "ask_user";
+  sandbox_name?: string | null;
+  run_id?: string | null;
 }
 
 export interface BulletinPost {
@@ -81,6 +87,97 @@ export interface OfficeState {
   whiteboard: WhiteboardEntry[];
   current_query: string | null;
   thinking_agents: string[];  // agents currently doing LLM calls
+}
+
+export interface NemoClawSandbox {
+  name: string;
+  display_name?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  policies?: string[];
+  phase?: string;
+  connected?: boolean;
+  isDefault?: boolean;
+  dashboardPort?: number;
+  configured?: boolean;
+  assignable?: boolean;
+  live?: boolean;
+  home_room?: Room;
+  claw_id?: string;
+  assigned_agents: string[];
+  assigned_agent_details?: AgentInfo[];
+  run_status?: NemoClawRunStatus | null;
+}
+
+export interface NemoClawRunStatus {
+  run_id: string;
+  sandbox_name: string;
+  agents: string[];
+  task: string;
+  status: string;
+  started_at?: string;
+  finished_at?: string;
+  cancelled_at?: string;
+  cancel_requested_at?: string;
+  phase?: string;
+  current_agent?: string;
+  last_message?: string;
+  last_update_at?: string;
+  outputs?: Record<string, string>;
+  errors?: Record<string, string>;
+  running?: boolean;
+  /** "single" for one-lobster runs, "sequential" for multi-lobster.
+   *  Frontend uses this to label the row honestly — multi-lobster
+   *  runs are not collaborative; each agent gets its own subprocess turn. */
+  mode?: "single" | "sequential";
+  /** Names of NemoClaw policy presets that were enabled when the run started.
+   *  Empty list means the sandbox is running without any restrictive policies. */
+  policies?: string[];
+}
+
+export interface NemoClawStatus {
+  available: boolean;
+  nemoclaw_path?: string | null;
+  openshell_path?: string | null;
+  gatewayHealth?: {
+    healthy?: boolean;
+    state?: string;
+  } | null;
+  liveInference?: {
+    provider?: string;
+    model?: string;
+  } | null;
+  defaultSandbox?: string | null;
+  error?: string | null;
+  sandboxes: NemoClawSandbox[];
+}
+
+export interface NemoClawPolicyPreset {
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface NemoClawPolicyStatus {
+  sandbox_name: string;
+  policies: NemoClawPolicyPreset[];
+  raw?: string;
+  error?: string | null;
+}
+
+export interface OpenClawApprovalsStatus {
+  approvals_path?: string | null;
+  snapshot?: {
+    version?: number;
+    defaults?: Record<string, unknown>;
+    agents?: Record<string, unknown>;
+    socket?: {
+      path?: string;
+    };
+  } | null;
+  error?: string | null;
+  sandbox_name?: string | null;
+  effective_policy?: string;
 }
 
 export type WSEvent =

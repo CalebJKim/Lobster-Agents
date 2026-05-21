@@ -21,10 +21,10 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background-color: #f5f3ef;
+  background-color: #07333c;
   color: #2d2d2d;
-  font-family: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code",
-    ui-monospace, monospace;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
 }
 
 /* Custom Scrollbar */
@@ -33,22 +33,22 @@ body,
 }
 
 ::-webkit-scrollbar-track {
-  background: #f0eee9;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c5c0b8;
+  background: rgba(15, 23, 42, 0.22);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a29e;
+  background: rgba(15, 23, 42, 0.36);
 }
 
 /* Scrollbar for Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #c5c0b8 #f0eee9;
+  scrollbar-color: rgba(15, 23, 42, 0.28) rgba(255, 255, 255, 0.12);
 }
 
 /* Glow pulse for active agents */

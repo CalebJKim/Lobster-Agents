@@ -9,27 +9,24 @@ export default function ThinkingIndicator({ agents }: ThinkingIndicatorProps) {
   if (agents.length === 0) return null;
 
   return (
-    <div className="px-3 py-2 border-b border-gray-100 bg-gray-50/50 animate-fade-in">
-      <div className="flex items-center gap-2">
-        <span className="inline-flex gap-0.5">
-          <span className="typing-dot w-1 h-1 rounded-full bg-[#e94560] inline-block" />
-          <span className="typing-dot w-1 h-1 rounded-full bg-[#e94560] inline-block" />
-          <span className="typing-dot w-1 h-1 rounded-full bg-[#e94560] inline-block" />
+    <div className="animate-fade-in px-3 py-2.5">
+      <div className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2 text-xs text-white/54 backdrop-blur">
+        <span className="inline-flex gap-0.5" aria-hidden="true">
+          <span className="typing-dot inline-block h-1 w-1 rounded-full bg-white/50" />
+          <span className="typing-dot inline-block h-1 w-1 rounded-full bg-white/50" />
+          <span className="typing-dot inline-block h-1 w-1 rounded-full bg-white/50" />
         </span>
-        <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-          {agents.map((name) => (
-            <span key={name} className="flex items-center gap-1">
-              <span
-                className="w-1.5 h-1.5 rounded-full animate-pulse"
-                style={{ backgroundColor: AGENT_COLORS[name] ?? "#999" }}
-              />
-              <span className="font-medium" style={{ color: AGENT_COLORS[name] ?? "#999" }}>
+        <span className="min-w-0 truncate">
+          {agents.map((name, index) => (
+            <React.Fragment key={name}>
+              {index > 0 && <span className="text-white/25">, </span>}
+              <span className="font-semibold" style={{ color: AGENT_COLORS[name] ?? "#64748b" }}>
                 {name}
               </span>
-            </span>
-          ))}
-          <span className="text-gray-400">thinking...</span>
-        </div>
+            </React.Fragment>
+          ))}{" "}
+          thinking
+        </span>
       </div>
     </div>
   );

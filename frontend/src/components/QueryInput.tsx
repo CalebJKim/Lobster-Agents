@@ -5,6 +5,7 @@ interface QueryInputProps {
   onSubmit: (query: string) => void;
   currentQuery: string | null;
   connected: boolean;
+  sandboxBusyCount?: number;
 }
 
 async function uploadFile(file: File): Promise<{ path: string; name: string } | null> {
@@ -21,32 +22,26 @@ async function uploadFile(file: File): Promise<{ path: string; name: string } | 
 
 const DEMO_PROMPTS = [
   {
-    icon: "💰",
     label: "My Finances",
     prompt: "Read my expenses file at /home/nvidia/documents/demo-files/expenses-q1-2025.csv and analyze my Q1 spending. Where am I wasting money? What subscriptions can I cut? How much am I spending on food delivery vs groceries?",
   },
   {
-    icon: "🤝",
     label: "Job Offers",
     prompt: "I have two job offers I need to compare. Read /home/nvidia/documents/demo-files/offer-aurora-tech.md and /home/nvidia/documents/demo-files/offer-meridian-ai.md — compare total comp, equity risk, career growth, and tell me which one to take.",
   },
   {
-    icon: "📋",
     label: "Perf Review",
     prompt: "Read my performance review notes at /home/nvidia/documents/demo-files/perf-review-notes.md and help me prepare for my review. Am I ready for Staff promotion? Write a strong self-assessment summary and talking points for my manager.",
   },
   {
-    icon: "🗺️",
     label: "Trip Plan",
     prompt: "I have 5 days in Tokyo next month. Build me a day-by-day itinerary covering must-see spots, hidden gems, and the best food neighborhoods.",
   },
   {
-    icon: "💻",
     label: "Build App",
     prompt: "Write a Python CLI tool that monitors my Downloads folder and auto-organizes files into subfolders by type (images, documents, videos, archives).",
   },
   {
-    icon: "🔍",
     label: "Research",
     prompt: "What are the top 3 local LLMs for running on consumer GPUs in 2025? Compare performance, memory usage, and best use cases.",
   },
@@ -56,6 +51,7 @@ export default function QueryInput({
   onSubmit,
   currentQuery,
   connected,
+  sandboxBusyCount = 0,
 }: QueryInputProps) {
   const [input, setInput] = useState("");
   const [droppedFiles, setDroppedFiles] = useState<{ name: string; path: string }[]>([]);
@@ -142,13 +138,14 @@ export default function QueryInput({
     [onSubmit]
   );
 
-  const showSuggestions = !currentQuery && connected;
+  const showSuggestions =
+    !currentQuery && connected && input.trim().length === 0 && droppedFiles.length === 0;
 
   return (
     <div
       ref={dropRef}
-      className={`border-t border-gray-200 bg-white transition-colors ${
-        isDragging ? "bg-[#e94560]/5 border-t-[#e94560]" : ""
+      className={`rounded-lg border border-white/30 bg-[#f8fbfb]/72 shadow-[0_18px_55px_rgba(4,22,31,0.18)] backdrop-blur-2xl transition-colors ${
+        isDragging ? "border-rose-400/50 bg-white/84" : ""
       }`}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
@@ -157,103 +154,94 @@ export default function QueryInput({
       {/* Drop overlay */}
       {isDragging && (
         <div className="px-4 py-3 text-center">
-          <p className="text-sm text-[#e94560] font-medium">Drop files here — your agents will read them</p>
-          <p className="text-[10px] text-gray-400">CSV, TXT, MD, JSON, and more</p>
+          <p className="text-sm font-semibold text-rose-600">Drop files here</p>
+          <p className="text-xs text-slate-500">CSV, TXT, MD, JSON, and more</p>
         </div>
       )}
 
       {/* Uploaded file chips */}
       {droppedFiles.length > 0 && !isDragging && (
-        <div className="px-4 pt-2 flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 px-4 pt-3">
           {droppedFiles.map((f, i) => (
             <span
               key={i}
-              className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#e94560]/10 text-[#e94560] text-[11px] rounded-full border border-[#e94560]/20"
+              className="inline-flex items-center gap-1 rounded-full border border-rose-500/20 bg-rose-500/10 px-2.5 py-1 text-xs font-medium text-rose-600"
             >
-              <span className="text-[9px]">#</span>
               {f.name}
               <button
                 onClick={() => removeFile(i)}
-                className="text-[#e94560]/50 hover:text-[#e94560] ml-0.5"
+                className="ml-0.5 text-rose-500/50 hover:text-rose-600"
               >
                 x
               </button>
             </span>
           ))}
           {uploading && (
-            <span className="text-[10px] text-gray-400 animate-pulse">Uploading...</span>
+            <span className="animate-pulse text-xs text-slate-500">Uploading...</span>
           )}
         </div>
       )}
 
       {/* Status line */}
-      <div className="px-4 py-1 flex items-center gap-2 text-[10px]">
-        {currentQuery ? (
-          <>
-            <span className="inline-flex gap-0.5">
-              <span className="typing-dot w-1 h-1 rounded-full bg-yellow-400 inline-block" />
-              <span className="typing-dot w-1 h-1 rounded-full bg-yellow-400 inline-block" />
-              <span className="typing-dot w-1 h-1 rounded-full bg-yellow-400 inline-block" />
-            </span>
-            <span className="text-amber-600">
-              Working on:{" "}
-              <span className="text-amber-700">
-                {currentQuery.length > 80
-                  ? currentQuery.slice(0, 77) + "..."
-                  : currentQuery}
-              </span>
-            </span>
-          </>
-        ) : (
-          <span className="text-gray-400">
-            Your team is idle — ask them something, or try a suggestion below
+      {currentQuery && (
+        <div className="flex items-center gap-2 px-4 pt-3 text-xs">
+          <span className="inline-flex gap-0.5">
+            <span className="typing-dot w-1 h-1 rounded-full bg-yellow-400 inline-block" />
+            <span className="typing-dot w-1 h-1 rounded-full bg-yellow-400 inline-block" />
+            <span className="typing-dot w-1 h-1 rounded-full bg-yellow-400 inline-block" />
           </span>
-        )}
-      </div>
+          <span className="min-w-0 truncate font-medium text-amber-700">
+            Working on:{" "}
+            <span className="font-normal text-amber-800">
+              {currentQuery.length > 80
+                ? currentQuery.slice(0, 77) + "..."
+                : currentQuery}
+            </span>
+          </span>
+        </div>
+      )}
+      {!currentQuery && sandboxBusyCount > 0 && (
+        <div className="flex items-center gap-2 px-4 pt-3 text-xs">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-500" />
+          <span className="min-w-0 truncate font-medium text-slate-600">
+            {sandboxBusyCount} lobster{sandboxBusyCount === 1 ? "" : "s"} working in sandboxes. General prompts use the available team.
+          </span>
+        </div>
+      )}
 
       {/* Demo prompt suggestions */}
       {showSuggestions && (
-        <div className="px-4 py-2.5 flex gap-2.5 overflow-x-auto scrollbar-hide">
-          {DEMO_PROMPTS.map((p, i) => (
+        <div className="scrollbar-hide flex gap-1 overflow-x-auto border-b border-slate-950/[0.06] px-3 py-2 max-md:hidden">
+          {DEMO_PROMPTS.slice(0, 4).map((p, i) => (
             <button
               key={i}
               onClick={() => handlePromptClick(p.prompt)}
-              className="group flex-shrink-0 flex items-start gap-2.5 px-3.5 py-2.5 bg-white hover:bg-[#e94560]/5 border border-gray-200/80 hover:border-[#e94560]/40 rounded-xl shadow-sm hover:shadow-md transition-all text-left max-w-[210px]"
+              className="shrink-0 rounded px-2.5 py-1.5 text-[11px] font-semibold leading-4 text-slate-500 transition hover:bg-white/54 hover:text-slate-900"
               title={p.prompt}
             >
-              <span className="text-base mt-0.5 shrink-0 group-hover:scale-110 transition-transform">{p.icon}</span>
-              <div className="min-w-0">
-                <div className="text-[10px] font-bold text-gray-500 group-hover:text-[#e94560] uppercase tracking-wider">
-                  {p.label}
-                </div>
-                <div className="text-[11px] text-gray-500 leading-tight mt-0.5 line-clamp-2">
-                  {p.prompt.length > 55
-                    ? p.prompt.slice(0, 53) + "..."
-                    : p.prompt}
-                </div>
-              </div>
+              {p.label}
             </button>
           ))}
         </div>
       )}
 
       {/* Input bar */}
-      <form onSubmit={handleSubmit} className="px-4 pb-3 pt-1 flex gap-2">
-        <input
-          type="text"
+      <form onSubmit={handleSubmit} className="flex items-end gap-2 px-3 py-3">
+        <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={currentQuery ? "Reply to the team..." : "Ask your team anything — or drop a file..."}
+          placeholder={currentQuery ? "Reply to the team..." : "Ask the team..."}
           disabled={!connected}
-          className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:border-[#e94560]/50 focus:ring-2 focus:ring-[#e94560]/10 shadow-sm transition-all disabled:opacity-40"
+          rows={1}
+          className="max-h-28 min-h-[52px] min-w-0 flex-1 resize-none rounded-md border border-slate-950/[0.08] bg-white/72 px-3.5 py-3 text-sm leading-6 text-slate-800 shadow-inner shadow-slate-950/[0.025] transition-all placeholder:text-slate-400 focus:border-cyan-500/35 focus:outline-none focus:ring-4 focus:ring-cyan-500/10 disabled:opacity-70"
         />
         <button
           type="submit"
           disabled={!connected || !input.trim()}
-          className="px-5 py-2.5 bg-[#e94560] hover:bg-[#d63851] disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold rounded-xl shadow-sm hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-[#e94560]/40"
+          className="min-h-[52px] min-w-16 shrink-0 rounded-md bg-slate-950 px-4 py-3 text-sm font-semibold leading-6 text-white shadow-md shadow-slate-950/18 transition-all hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-950/15 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
         >
-          Send
+          Ask
         </button>
       </form>
     </div>

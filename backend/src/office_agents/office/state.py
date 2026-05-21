@@ -56,6 +56,7 @@ class OfficeState:
         role: str,
         location: str,
         position: tuple[int, int],
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         self.agent_states[name] = {
             "role": role,
@@ -63,12 +64,13 @@ class OfficeState:
             "location": location,
             "position": {"x": position[0], "y": position[1]},
             "current_task": None,
+            **(metadata or {}),
         }
 
     def update_agent_position(
         self, agent_name: str, location: str, position: tuple[int, int]
     ) -> None:
-        """Update an agent's location and position (used by water cooler moves)."""
+        """Update an agent's location and position (used by reef chat moves)."""
         info = self.agent_states.get(agent_name, {})
         info["location"] = location
         info["position"] = {"x": position[0], "y": position[1]}

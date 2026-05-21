@@ -64,15 +64,38 @@ function px(g: PixiGraphics, x: number, y: number, color: number, alpha = 1) {
   g.fill({ color, alpha });
 }
 
-// Agent visual configs — hair color, skin, shirt color
-const AGENT_VISUALS: Record<string, { hair: number; skin: number; shirt: number; pants: number; accessory?: string }> = {
-  Maya:   { hair: 0x2c1810, skin: 0xc68642, shirt: 0x4ecdc4, pants: 0x2a2a4a },
-  Raj:    { hair: 0x1a1a1a, skin: 0xb5651d, shirt: 0xff6b6b, pants: 0x2a2a4a, accessory: "glasses" },
-  Sophie: { hair: 0xe6c84a, skin: 0xf5d6b8, shirt: 0xfeca57, pants: 0x2a2a4a },
-  Alex:   { hair: 0x4a3728, skin: 0xdba97a, shirt: 0xa29bfe, pants: 0x2a2a4a },
-  Jordan: { hair: 0x6b3a2a, skin: 0xf0c8a0, shirt: 0xfd79a8, pants: 0x2a2a4a },
-  Dev:    { hair: 0x2c2c2c, skin: 0xc99e72, shirt: 0x00b894, pants: 0x333355, accessory: "hoodie" },
-  Sam:    { hair: 0x3a2a1a, skin: 0xd4a574, shirt: 0x6c5ce7, pants: 0x222244 },
+function shadeColor(color: number, factor: number) {
+  const r = Math.max(0, Math.min(255, Math.round(((color >> 16) & 255) * factor)));
+  const g = Math.max(0, Math.min(255, Math.round(((color >> 8) & 255) * factor)));
+  const b = Math.max(0, Math.min(255, Math.round((color & 255) * factor)));
+  return (r << 16) | (g << 8) | b;
+}
+
+function lightenColor(color: number, factor: number) {
+  const r = Math.min(255, Math.round(((color >> 16) & 255) + (255 - ((color >> 16) & 255)) * factor));
+  const g = Math.min(255, Math.round(((color >> 8) & 255) + (255 - ((color >> 8) & 255)) * factor));
+  const b = Math.min(255, Math.round((color & 255) + (255 - (color & 255)) * factor));
+  return (r << 16) | (g << 8) | b;
+}
+
+const LOBSTER_VISUALS: Record<string, { shell: number; belly: number; claw: number; accent: number }> = {
+  Clawdia:   { shell: 0xff6f61, belly: 0xffb09a, claw: 0xe84c3d, accent: 0x4ecdc4 },
+  Shelldon:    { shell: 0xf05248, belly: 0xff9d7d, claw: 0xc9352d, accent: 0xffcf6e },
+  Coraline: { shell: 0xff8a5c, belly: 0xffd29a, claw: 0xf05a3e, accent: 0xfeca57 },
+  Reefus:   { shell: 0xf4767f, belly: 0xffc2b0, claw: 0xd94e61, accent: 0xa29bfe },
+  Pearl: { shell: 0xff728f, belly: 0xffc0c9, claw: 0xe24569, accent: 0xfd79a8 },
+  Snips:    { shell: 0xe85f4d, belly: 0xffad8f, claw: 0xc94335, accent: 0x00b894 },
+  "Captain Claw":    { shell: 0xe96b5c, belly: 0xffc1a8, claw: 0xce4d42, accent: 0x6c5ce7 },
+};
+
+const HUT_ACCENTS: Record<string, number> = {
+  desk_researcher: AGENT_COLORS_HEX.Clawdia,
+  desk_analyst: AGENT_COLORS_HEX.Shelldon,
+  desk_critic: AGENT_COLORS_HEX.Coraline,
+  desk_planner: AGENT_COLORS_HEX.Reefus,
+  desk_writer: AGENT_COLORS_HEX.Pearl,
+  desk_coder: AGENT_COLORS_HEX.Snips,
+  desk_lead: AGENT_COLORS_HEX["Captain Claw"],
 };
 
 // ---------------------------------------------------------------------------
@@ -83,18 +106,18 @@ function FloorGrid() {
   const draw = useCallback((g: PixiGraphics) => {
     g.clear();
     g.rect(0, 0, CANVAS_W, CANVAS_H);
-    g.fill({ color: 0xd8d4cc });
+    g.fill({ color: 0xded2b9 });
 
     // Subtle grid pattern
     for (let x = 0; x <= 40; x++) {
       g.moveTo(x * TILE, 0);
       g.lineTo(x * TILE, CANVAS_H);
-      g.stroke({ color: 0xccc8c0, width: 0.5 });
+      g.stroke({ color: 0xcfc3aa, width: 0.5, alpha: 0.75 });
     }
     for (let y = 0; y <= 30; y++) {
       g.moveTo(0, y * TILE);
       g.lineTo(CANVAS_W, y * TILE);
-      g.stroke({ color: 0xccc8c0, width: 0.5 });
+      g.stroke({ color: 0xcfc3aa, width: 0.5, alpha: 0.75 });
     }
   }, []);
 
@@ -173,34 +196,62 @@ function DeskFurniture({ room }: { room: RoomDef }) {
 
       const cx = (room.x + room.w / 2) * TILE;
       const cy = (room.y + room.h / 2) * TILE + 8;
+      const accent = HUT_ACCENTS[room.id] ?? 0x8fb3b9;
+      const stone = 0x7a786f;
+      const stoneLight = 0x969287;
+      const stoneDark = 0x5b5952;
 
-      // Desk surface
-      g.rect(cx - 20, cy - 6, 40, 14);
-      g.fill({ color: 0x8b7355 });
-      g.rect(cx - 20, cy - 6, 40, 14);
-      g.stroke({ color: 0xa08868, width: 1 });
+      // Ground shadow.
+      g.ellipse(cx, cy + 24, 42, 7);
+      g.fill({ color: 0x000000, alpha: 0.16 });
 
-      // Desk top highlight
-      g.rect(cx - 19, cy - 5, 38, 1);
-      g.fill({ color: 0xa08868, alpha: 0.5 });
+      // Small rock hut body.
+      g.roundRect(cx - 38, cy - 20, 76, 44, 15);
+      g.fill({ color: stone });
+      g.roundRect(cx - 38, cy - 20, 76, 44, 15);
+      g.stroke({ color: stoneDark, width: 1.5, alpha: 0.85 });
 
-      // Monitor
-      g.rect(cx - 7, cy - 18, 14, 10);
-      g.fill({ color: 0x334455 });
-      g.rect(cx - 7, cy - 18, 14, 10);
-      g.stroke({ color: 0x556677, width: 1 });
-      // Screen glow
-      g.rect(cx - 5, cy - 16, 10, 6);
-      g.fill({ color: 0x445566, alpha: 0.6 });
-      // Monitor stand
-      g.rect(cx - 2, cy - 8, 4, 3);
-      g.fill({ color: 0x556677 });
+      // Stacked stones make the hut read as hand-built.
+      const stones: [number, number, number, number][] = [
+        [-26, -17, 13, stoneLight],
+        [-9, -21, 15, 0x868278],
+        [11, -17, 14, stoneLight],
+        [27, -8, 12, 0x6e6b63],
+        [-33, -4, 10, 0x8b877d],
+        [-20, 7, 12, 0x6d6a62],
+        [23, 10, 11, 0x8f8a80],
+      ];
+      for (const [sx, sy, r, color] of stones) {
+        g.circle(cx + sx, cy + sy, r);
+        g.fill({ color, alpha: 0.8 });
+        g.circle(cx + sx, cy + sy, r);
+        g.stroke({ color: stoneDark, width: 0.75, alpha: 0.35 });
+      }
 
-      // Chair
-      g.circle(cx, cy + 18, 6);
-      g.fill({ color: 0x4a5568, alpha: 0.7 });
-      g.circle(cx, cy + 18, 6);
-      g.stroke({ color: 0x5a6578, width: 1, alpha: 0.5 });
+      // Accent shells around the roof line.
+      for (let i = 0; i < 5; i++) {
+        const sx = cx - 22 + i * 11;
+        g.roundRect(sx, cy - 26 + (i % 2), 8, 7, 3);
+        g.fill({ color: accent, alpha: 0.78 });
+        g.rect(sx + 2, cy - 25 + (i % 2), 4, 1);
+        g.fill({ color: 0xffffff, alpha: 0.25 });
+      }
+
+      // Doorway, sized so each lobster appears to be standing in front of it.
+      g.roundRect(cx - 12, cy - 2, 24, 28, 10);
+      g.fill({ color: 0x2a2624, alpha: 0.92 });
+      g.rect(cx - 12, cy + 11, 24, 15);
+      g.fill({ color: 0x2a2624, alpha: 0.92 });
+      g.roundRect(cx - 12, cy - 2, 24, 28, 10);
+      g.stroke({ color: accent, width: 1, alpha: 0.8 });
+      g.circle(cx + 7, cy + 11, 1.5);
+      g.fill({ color: accent, alpha: 0.9 });
+
+      // Tiny glowing tide-pool terminal beside the doorway.
+      g.roundRect(cx + 19, cy + 3, 13, 10, 2);
+      g.fill({ color: 0x24434a });
+      g.rect(cx + 21, cy + 5, 9, 5);
+      g.fill({ color: accent, alpha: 0.48 });
     },
     [room]
   );
@@ -340,9 +391,15 @@ function AgentCharacter({
   onClick,
   animTick,
 }: AgentCharacterProps) {
-  const vis = AGENT_VISUALS[agent.name] ?? { hair: 0x333333, skin: 0xddaa77, shirt: 0x888888, pants: 0x333333 };
+  const vis = LOBSTER_VISUALS[agent.name] ?? { shell: 0xff6f61, belly: 0xffb09a, claw: 0xe84c3d, accent: 0x4ecdc4 };
   const agentColor = AGENT_COLORS_HEX[agent.name] ?? 0xcccccc;
   const stateIcon = STATE_ICONS[agent.state];
+  const shellDark = shadeColor(vis.shell, 0.72);
+  const shellDeep = shadeColor(vis.shell, 0.55);
+  const shellLight = lightenColor(vis.shell, 0.28);
+  const clawDark = shadeColor(vis.claw, 0.65);
+  const clawLight = lightenColor(vis.claw, 0.22);
+  const bellyDark = shadeColor(vis.belly, 0.82);
 
   // Detect movement direction
   const dx = displayX - prevX;
@@ -359,137 +416,158 @@ function AgentCharacter({
   const yOff = isMoving ? 0 : idleBob;
 
   // Character is drawn centered at (displayX, displayY) which is the feet
-  // Character size: ~12 wide, ~20 tall
-  const bx = Math.round(displayX) - 6;  // base x (left edge)
-  const by = Math.round(displayY) - 20 + yOff; // base y (top of head)
+  // Character size: ~20 wide, ~24 tall
+  const bx = Math.round(displayX) - 8;  // base x (left edge)
+  const by = Math.round(displayY) - 22 + yOff; // base y (top of antennae)
 
   const draw = useCallback(
     (g: PixiGraphics) => {
       g.clear();
 
       // Shadow
-      g.ellipse(displayX, displayY + 1, 7, 2);
-      g.fill({ color: 0x000000, alpha: 0.3 });
+      g.ellipse(displayX, displayY + 1, 9, 2.5);
+      g.fill({ color: 0x000000, alpha: 0.26 });
 
-      // === LEGS ===
-      const legY = by + 16;
-      if (isMoving) {
-        // Walk animation — alternate legs
-        if (walkFrame === 0 || walkFrame === 2) {
-          // Both centered
-          g.rect(bx + 3, legY, 2, 4); g.fill({ color: vis.pants });
-          g.rect(bx + 7, legY, 2, 4); g.fill({ color: vis.pants });
-        } else if (walkFrame === 1) {
-          // Left forward
-          g.rect(bx + 2, legY, 2, 4); g.fill({ color: vis.pants });
-          g.rect(bx + 8, legY - 1, 2, 4); g.fill({ color: vis.pants });
-        } else {
-          // Right forward
-          g.rect(bx + 2, legY - 1, 2, 4); g.fill({ color: vis.pants });
-          g.rect(bx + 8, legY, 2, 4); g.fill({ color: vis.pants });
-        }
-      } else {
-        g.rect(bx + 3, legY, 2, 4); g.fill({ color: vis.pants });
-        g.rect(bx + 7, legY, 2, 4); g.fill({ color: vis.pants });
+      const look = facingLeft ? -1 : facingRight ? 1 : 0;
+      const legStride = isMoving ? walkFrame % 2 : 0;
+      const clawLift = isMoving
+        ? (walkFrame === 1 ? -1 : walkFrame === 3 ? 1 : 0)
+        : (Math.floor(animTick / 36) % 2 === 0 ? 0 : -1);
+
+      // Side legs.
+      for (let i = 0; i < 3; i++) {
+        const ly = by + 11 + i * 3;
+        const stride = legStride && i !== 1 ? 1 : 0;
+        px(g, bx + 5 - stride, ly, shellDeep);
+        px(g, bx + 4 - stride, ly + 1, shellDark);
+        px(g, bx + 14 + stride, ly, shellDeep);
+        px(g, bx + 15 + stride, ly + 1, shellDark);
       }
 
-      // Shoes
-      const shoeY = legY + 3;
-      if (isMoving && (walkFrame === 1 || walkFrame === 3)) {
-        g.rect(bx + (walkFrame === 1 ? 1 : 1), shoeY + 1, 3, 1); g.fill({ color: 0x222222 });
-        g.rect(bx + (walkFrame === 1 ? 7 : 7), shoeY, 3, 1); g.fill({ color: 0x222222 });
-      } else {
-        g.rect(bx + 2, shoeY + 1, 3, 1); g.fill({ color: 0x222222 });
-        g.rect(bx + 7, shoeY + 1, 3, 1); g.fill({ color: 0x222222 });
-      }
+      // Tail fan and segmented belly.
+      g.rect(bx + 7, by + 18, 6, 2);
+      g.fill({ color: shellDark });
+      g.rect(bx + 6, by + 20, 8, 2);
+      g.fill({ color: vis.shell });
+      px(g, bx + 5, by + 22, vis.shell);
+      g.rect(bx + 8, by + 22, 4, 1);
+      g.fill({ color: shellLight });
+      px(g, bx + 14, by + 22, vis.shell);
 
-      // === BODY / SHIRT ===
-      g.rect(bx + 2, by + 9, 8, 7);
-      g.fill({ color: vis.shirt });
-      // Shirt highlight
-      g.rect(bx + 3, by + 9, 1, 6);
-      g.fill({ color: 0xffffff, alpha: 0.15 });
+      g.rect(bx + 6, by + 12, 8, 7);
+      g.fill({ color: vis.belly });
+      g.rect(bx + 5, by + 13, 1, 5);
+      g.fill({ color: shellDark });
+      g.rect(bx + 14, by + 13, 1, 5);
+      g.fill({ color: shellDark });
+      g.rect(bx + 7, by + 14, 6, 1);
+      g.fill({ color: bellyDark });
+      g.rect(bx + 7, by + 16, 6, 1);
+      g.fill({ color: bellyDark });
 
-      // Arms
-      if (isMoving) {
-        // Swinging arms
-        const armSwing = walkFrame === 1 ? 1 : walkFrame === 3 ? -1 : 0;
-        g.rect(bx + 0, by + 10 + armSwing, 2, 5); g.fill({ color: vis.shirt });
-        g.rect(bx + 10, by + 10 - armSwing, 2, 5); g.fill({ color: vis.shirt });
-      } else {
-        g.rect(bx + 0, by + 10, 2, 5); g.fill({ color: vis.shirt });
-        g.rect(bx + 10, by + 10, 2, 5); g.fill({ color: vis.shirt });
-      }
+      // Claws and jointed arms.
+      const leftBase = facingLeft ? 0 : 1;
+      const rightBase = facingRight ? 16 : 15;
+      const clawY = by + 8 + clawLift;
 
-      // Hoodie detail for Dev
-      if (vis.accessory === "hoodie") {
-        g.rect(bx + 4, by + 9, 4, 2);
-        g.fill({ color: 0xffffff, alpha: 0.08 });
-      }
+      g.rect(bx + 4, clawY + 4, 4, 2);
+      g.fill({ color: shellDark });
+      g.roundRect(bx + leftBase, clawY + 1, 5, 5, 2);
+      g.fill({ color: vis.claw });
+      g.rect(bx + leftBase - 1, clawY + 3, 3, 2);
+      g.fill({ color: vis.claw });
+      px(g, bx + leftBase + 2, clawY, clawLight);
+      px(g, bx + leftBase + 3, clawY + 4, clawDark);
 
-      // === HEAD ===
-      g.rect(bx + 2, by + 3, 8, 6);
-      g.fill({ color: vis.skin });
-      // Head highlight
-      g.rect(bx + 2, by + 3, 8, 1);
-      g.fill({ color: 0xffffff, alpha: 0.1 });
+      g.rect(bx + 12, clawY + 4, 4, 2);
+      g.fill({ color: shellDark });
+      g.roundRect(bx + rightBase, clawY + 1, 5, 5, 2);
+      g.fill({ color: vis.claw });
+      g.rect(bx + rightBase + 3, clawY + 3, 3, 2);
+      g.fill({ color: vis.claw });
+      px(g, bx + rightBase + 2, clawY, clawLight);
+      px(g, bx + rightBase + 1, clawY + 4, clawDark);
 
-      // === HAIR ===
-      g.rect(bx + 1, by, 10, 4);
-      g.fill({ color: vis.hair });
-      // Hair top highlight
-      g.rect(bx + 2, by, 6, 1);
-      g.fill({ color: 0xffffff, alpha: 0.1 });
+      // Carapace.
+      g.roundRect(bx + 5, by + 5, 10, 8, 4);
+      g.fill({ color: vis.shell });
+      g.roundRect(bx + 6, by + 4, 8, 3, 2);
+      g.fill({ color: shellLight });
+      g.rect(bx + 5, by + 11, 10, 2);
+      g.fill({ color: shellDark });
+      px(g, bx + 9, by + 7, vis.accent);
+      px(g, bx + 10, by + 7, vis.accent);
 
-      // === FACE ===
       if (facingUp) {
-        // Back of head — just hair, no face
-        g.rect(bx + 2, by + 3, 8, 3);
-        g.fill({ color: vis.hair });
+        g.rect(bx + 7, by + 3, 6, 3);
+        g.fill({ color: shellDark });
+        g.rect(bx + 8, by + 2, 4, 1);
+        g.fill({ color: shellLight });
+        px(g, bx + 7, by + 9, shellDeep);
+        px(g, bx + 12, by + 9, shellDeep);
+        px(g, bx + 5, by + 3, vis.accent);
+        px(g, bx + 14, by + 3, vis.accent);
       } else {
-        // Eyes
-        const eyeY = by + 5;
-        if (facingLeft) {
-          px(g, bx + 3, eyeY, 0x222222);
-          px(g, bx + 6, eyeY, 0x222222);
-        } else if (facingRight) {
-          px(g, bx + 5, eyeY, 0x222222);
-          px(g, bx + 8, eyeY, 0x222222);
-        } else {
-          px(g, bx + 4, eyeY, 0x222222);
-          px(g, bx + 7, eyeY, 0x222222);
-        }
+        // Antennae.
+        g.moveTo(bx + 7 + look, by + 4);
+        g.lineTo(bx + 3 + look, by + 1);
+        g.stroke({ color: vis.accent, width: 1, alpha: 0.85 });
+        g.moveTo(bx + 12 + look, by + 4);
+        g.lineTo(bx + 16 + look, by + 1);
+        g.stroke({ color: vis.accent, width: 1, alpha: 0.85 });
 
-        // Glasses for Raj
-        if (vis.accessory === "glasses") {
-          const ey = by + 5;
-          if (!facingLeft && !facingRight) {
-            g.rect(bx + 3, ey - 1, 3, 3); g.stroke({ color: 0x888888, width: 0.5, alpha: 0.7 });
-            g.rect(bx + 6, ey - 1, 3, 3); g.stroke({ color: 0x888888, width: 0.5, alpha: 0.7 });
-          }
-        }
-
-        // Mouth (small line)
-        g.rect(bx + 5, by + 7, 2, 1);
-        g.fill({ color: 0x000000, alpha: 0.2 });
+        // Eye stalks and wide glossy eyes.
+        px(g, bx + 7 + look, by + 3, shellDark);
+        px(g, bx + 7 + look, by + 4, shellDark);
+        px(g, bx + 12 + look, by + 3, shellDark);
+        px(g, bx + 12 + look, by + 4, shellDark);
+        g.rect(bx + 6 + look, by + 2, 3, 3);
+        g.fill({ color: 0x171214 });
+        g.rect(bx + 11 + look, by + 2, 3, 3);
+        g.fill({ color: 0x171214 });
+        px(g, bx + 8 + look, by + 2, 0xffffff);
+        px(g, bx + 13 + look, by + 2, 0xffffff);
+        px(g, bx + 8, by + 9, vis.accent);
+        px(g, bx + 11, by + 9, vis.accent);
+        g.rect(bx + 9, by + 10, 2, 1);
+        g.fill({ color: shellDeep });
       }
 
-      // === SELECTION ===
       if (isSelected) {
-        g.rect(bx - 2, by - 2, 16, 26);
+        g.roundRect(bx - 3, by - 2, 26, 28, 4);
         g.stroke({ color: 0x333333, width: 1, alpha: 0.9 });
-        g.rect(bx - 3, by - 3, 18, 28);
+        g.roundRect(bx - 4, by - 3, 28, 30, 4);
         g.stroke({ color: agentColor, width: 1, alpha: 0.6 });
       }
     },
-    [displayX, displayY, bx, by, isMoving, walkFrame, facingLeft, facingRight, facingUp, vis, isSelected, agentColor]
+    [
+      displayX,
+      displayY,
+      bx,
+      by,
+      isMoving,
+      walkFrame,
+      facingLeft,
+      facingRight,
+      facingUp,
+      animTick,
+      vis,
+      shellDark,
+      shellDeep,
+      shellLight,
+      clawDark,
+      clawLight,
+      bellyDark,
+      isSelected,
+      agentColor,
+    ]
   );
 
   // Hit area
   const drawHit = useCallback(
     (g: PixiGraphics) => {
       g.clear();
-      g.rect(bx - 4, by - 4, 20, 32);
+      g.rect(bx - 6, by - 5, 32, 34);
       g.fill({ color: 0x000000, alpha: 0.01 });
     },
     [bx, by]
@@ -740,7 +818,7 @@ export default function OfficeCanvas({
   );
 
   return (
-    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#d8d4cc] overflow-hidden">
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#ded2b9] overflow-hidden">
       <div
         style={{
           transform: `scale(${scale})`,
@@ -749,7 +827,7 @@ export default function OfficeCanvas({
           height: CANVAS_H,
         }}
       >
-        <Application width={CANVAS_W} height={CANVAS_H} background={0xd8d4cc} antialias={false} resolution={2} autoDensity>
+        <Application width={CANVAS_W} height={CANVAS_H} background={0xded2b9} antialias={false} resolution={2} autoDensity>
           {/* Floor */}
           <FloorGrid />
 

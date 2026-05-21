@@ -82,3 +82,18 @@ class WSMessage(BaseModel):
 class QueryRequest(BaseModel):
     query: str
     files: list[str] | None = None
+
+
+class SandboxTeamRequest(BaseModel):
+    agent_names: list[str] = Field(default_factory=list)
+
+
+class SandboxTaskRequest(BaseModel):
+    task: str
+    agent_names: list[str] | None = None
+
+
+class SandboxPolicyRequest(BaseModel):
+    preset: str
+    enabled: bool
+    dry_run: bool = True

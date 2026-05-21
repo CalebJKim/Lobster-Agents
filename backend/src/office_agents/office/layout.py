@@ -13,13 +13,13 @@ TILE_SIZE = 16  # pixels per tile
 
 # Room definitions — tile coordinates (must match frontend/src/utils/sprites.ts)
 ROOMS: dict[str, dict] = {
-    "desk_researcher": {"x": 1, "y": 1, "w": 9, "h": 7, "label": "Maya - Research"},
-    "desk_analyst":    {"x": 11, "y": 1, "w": 9, "h": 7, "label": "Raj - Analysis"},
-    "desk_critic":     {"x": 21, "y": 1, "w": 9, "h": 7, "label": "Sophie - Review"},
-    "desk_lead":       {"x": 31, "y": 1, "w": 8, "h": 7, "label": "Sam - Lead"},
-    "desk_planner":    {"x": 1, "y": 9, "w": 9, "h": 7, "label": "Alex - Planning"},
-    "desk_writer":     {"x": 11, "y": 9, "w": 9, "h": 7, "label": "Jordan - Writing"},
-    "desk_coder":      {"x": 21, "y": 9, "w": 9, "h": 7, "label": "Dev - Coding"},
+    "desk_researcher": {"x": 1, "y": 1, "w": 9, "h": 7, "label": "Reef Workspace"},
+    "desk_analyst":    {"x": 11, "y": 1, "w": 9, "h": 7, "label": "Charts Workspace"},
+    "desk_critic":     {"x": 21, "y": 1, "w": 9, "h": 7, "label": "Review Workspace"},
+    "desk_lead":       {"x": 31, "y": 1, "w": 8, "h": 7, "label": "Bridge Workspace"},
+    "desk_planner":    {"x": 1, "y": 9, "w": 9, "h": 7, "label": "Route Workspace"},
+    "desk_writer":     {"x": 11, "y": 9, "w": 9, "h": 7, "label": "Writing Workspace"},
+    "desk_coder":      {"x": 21, "y": 9, "w": 9, "h": 7, "label": "Workbench Workspace"},
     "break_room":      {"x": 31, "y": 9, "w": 8, "h": 7, "label": "Break Room"},
     "war_room":        {"x": 1, "y": 17, "w": 19, "h": 12, "label": "War Room"},
     "lobby":           {"x": 21, "y": 17, "w": 9, "h": 12, "label": "Lobby"},
@@ -92,6 +92,31 @@ BULLETIN_SPOTS: list[tuple[int, int]] = [
     (_bbcx,      _bbcy + 40),
 ]
 
+SANDBOX_ROOMS = (
+    "desk_researcher",
+    "desk_analyst",
+    "desk_critic",
+    "desk_planner",
+    "desk_writer",
+    "desk_coder",
+    "desk_lead",
+)
+
+
+def _sandbox_spots(room: str) -> list[tuple[int, int]]:
+    """Small gathering spots around one sandbox hut."""
+
+    cx, cy = ROOM_POSITIONS[room]
+    return [
+        (cx - 18, cy - 10),
+        (cx + 18, cy - 10),
+        (cx - 20, cy + 14),
+        (cx + 20, cy + 14),
+        (cx, cy + 28),
+        (cx, cy - 26),
+    ]
+
+
 # Track seat assignments per room
 _room_assignments: dict[str, dict[str, int]] = {
     "war_room": {},
@@ -106,6 +131,10 @@ _ROOM_SPOTS: dict[str, list[tuple[int, int]]] = {
     "lobby": LOBBY_SPOTS,
     "bulletin_board": BULLETIN_SPOTS,
 }
+
+for _room in SANDBOX_ROOMS:
+    _room_assignments[_room] = {}
+    _ROOM_SPOTS[_room] = _sandbox_spots(_room)
 
 
 def get_room_position(room: str, agent_name: str) -> tuple[int, int]:

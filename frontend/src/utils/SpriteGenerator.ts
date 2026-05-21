@@ -8,12 +8,10 @@
 // ---------------------------------------------------------------------------
 
 export interface AgentVisual {
-  skinColor: string;
-  hairColor: string;
-  hairStyle: 'short' | 'medium' | 'ponytail' | 'hoodie' | 'neat';
-  shirtColor: string;
-  pantsColor: string;
-  accessory?: 'glasses' | 'headphones' | 'clipboard' | 'none';
+  shellColor: string;
+  bellyColor: string;
+  clawColor: string;
+  accentColor: string;
 }
 
 type AnimDirection = 'idle' | 'walk_down' | 'walk_up' | 'walk_left' | 'walk_right';
@@ -23,61 +21,47 @@ type AnimDirection = 'idle' | 'walk_down' | 'walk_up' | 'walk_left' | 'walk_righ
 // ---------------------------------------------------------------------------
 
 const AGENT_VISUALS: Record<string, AgentVisual> = {
-  Maya: {
-    skinColor: '#f5c6a0',
-    hairColor: '#2c1810',
-    hairStyle: 'short',
-    shirtColor: '#4ecdc4',
-    pantsColor: '#2a2a4a',
-    accessory: 'none',
+  Clawdia: {
+    shellColor: '#ff6f61',
+    bellyColor: '#ffb09a',
+    clawColor: '#e84c3d',
+    accentColor: '#4ecdc4',
   },
-  Raj: {
-    skinColor: '#d4a574',
-    hairColor: '#1a1a2e',
-    hairStyle: 'short',
-    shirtColor: '#ff6b6b',
-    pantsColor: '#2a2a4a',
-    accessory: 'glasses',
+  Shelldon: {
+    shellColor: '#f05248',
+    bellyColor: '#ff9d7d',
+    clawColor: '#c9352d',
+    accentColor: '#ffcf6e',
   },
-  Sophie: {
-    skinColor: '#fce4c8',
-    hairColor: '#e6c44d',
-    hairStyle: 'ponytail',
-    shirtColor: '#feca57',
-    pantsColor: '#2a2a4a',
-    accessory: 'none',
+  Coraline: {
+    shellColor: '#ff8a5c',
+    bellyColor: '#ffd29a',
+    clawColor: '#f05a3e',
+    accentColor: '#feca57',
   },
-  Alex: {
-    skinColor: '#e8b88a',
-    hairColor: '#3d2b1f',
-    hairStyle: 'neat',
-    shirtColor: '#a29bfe',
-    pantsColor: '#2a2a4a',
-    accessory: 'clipboard',
+  Reefus: {
+    shellColor: '#f4767f',
+    bellyColor: '#ffc2b0',
+    clawColor: '#d94e61',
+    accentColor: '#a29bfe',
   },
-  Jordan: {
-    skinColor: '#f5d0b0',
-    hairColor: '#5a3825',
-    hairStyle: 'medium',
-    shirtColor: '#fd79a8',
-    pantsColor: '#2a2a4a',
-    accessory: 'none',
+  Pearl: {
+    shellColor: '#ff728f',
+    bellyColor: '#ffc0c9',
+    clawColor: '#e24569',
+    accentColor: '#fd79a8',
   },
-  Dev: {
-    skinColor: '#d4a574',
-    hairColor: '#1a1a2e',
-    hairStyle: 'hoodie',
-    shirtColor: '#00b894',
-    pantsColor: '#2a2a4a',
-    accessory: 'headphones',
+  Snips: {
+    shellColor: '#e85f4d',
+    bellyColor: '#ffad8f',
+    clawColor: '#c94335',
+    accentColor: '#00b894',
   },
-  Sam: {
-    skinColor: '#e8c8a0',
-    hairColor: '#2c2c3e',
-    hairStyle: 'neat',
-    shirtColor: '#6c5ce7',
-    pantsColor: '#2a2a4a',
-    accessory: 'none',
+  "Captain Claw": {
+    shellColor: '#e96b5c',
+    bellyColor: '#ffc1a8',
+    clawColor: '#ce4d42',
+    accentColor: '#6c5ce7',
   },
 };
 
@@ -147,260 +131,111 @@ function drawCharacterFrame(
   direction: AnimDirection,
   walkPhase: number,
 ) {
-  const skin = vis.skinColor;
-  const hair = vis.hairColor;
-  const shirt = vis.shirtColor;
-  const pants = vis.pantsColor;
-  const shirtDark = darken(shirt, 0.7);
-  const shirtLight = lighten(shirt, 0.25);
-  const skinShadow = darken(skin, 0.8);
-  const shoeColor = '#1a1a2e';
+  const shell = vis.shellColor;
+  const belly = vis.bellyColor;
+  const claw = vis.clawColor;
+  const accent = vis.accentColor;
+  const shellDark = darken(shell, 0.72);
+  const shellDeep = darken(shell, 0.55);
+  const shellLight = lighten(shell, 0.28);
+  const clawDark = darken(claw, 0.65);
+  const clawLight = lighten(claw, 0.22);
+  const bellyDark = darken(belly, 0.82);
+  const eye = '#171214';
 
-  // Idle bob offset
-  let bob = 0;
-  if (direction === 'idle') {
-    bob = walkPhase === 0 ? 0 : -1;
-  }
-
+  const bob = direction === 'idle' && walkPhase === 1 ? 1 : 0;
   const y = oy + bob;
 
-  // --- HAIR ---
-  const drawHair = () => {
-    switch (vis.hairStyle) {
-      case 'short':
-        // Short cropped hair
-        rect(ctx, ox + 5, y + 1, 6, 3, hair);
-        rect(ctx, ox + 4, y + 2, 8, 2, hair);
-        break;
-      case 'medium':
-        // Medium flowing hair
-        rect(ctx, ox + 5, y + 1, 6, 3, hair);
-        rect(ctx, ox + 4, y + 2, 8, 3, hair);
-        // Side strands
-        px(ctx, ox + 3, y + 4, hair);
-        px(ctx, ox + 12, y + 4, hair);
-        break;
-      case 'ponytail':
-        // Hair with ponytail
-        rect(ctx, ox + 5, y + 1, 6, 3, hair);
-        rect(ctx, ox + 4, y + 2, 8, 2, hair);
-        // Ponytail extending right
-        rect(ctx, ox + 11, y + 2, 2, 2, hair);
-        rect(ctx, ox + 12, y + 3, 2, 3, hair);
-        px(ctx, ox + 13, y + 5, hair);
-        break;
-      case 'hoodie':
-        // Hood shape around head
-        rect(ctx, ox + 4, y + 1, 8, 4, darken(vis.shirtColor, 0.8));
-        rect(ctx, ox + 5, y + 2, 6, 3, hair);
-        // Hood edges
-        px(ctx, ox + 3, y + 3, darken(vis.shirtColor, 0.8));
-        px(ctx, ox + 12, y + 3, darken(vis.shirtColor, 0.8));
-        break;
-      case 'neat':
-        // Neatly combed short hair
-        rect(ctx, ox + 5, y + 1, 6, 2, hair);
-        rect(ctx, ox + 4, y + 2, 8, 2, hair);
-        // Part line
-        px(ctx, ox + 6, y + 1, darken(hair, 0.6));
-        break;
-    }
-  };
-
-  // --- HEAD ---
-  const drawHead = () => {
-    // Face shape (5px wide, centered)
-    rect(ctx, ox + 5, y + 3, 6, 5, skin);
-    // Slightly wider at cheeks
-    rect(ctx, ox + 4, y + 4, 8, 3, skin);
-    // Chin
-    rect(ctx, ox + 5, y + 7, 6, 1, skin);
-
-    // Eyes depend on direction
-    const eyeY = y + 5;
-    if (direction === 'walk_up') {
-      // Facing away - no eyes, back of head
-      rect(ctx, ox + 5, y + 3, 6, 5, skin);
-    } else if (direction === 'walk_left') {
-      // Eyes shifted left
-      px(ctx, ox + 5, eyeY, '#1a1a2e');
-      px(ctx, ox + 7, eyeY, '#1a1a2e');
-    } else if (direction === 'walk_right') {
-      // Eyes shifted right
-      px(ctx, ox + 8, eyeY, '#1a1a2e');
-      px(ctx, ox + 10, eyeY, '#1a1a2e');
-    } else {
-      // Forward facing (idle / walk_down)
-      px(ctx, ox + 6, eyeY, '#1a1a2e');
-      px(ctx, ox + 9, eyeY, '#1a1a2e');
-      // Mouth
-      px(ctx, ox + 7, y + 7, skinShadow);
-      px(ctx, ox + 8, y + 7, skinShadow);
-    }
-  };
-
-  // --- ACCESSORIES ---
-  const drawAccessories = () => {
-    if (direction === 'walk_up') return; // Can't see accessories from behind
-    const eyeY = y + 5;
-    switch (vis.accessory) {
-      case 'glasses':
-        if (direction === 'walk_left') {
-          // Glasses frame
-          px(ctx, ox + 4, eyeY, '#6688aa');
-          px(ctx, ox + 5, eyeY - 1, '#6688aa');
-          px(ctx, ox + 5, eyeY + 1, '#6688aa');
-          px(ctx, ox + 7, eyeY - 1, '#6688aa');
-          px(ctx, ox + 7, eyeY + 1, '#6688aa');
-          px(ctx, ox + 6, eyeY - 1, '#6688aa');
-          px(ctx, ox + 8, eyeY, '#6688aa');
-        } else if (direction === 'walk_right') {
-          px(ctx, ox + 11, eyeY, '#6688aa');
-          px(ctx, ox + 10, eyeY - 1, '#6688aa');
-          px(ctx, ox + 10, eyeY + 1, '#6688aa');
-          px(ctx, ox + 8, eyeY - 1, '#6688aa');
-          px(ctx, ox + 8, eyeY + 1, '#6688aa');
-          px(ctx, ox + 9, eyeY - 1, '#6688aa');
-          px(ctx, ox + 7, eyeY, '#6688aa');
-        } else {
-          // Front-facing glasses
-          rect(ctx, ox + 5, eyeY - 1, 3, 3, '#6688aa');
-          rect(ctx, ox + 6, eyeY, 1, 1, '#1a1a2e'); // Left lens
-          rect(ctx, ox + 8, eyeY - 1, 3, 3, '#6688aa');
-          rect(ctx, ox + 9, eyeY, 1, 1, '#1a1a2e'); // Right lens
-          px(ctx, ox + 8, eyeY, '#6688aa'); // Bridge
-        }
-        break;
-      case 'headphones':
-        {
-          const hpColor = '#444466';
-          // Headband across top of head
-          px(ctx, ox + 4, y + 2, hpColor);
-          px(ctx, ox + 11, y + 2, hpColor);
-          px(ctx, ox + 3, y + 3, hpColor);
-          px(ctx, ox + 12, y + 3, hpColor);
-          // Ear cups
-          rect(ctx, ox + 3, y + 4, 2, 3, hpColor);
-          rect(ctx, ox + 11, y + 4, 2, 3, hpColor);
-        }
-        break;
-      case 'clipboard':
-        // Small clipboard on right side
-        if (direction !== 'walk_left') {
-          rect(ctx, ox + 12, y + 11, 3, 4, '#c4a46c');
-          rect(ctx, ox + 12, y + 12, 3, 3, '#f5f5e6');
-          px(ctx, ox + 13, y + 11, '#888866');
-        }
-        break;
-    }
-  };
-
-  // --- BODY / TORSO ---
-  const drawBody = () => {
-    // Neck
-    rect(ctx, ox + 7, y + 8, 2, 1, skin);
-
-    // Torso (5px wide, 4px tall)
-    rect(ctx, ox + 5, y + 9, 6, 4, shirt);
-    // Shirt shading
-    rect(ctx, ox + 5, y + 9, 1, 4, shirtDark);
-    rect(ctx, ox + 10, y + 9, 1, 4, shirtDark);
-    // Shirt highlight
-    px(ctx, ox + 7, y + 10, shirtLight);
-
-    if (vis.hairStyle === 'hoodie') {
-      // Hoodie details - hood edge at collar
-      rect(ctx, ox + 5, y + 9, 6, 1, darken(shirt, 0.8));
-      // Pocket line
-      rect(ctx, ox + 6, y + 12, 4, 1, shirtDark);
-    }
-
-    // Arms
-    if (direction === 'walk_left') {
-      // Left arm swings based on phase
-      const armOffset = walkPhase === 1 ? -1 : walkPhase === 3 ? 1 : 0;
-      rect(ctx, ox + 4, y + 9 + armOffset, 1, 3, shirt);
-      px(ctx, ox + 4, y + 12 + armOffset, skin);
-    } else if (direction === 'walk_right') {
-      const armOffset = walkPhase === 1 ? 1 : walkPhase === 3 ? -1 : 0;
-      rect(ctx, ox + 11, y + 9 + armOffset, 1, 3, shirt);
-      px(ctx, ox + 11, y + 12 + armOffset, skin);
-    } else {
-      // Both arms visible
-      const leftArmOff = walkPhase === 1 ? -1 : walkPhase === 3 ? 1 : 0;
-      const rightArmOff = walkPhase === 1 ? 1 : walkPhase === 3 ? -1 : 0;
-
-      if (direction === 'idle') {
-        // Arms at sides, relaxed
-        rect(ctx, ox + 4, y + 9, 1, 3, shirt);
-        rect(ctx, ox + 11, y + 9, 1, 3, shirt);
-        px(ctx, ox + 4, y + 12, skin);
-        px(ctx, ox + 11, y + 12, skin);
-      } else {
-        // Walking arms swing
-        rect(ctx, ox + 4, y + 9 + leftArmOff, 1, 3, shirt);
-        rect(ctx, ox + 11, y + 9 + rightArmOff, 1, 3, shirt);
-        px(ctx, ox + 4, y + 12 + leftArmOff, skin);
-        px(ctx, ox + 11, y + 12 + rightArmOff, skin);
-      }
-    }
-  };
-
-  // --- LEGS ---
-  const drawLegs = () => {
-    if (direction === 'idle') {
-      // Standing still legs
-      rect(ctx, ox + 6, y + 13, 2, 4, pants);
-      rect(ctx, ox + 8, y + 13, 2, 4, pants);
-      // Feet
-      rect(ctx, ox + 5, y + 17, 3, 1, shoeColor);
-      rect(ctx, ox + 8, y + 17, 3, 1, shoeColor);
-      // Shoe highlight
-      px(ctx, ox + 5, y + 17, darken(shoeColor, 1.5));
-      px(ctx, ox + 10, y + 17, darken(shoeColor, 1.5));
-    } else {
-      // Walking legs
-      switch (walkPhase) {
-        case 0: // Both center
-          rect(ctx, ox + 6, y + 13, 2, 4, pants);
-          rect(ctx, ox + 8, y + 13, 2, 4, pants);
-          rect(ctx, ox + 5, y + 17, 3, 1, shoeColor);
-          rect(ctx, ox + 8, y + 17, 3, 1, shoeColor);
-          break;
-        case 1: // Left forward, right back
-          rect(ctx, ox + 5, y + 13, 2, 4, pants);
-          rect(ctx, ox + 9, y + 13, 2, 3, pants);
-          rect(ctx, ox + 4, y + 17, 3, 1, shoeColor);
-          rect(ctx, ox + 9, y + 16, 3, 1, shoeColor);
-          break;
-        case 2: // Both center (passing)
-          rect(ctx, ox + 6, y + 13, 2, 4, pants);
-          rect(ctx, ox + 8, y + 13, 2, 4, pants);
-          rect(ctx, ox + 5, y + 17, 3, 1, shoeColor);
-          rect(ctx, ox + 8, y + 17, 3, 1, shoeColor);
-          break;
-        case 3: // Right forward, left back
-          rect(ctx, ox + 9, y + 13, 2, 4, pants);
-          rect(ctx, ox + 5, y + 13, 2, 3, pants);
-          rect(ctx, ox + 8, y + 17, 3, 1, shoeColor);
-          rect(ctx, ox + 4, y + 16, 3, 1, shoeColor);
-          break;
-      }
-    }
-  };
-
-  // --- Shadow ---
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath();
-  ctx.ellipse(ox + 8, oy + 22, 5, 2, 0, 0, Math.PI * 2);
+  ctx.ellipse(ox + 8, oy + 22, 6, 2, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // --- Draw in order ---
-  drawHair();
-  drawHead();
-  drawBody();
-  drawLegs();
-  drawAccessories();
+  const isBack = direction === 'walk_up';
+  const look = direction === 'walk_left' ? -1 : direction === 'walk_right' ? 1 : 0;
+  const legStride = direction === 'idle' ? 0 : walkPhase % 2;
+  const clawLift = direction === 'idle'
+    ? (walkPhase === 1 ? -1 : 0)
+    : (walkPhase === 1 ? -1 : walkPhase === 3 ? 1 : 0);
+
+  // Side legs behind the body.
+  for (let i = 0; i < 3; i++) {
+    const ly = y + 10 + i * 3;
+    const stride = legStride && i !== 1 ? 1 : 0;
+    px(ctx, ox + 4 - stride, ly, shellDeep);
+    px(ctx, ox + 3 - stride, ly + 1, shellDark);
+    px(ctx, ox + 11 + stride, ly, shellDeep);
+    px(ctx, ox + 12 + stride, ly + 1, shellDark);
+  }
+
+  // Tail fan and segmented belly.
+  rect(ctx, ox + 6, y + 17, 4, 2, shellDark);
+  rect(ctx, ox + 5, y + 18, 6, 2, shell);
+  px(ctx, ox + 4, y + 20, shell);
+  rect(ctx, ox + 6, y + 20, 4, 1, shellLight);
+  px(ctx, ox + 11, y + 20, shell);
+
+  rect(ctx, ox + 5, y + 11, 6, 7, belly);
+  rect(ctx, ox + 4, y + 12, 1, 5, shellDark);
+  rect(ctx, ox + 11, y + 12, 1, 5, shellDark);
+  rect(ctx, ox + 6, y + 13, 4, 1, bellyDark);
+  rect(ctx, ox + 6, y + 15, 4, 1, bellyDark);
+
+  // Claws and little jointed arms.
+  const leftBase = direction === 'walk_left' ? 0 : 1;
+  const rightBase = direction === 'walk_right' ? 12 : 11;
+  const clawY = y + 7 + clawLift;
+
+  rect(ctx, ox + 3, clawY + 4, 3, 2, shellDark);
+  rect(ctx, ox + leftBase, clawY + 1, 4, 4, claw);
+  rect(ctx, ox + leftBase - 1, clawY + 2, 2, 2, claw);
+  px(ctx, ox + leftBase + 1, clawY, clawLight);
+  px(ctx, ox + leftBase + 2, clawY + 3, clawDark);
+
+  rect(ctx, ox + 10, clawY + 4, 3, 2, shellDark);
+  rect(ctx, ox + rightBase, clawY + 1, 4, 4, claw);
+  rect(ctx, ox + rightBase + 3, clawY + 2, 2, 2, claw);
+  px(ctx, ox + rightBase + 2, clawY, clawLight);
+  px(ctx, ox + rightBase + 1, clawY + 3, clawDark);
+
+  // Carapace and head.
+  rect(ctx, ox + 4, y + 5, 8, 7, shell);
+  rect(ctx, ox + 5, y + 4, 6, 2, shellLight);
+  rect(ctx, ox + 4, y + 10, 8, 2, shellDark);
+  px(ctx, ox + 7, y + 6, accent);
+  px(ctx, ox + 8, y + 6, accent);
+
+  if (isBack) {
+    rect(ctx, ox + 5, y + 3, 6, 3, shellDark);
+    rect(ctx, ox + 6, y + 2, 4, 1, shellLight);
+    px(ctx, ox + 6, y + 8, shellDeep);
+    px(ctx, ox + 9, y + 8, shellDeep);
+    px(ctx, ox + 4, y + 2, accent);
+    px(ctx, ox + 11, y + 2, accent);
+  } else {
+    // Eye stalks, antennae, and soft cheeks.
+    px(ctx, ox + 5 + look, y + 3, shellDark);
+    px(ctx, ox + 5 + look, y + 4, shellDark);
+    px(ctx, ox + 10 + look, y + 3, shellDark);
+    px(ctx, ox + 10 + look, y + 4, shellDark);
+    px(ctx, ox + 4 + look, y + 2, eye);
+    px(ctx, ox + 5 + look, y + 2, eye);
+    px(ctx, ox + 10 + look, y + 2, eye);
+    px(ctx, ox + 11 + look, y + 2, eye);
+    px(ctx, ox + 5 + look, y + 2, '#ffffff');
+    px(ctx, ox + 11 + look, y + 2, '#ffffff');
+    px(ctx, ox + 6, y + 8, accent);
+    px(ctx, ox + 9, y + 8, accent);
+    px(ctx, ox + 7, y + 9, shellDeep);
+    px(ctx, ox + 8, y + 9, shellDeep);
+
+    px(ctx, ox + 4 + look, y + 1, accent);
+    px(ctx, ox + 3 + look, y + 1, accent);
+    px(ctx, ox + 2 + look, y + 2, accent);
+    px(ctx, ox + 11 + look, y + 1, accent);
+    px(ctx, ox + 12 + look, y + 1, accent);
+    px(ctx, ox + 13 + look, y + 2, accent);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -738,7 +573,7 @@ export function generateAllSprites(): Record<string, string> {
   const sprites: Record<string, string> = {};
 
   // Character sheets
-  const agentNames = ['Maya', 'Raj', 'Sophie', 'Alex', 'Jordan', 'Dev', 'Sam'];
+  const agentNames = ['Clawdia', 'Shelldon', 'Coraline', 'Reefus', 'Pearl', 'Snips', 'Captain Claw'];
   for (const name of agentNames) {
     const sheet = generateCharacterSheet(name);
     sprites[`char_${name}`] = sheet.toDataURL();

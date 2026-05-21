@@ -10,18 +10,29 @@ from typing import Any
 
 from office_agents.agents.memory import AgentMemory
 from office_agents.agents.roles import AgentRole
+from office_agents.claw_config import get_claw_metadata, get_home_room_for_sandbox
 from office_agents.config import settings
-from office_agents.llm.client import LLMClient
+from office_agents.llm.client import LLMClient, LLMError
 from office_agents.models import Action, ActionType, AgentState, OfficeEvent, Position
 from office_agents.office.layout import ROOM_POSITIONS, get_room_position, release_room_seat, move_toward, room_for_position
 from office_agents.tools.file_reader import read_file
-from office_agents.tools.opencode import run_opencode
+from office_agents.sandbox_runtime.openclaw import run_openclaw
 from office_agents.tools.web_search import web_search
 
 logger = logging.getLogger(__name__)
 
 # Maximum events kept in the in-memory queue between ticks
 _MAX_EVENT_QUEUE = 50
+
+_GENERAL_START_ROOMS: dict[str, str] = {
+    "Clawdia": "break_room",
+    "Shelldon": "war_room",
+    "Coraline": "lobby",
+    "Reefus": "break_room",
+    "Pearl": "lobby",
+    "Snips": "war_room",
+    "Captain Claw": "war_room",
+}
 
 
 class Agent:
@@ -38,8 +49,12 @@ class Agent:
         self.default_desk = role_config.default_desk
         self.system_prompt = role_config.system_prompt
         self.personality = role_config.personality
+        self.claw_metadata = get_claw_metadata(self.name)
+        self.claw_id = self.claw_metadata["claw_id"]
+        self.sandbox_name: str | None = None
+        self.connect_command: str | None = None
         self.state = AgentState.idle
-        self.location = role_config.default_desk
+        self.location = _GENERAL_START_ROOMS.get(self.name, "war_room")
         pos = ROOM_POSITIONS[self.location]
         self.position: tuple[int, int] = pos
         self.target_position: tuple[int, int] | None = None
@@ -80,12 +95,16 @@ class Agent:
             office_state, recent_events_text, recent_mem, long_term
         )
 
-        raw = await self.llm.chat(
-            system_prompt=self.system_prompt,
-            user_prompt=user_prompt,
-            temperature=0.6,
-            max_tokens=2048,
-        )
+        try:
+            raw = await self.llm.chat(
+                system_prompt=self.system_prompt,
+                user_prompt=user_prompt,
+                temperature=0.6,
+                max_tokens=2048,
+            )
+        except LLMError as exc:
+            logger.warning("Agent %s: LLM call failed (%s) — staying idle this tick", self.name, exc)
+            return Action(type=ActionType.idle, content=f"LLM unavailable: {exc}", reasoning=str(exc))
 
         action = self._parse_action(raw)
         return action
@@ -134,7 +153,12 @@ class Agent:
 
         elif action.type == ActionType.code:
             self.state = AgentState.coding
-            code_result = await run_opencode(action.content)
+            sandbox_name = self.sandbox_name or "reef-commons"
+            code_result = await run_openclaw(
+                action.content,
+                claw_id=self.claw_id,
+                sandbox_name=sandbox_name,
+            )
             result["code_result"] = code_result
             await self.memory.add_long_term(
                 f"Coded: {action.content} — success={code_result.get('success')}",
@@ -144,6 +168,16 @@ class Agent:
         elif action.type == ActionType.move_to:
             target_room = action.target or action.content
             if target_room in ROOM_POSITIONS:
+                sandbox_room = get_home_room_for_sandbox(self.sandbox_name) if self.sandbox_name else None
+                if sandbox_room and target_room != sandbox_room:
+                    result["destination"] = self.location
+                    result["blocked"] = True
+                    result["reason"] = (
+                        f"{self.name} is assigned to NemoClaw sandbox {self.sandbox_name} "
+                        f"and must stay in {sandbox_room}."
+                    )
+                    self.state = AgentState.idle
+                    return result
                 # Release seat in current room before moving
                 release_room_seat(self.location, self.name)
                 # Get a unique position in the target room (avoids overlap)
@@ -202,6 +236,10 @@ class Agent:
             "location": self.location,
             "position": {"x": self.position[0], "y": self.position[1]},
             "current_task": self.current_task,
+            "openclaw_capable": True,
+            "claw_id": self.claw_id,
+            "sandbox_name": self.sandbox_name,
+            "connect_command": self.connect_command,
         }
 
     # ------------------------------------------------------------------
@@ -226,7 +264,17 @@ class Agent:
         # ── Movement encouragement based on context ──
         has_query = bool(office_state.get("current_query"))
 
-        if has_query and self.location != "war_room":
+        sandbox_room = get_home_room_for_sandbox(self.sandbox_name) if self.sandbox_name else None
+        assigned_to_sandbox = bool(sandbox_room and self.location == sandbox_room)
+
+        if has_query and assigned_to_sandbox:
+            lines.append(
+                f"You are assigned to NemoClaw sandbox {self.sandbox_name}. "
+                f"Stay in {self.location}; do NOT use move_to to leave for war_room, "
+                "break_room, or another sandbox. Collaborate from inside this sandbox."
+            )
+            lines.append("")
+        elif has_query and self.location != "war_room":
             lines.append(
                 "HINT: A query is active and you're not in the war room. "
                 "Consider using move_to to head to war_room so you can "
@@ -240,7 +288,7 @@ class Agent:
             )
             lines.append("")
         elif not has_query:
-            # Check if there's a water cooler nudge in recent events
+            # Check if there's an idle reef chat nudge in recent events.
             has_water_cooler = any(
                 ev.type == "water_cooler" for ev in self.event_queue[-5:]
             ) if self.event_queue else False
@@ -249,16 +297,26 @@ class Agent:
                 lines.append(
                     "IMPORTANT: No user query is active. This is FREE TIME. "
                     "The rules about 'don't speak unless adding new info' do NOT apply now. "
-                    "You're having casual water cooler chat. Use action=speak to say something "
-                    "fun, opinionated, or interesting. Be yourself! 1-2 sentences."
+                    "You're having casual Tidepool Lounge chat. Use action=speak to say something "
+                    "fun, opinionated, or interesting about reef life, lobster problems, shells, "
+                    "coral, kelp, currents, NemoClaw sandboxes, OpenClaw habits, gateway policies, "
+                    "fish drama, or silly underwater etiquette. If a topic starts on land, translate "
+                    "it into reef terms. Be yourself! 1-2 sentences."
                 )
             elif self._idle_ticks >= 2:
-                at_desk = self.location.startswith("desk_")
-                if at_desk:
-                    lines.append(
-                        "HINT: You've been sitting at your desk for a while with nothing to do. "
-                        "Get up and move! Use move_to to visit the break_room."
-                    )
+                at_workspace = self.location.startswith("desk_")
+                if at_workspace:
+                    if assigned_to_sandbox:
+                        lines.append(
+                            f"You are idling inside NemoClaw sandbox {self.sandbox_name}. "
+                            "Stay in this sandbox and use speak/think to chat about reef work, "
+                            "gateway policy, tools, or sandbox plans. Do not move out."
+                        )
+                    else:
+                        lines.append(
+                            "HINT: You've been near the workspace pads for a while with nothing to do. "
+                            "Get up and move! Use move_to to visit the Tidepool Lounge (break_room)."
+                        )
                 else:
                     lines.append(
                         "HINT: You've been idle for a bit. Consider chatting with "
@@ -273,7 +331,13 @@ class Agent:
                     f"FILES PROVIDED: {', '.join(office_state['current_files'])}"
                 )
             query_tick = office_state.get("query_tick", 0)
-            if query_tick >= 3 and self.name == "Jordan":
+            writer_name = office_state.get("general_query_writer") or "Pearl"
+            if writer_name != "Pearl" and self.name == writer_name:
+                lines.append(
+                    "Pearl is unavailable because she is sandbox-reserved. "
+                    "You are the backup writer for this general query and may use write_whiteboard."
+                )
+            if query_tick >= 3 and self.name == writer_name:
                 lines.append(
                     f"🚨 YOU MUST USE write_whiteboard NOW (round {query_tick}). "
                     "Do NOT use speak. Your action MUST be: "
@@ -283,15 +347,15 @@ class Agent:
             elif query_tick >= 3:
                 lines.append(
                     f"⚠️ URGENCY: Round {query_tick}. The answer is overdue. "
-                    "Jordan must use write_whiteboard NOW. If you're Sam, tell Jordan directly."
+                    f"{writer_name} must use write_whiteboard NOW. If you're coordinating, tell {writer_name} directly."
                 )
             elif query_tick >= 2:
                 lines.append(
-                    f"Round {query_tick}. Time to wrap up. Jordan should write the answer."
+                    f"Round {query_tick}. Time to wrap up. {writer_name} should write the answer."
                 )
             lines.append("")
 
-        lines.append("RECENT OFFICE ACTIVITY:")
+        lines.append("RECENT REEF ACTIVITY:")
         if recent_events.strip():
             lines.append(recent_events)
         else:
@@ -312,7 +376,7 @@ class Agent:
 
         agents = office_state.get("agents", {})
         if agents:
-            lines.append("OFFICE STATUS (who is where):")
+            lines.append("REEF STATUS (who is where):")
             for aname, info in agents.items():
                 if aname == self.name:
                     continue
@@ -333,7 +397,7 @@ class Agent:
 
         lines.append(
             "Based on all this, what do you do next? "
-            "Remember you are in a physical office — move around! "
+            "Remember you are in a physical underwater reef habitat - move around! "
             "Respond with a single JSON object."
         )
         return "\n".join(lines)

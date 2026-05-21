@@ -8,11 +8,15 @@ import random
 import re
 from datetime import datetime
 from typing import Any, Callable, Coroutine
+from uuid import uuid4
 
 from office_agents.agents.base import Agent
 from office_agents.config import settings
 from office_agents.models import Action, ActionType, AgentState, OfficeEvent
+from office_agents.office.layout import get_room_position, release_room_seat
 from office_agents.office.state import OfficeState
+from office_agents.reef import IdleChat, QueryIntake
+from office_agents.sandbox_runtime.manager import SandboxManager, short_sandbox_name
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +40,28 @@ class Orchestrator:
         self._query_event = asyncio.Event()  # fires when a new query arrives
         self.water_cooler_enabled = True  # toggle idle chat
         self.water_cooler_topic: str | None = None  # forced topic (None = random)
+        self.sandboxes = SandboxManager(
+            agents=agents,
+            office_state=office_state,
+            broadcast=broadcast,
+            broadcast_full_state=self._broadcast_full_state,
+        )
+        self._idle_chat = IdleChat(
+            agents=agents,
+            office_state=office_state,
+            sandbox_assignments=self.sandboxes.assignments,
+            broadcast=broadcast,
+            query_event=self._query_event,
+        )
+        self._query_intake = QueryIntake(
+            agents=agents,
+            office_state=office_state,
+            query_queue=self.query_queue,
+            active_sandbox_agent_names=self.sandboxes.active_agent_names,
+            assigned_sandbox_agent_names=self.sandboxes.assigned_agent_names,
+            broadcast=broadcast,
+            broadcast_full_state=self._broadcast_full_state,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -49,7 +75,7 @@ class Orchestrator:
         self._query_event.set()  # wake up the run loop immediately
 
     async def submit_reply(self, reply: str) -> None:
-        """User replies to a question from an agent (e.g., Sam's ask_user)."""
+        """User replies to a question from an agent (e.g., Captain Claw's ask_user)."""
         event = OfficeEvent(
             type="user_reply",
             agent="user",
@@ -73,6 +99,76 @@ class Orchestrator:
             "timestamp": datetime.now().isoformat(),
         })
 
+    # ------------------------------------------------------------------
+    # Sandbox API — thin delegations to self.sandboxes (SandboxManager).
+    # Kept on Orchestrator so the existing main.py call sites don't change.
+    # ------------------------------------------------------------------
+
+    @property
+    def sandbox_assignments(self) -> dict[str, list[str]]:
+        """Live reference to the manager's assignment table (used by reef chat)."""
+        return self.sandboxes.assignments
+
+    def get_sandbox_assignments(self) -> dict[str, list[str]]:
+        return self.sandboxes.get_assignments()
+
+    def get_sandbox_run_statuses(self) -> dict[str, dict[str, Any]]:
+        return self.sandboxes.get_run_statuses()
+
+    def _active_sandbox_agent_names(self) -> set[str]:
+        return self.sandboxes.active_agent_names()
+
+    def _active_sandbox_names(self) -> set[str]:
+        return self.sandboxes.active_sandbox_names()
+
+    def _assigned_sandbox_agent_names(self) -> set[str]:
+        return self.sandboxes.assigned_agent_names()
+
+    def _general_query_role_names(self, available_agents: list[Agent]) -> tuple[str | None, str | None]:
+        """Pick free lead/writer roles for general prompts."""
+
+        if not available_agents:
+            return None, None
+
+        by_name = {agent.name: agent for agent in available_agents}
+        lead = by_name.get("Captain Claw") or available_agents[0]
+        writer = by_name.get("Pearl")
+        if writer is None:
+            writer = next((agent for agent in available_agents if agent.role == "writer"), None)
+        if writer is None:
+            writer = next((agent for agent in available_agents if agent.role in {"lead", "planner", "critic"}), None)
+        if writer is None:
+            writer = available_agents[-1]
+        return lead.name, writer.name
+
+    async def cancel_all_sandbox_runs(self, reason: str = "reset") -> None:
+        await self.sandboxes.cancel_all_runs(reason)
+
+    def clear_sandbox_run_statuses(self) -> None:
+        self.sandboxes.clear_run_statuses()
+
+    async def assign_sandbox_team(
+        self,
+        sandbox_name: str,
+        agent_names: list[str],
+    ) -> dict[str, list[str]]:
+        return await self.sandboxes.assign_team(sandbox_name, agent_names)
+
+    async def run_sandbox_team_task(
+        self,
+        sandbox_name: str,
+        task: str,
+        agent_names: list[str] | None = None,
+    ) -> str:
+        return await self.sandboxes.run_team_task(sandbox_name, task, agent_names)
+
+    async def cancel_sandbox_team_task(
+        self,
+        sandbox_name: str,
+        run_id: str,
+    ) -> dict[str, Any]:
+        return await self.sandboxes.cancel_team_task(sandbox_name, run_id)
+
     async def run(self) -> None:
         """Main simulation loop — call as a background task."""
         self.running = True
@@ -90,7 +186,7 @@ class Orchestrator:
             if self.office_state.current_query:
                 await asyncio.sleep(0.5)  # Fast ticks during active query
             else:
-                # Idle: short pause then next water cooler tick.
+                # Idle: short pause then next reef chat tick.
                 # Wake instantly if a query arrives.
                 self._query_event.clear()
                 try:
@@ -128,31 +224,49 @@ class Orchestrator:
             await self._process_query_queue()
 
         # 1d. If query has been active too long, push convergence
-        self._inject_convergence_pressure()
+        await self._inject_convergence_pressure()
 
         # 2. Run agent think-act cycles
-        #    During active queries, skip agents who won't contribute (Dev, Alex)
+        #    During active queries, skip agents who won't contribute (Snips, Reefus)
         #    to reduce tick time. Run independent agents in PARALLEL for speed.
-        #    During IDLE with water cooler: skip agent LLM calls entirely —
-        #    the water cooler function already generates chat. This makes idle
-        #    ticks ~10s (just the water cooler call) instead of ~30s.
+        #    During IDLE with reef chat: skip agent LLM calls entirely.
+        #    The reef chat function already generates chatter.
         if not self.office_state.current_query:
-            # Idle — water cooler handles everything, no agent LLM calls needed
+            # Idle — reef chat handles everything, no agent LLM calls needed.
             if self._tick_count % 5 == 0:
                 await self._broadcast_full_state()
             return
 
-        active_agents = self.agents
+        active_sandbox_agents = self._active_sandbox_agent_names()
+        assigned_sandbox_agents = self._assigned_sandbox_agent_names()
+        reserved_sandbox_agents = active_sandbox_agents | assigned_sandbox_agents
+        active_agents = [
+            agent for agent in self.agents
+            if agent.name not in reserved_sandbox_agents
+        ]
+        if not active_agents:
+            if self._tick_count % 5 == 0:
+                await self._broadcast_full_state()
+            return
+
         if self._query_tick >= 2:
-            essential = {"Maya", "Raj", "Sophie", "Jordan", "Sam"}
+            essential = {"Clawdia", "Shelldon", "Coraline", "Pearl", "Captain Claw"}
             active_agents = [a for a in self.agents if a.name in essential]
+            active_agents = [a for a in active_agents if a.name not in reserved_sandbox_agents]
+            if not active_agents:
+                if self._tick_count % 5 == 0:
+                    await self._broadcast_full_state()
+                return
+
+        participant_names = {agent.name for agent in active_agents}
+        general_lead, general_writer = self._general_query_role_names(active_agents)
 
         # Group agents into parallel batches:
-        # Batch 1: Sam (coordinator) — runs first to set direction
-        # Batch 2: Maya, Sophie (researchers) — can run in parallel
-        # Batch 3: Raj, Alex, Dev (analyzers/supporters) — can run in parallel
-        # Batch 4: Jordan (writer) — runs last to synthesize
-        _BATCH_ORDER = {"Sam": 0, "Maya": 1, "Sophie": 1, "Raj": 2, "Alex": 2, "Dev": 2, "Jordan": 3}
+        # Batch 1: Captain Claw (coordinator) — runs first to set direction
+        # Batch 2: Clawdia, Coraline (researchers) — can run in parallel
+        # Batch 3: Shelldon, Reefus, Snips (analyzers/supporters) — can run in parallel
+        # Batch 4: Pearl (writer) — runs last to synthesize
+        _BATCH_ORDER = {"Captain Claw": 0, "Clawdia": 1, "Coraline": 1, "Shelldon": 2, "Reefus": 2, "Snips": 2, "Pearl": 3}
 
         batches: dict[int, list[Agent]] = {}
         for agent in active_agents:
@@ -180,6 +294,13 @@ class Orchestrator:
             # Build shared state snapshot once per batch
             state = self.office_state.to_dict()
             state["query_tick"] = self._query_tick
+            state["general_query_lead"] = general_lead
+            state["general_query_writer"] = general_writer
+            state["agents"] = {
+                name: info
+                for name, info in state.get("agents", {}).items()
+                if name in participant_names
+            }
 
             async def _run_agent(agent: Agent) -> tuple[Agent, Action, dict] | None:
                 try:
@@ -207,7 +328,7 @@ class Orchestrator:
 
                 event = self._action_to_event(agent, action, result)
                 for other in self.agents:
-                    if other.name != agent.name:
+                    if other.name != agent.name and other.name in participant_names:
                         other.observe(event)
 
                 await self._broadcast_action(agent, action, result)
@@ -220,7 +341,7 @@ class Orchestrator:
                         timestamp=datetime.now(),
                     )
                     for other in self.agents:
-                        if other.name != agent.name:
+                        if other.name != agent.name and other.name in participant_names:
                             other.observe(share_event)
                     await self.broadcast({
                         "type": "agent_action",
@@ -245,15 +366,11 @@ class Orchestrator:
 
                 if action.type == ActionType.write_whiteboard and self.office_state.current_query:
                     query_text = self.office_state.current_query
-                    self.office_state.current_query = None
-                    self.office_state.current_files = []
-                    self._query_tick = 0
-                    for a in self.agents:
-                        a.current_task = None
+                    self._finish_general_query_state()
 
                     await self.broadcast({
                         "type": "agent_action",
-                        "agent": "Sam",
+                        "agent": "Captain Claw",
                         "role": "lead",
                         "action": "speak",
                         "content": f"The answer is on the whiteboard. Check the Whiteboard tab for our findings on: {query_text}",
@@ -266,10 +383,17 @@ class Orchestrator:
                     })
 
                     await self.broadcast({
+                        "type": "query_completed",
+                        "query": query_text,
+                        "timestamp": datetime.now().isoformat(),
+                    })
+
+                    await self.broadcast({
                         "type": "query_received",
                         "query": "",
                         "timestamp": datetime.now().isoformat(),
                     })
+                    await self._broadcast_full_state()
 
                     logger.info("Query completed: %s", query_text[:60])
                     break  # Stop processing remaining agents in this batch
@@ -282,35 +406,38 @@ class Orchestrator:
     # Convergence pressure — push agents to deliver
     # ------------------------------------------------------------------
 
-    def _inject_convergence_pressure(self) -> None:
+    async def _inject_convergence_pressure(self) -> None:
         """After a few ticks of discussion, push the team to deliver."""
         if not self.office_state.current_query:
             return
 
-        jordan = next((a for a in self.agents if a.name == "Jordan"), None)
-        sam = next((a for a in self.agents if a.name == "Sam"), None)
+        reserved_sandbox_agents = self._active_sandbox_agent_names() | self._assigned_sandbox_agent_names()
+        available_agents = [agent for agent in self.agents if agent.name not in reserved_sandbox_agents]
+        lead_name, writer_name = self._general_query_role_names(available_agents)
+        lead = next((a for a in available_agents if a.name == lead_name), None)
+        writer = next((a for a in available_agents if a.name == writer_name), None)
 
-        # After 1 tick: nudge Sam to direct Maya to search immediately
-        if self._query_tick == 1 and sam:
-            sam.observe(OfficeEvent(
+        # After 1 tick: nudge Captain Claw to direct Clawdia to search immediately
+        if self._query_tick == 1 and lead:
+            lead.observe(OfficeEvent(
                 type="system_nudge",
                 agent="system",
-                data={"message": "Direct Maya to search NOW. Be specific about what to search for. Then tell the team the plan in 1-2 sentences."},
+                data={"message": "Direct Clawdia to search NOW. Be specific about what to search for. Then tell the team the plan in 1-2 sentences."},
                 timestamp=datetime.now(),
             ))
 
-        # After 2 ticks: Sam should tell Jordan to write
-        if self._query_tick == 2 and sam:
-            sam.observe(OfficeEvent(
+        # After 2 ticks: Captain Claw should tell Pearl to write
+        if self._query_tick == 2 and lead:
+            lead.observe(OfficeEvent(
                 type="system_nudge",
                 agent="system",
-                data={"message": "Tell Jordan to write the final answer NOW. Say: 'Jordan, write it up on the whiteboard.'"},
+                data={"message": f"Tell {writer_name or 'the writer'} to write the final answer NOW on the whiteboard."},
                 timestamp=datetime.now(),
             ))
 
-        # After 3 ticks: nudge Jordan HARD
-        if self._query_tick >= 3 and jordan:
-            jordan.observe(OfficeEvent(
+        # After 3 ticks: nudge the available writer HARD
+        if self._query_tick >= 3 and writer:
+            writer.observe(OfficeEvent(
                 type="system_nudge",
                 agent="system",
                 data={"message": "STOP TALKING. Use action=\"write_whiteboard\" RIGHT NOW. Do NOT use \"speak\". Your next action MUST be write_whiteboard with the full answer as content. Synthesize everything discussed into a clear response."},
@@ -320,235 +447,33 @@ class Orchestrator:
         # After 5 ticks: force clear the query
         if self._query_tick >= 5:
             logger.info("Query timed out after %d ticks, clearing", self._query_tick)
-            self.office_state.current_query = None
-            self.office_state.current_files = []
-            self._query_tick = 0
-            for agent in self.agents:
-                agent.current_task = None
-
-    # ------------------------------------------------------------------
-    # Idle behaviour — water cooler chat
-    # ------------------------------------------------------------------
-
-    _FALLBACK_TOPICS = [
-        "Maya's new rescue cat keeps knocking her monitor off the desk",
-        "whether the office coffee machine is better than Jordan's $800 home espresso setup",
-        "who keeps stealing the good oat milk from the break room fridge",
-        "Dev's growing mechanical keyboard collection",
-        "Sam's golden retriever Biscuit who crashes every video call",
-    ]
-
-    _TOPICS_FILE = "/home/nvidia/documents/demo-files/water-cooler-topics.md"
-
-    @classmethod
-    def _load_topics(cls) -> list[str]:
-        """Load water cooler topics from the markdown file."""
-        try:
-            with open(cls._TOPICS_FILE, "r") as f:
-                lines = f.readlines()
-            topics = [
-                l.strip() for l in lines
-                if l.strip() and not l.strip().startswith("#")
-            ]
-            if topics:
-                return topics
-        except FileNotFoundError:
-            logger.info("Water cooler topics file not found, using defaults")
-        except Exception:
-            logger.exception("Error loading water cooler topics")
-        return cls._FALLBACK_TOPICS
-
-    _MOVE_SUGGESTIONS = [
-        "You've been at your desk a while. Head to the break room for a coffee?",
-        "Go check if anyone's in the break room — might be a good chat happening.",
-        "Stretch your legs! Walk to the lobby or the break room.",
-        "Swing by a colleague's desk and see what they're up to.",
-    ]
-
-    async def _inject_idle_behavior(self) -> None:
-        """Water cooler mode: generate casual chat between idle agents."""
-        if self.office_state.current_query:
-            return
-        if not self.water_cooler_enabled:
-            return
-
-        idle_agents = [
-            a for a in self.agents
-            if a.state in (AgentState.idle, AgentState.thinking)
-        ]
-        if len(idle_agents) < 2:
-            return
-
-        # Use forced topic or pick random from file
-        if self.water_cooler_topic:
-            topic = self.water_cooler_topic
-        else:
-            topics = self._load_topics()
-            topic = random.choice(topics)
-
-        # Every tick: pick a pair and have them chat via LLM
-        pair = random.sample(idle_agents, 2)
-        agent_a, agent_b = pair
-
-        # Move both to break room if not there
-        for agent in pair:
-            if agent.location != "break_room":
-                from office_agents.office.layout import ROOM_POSITIONS, get_room_position, release_room_seat
-                release_room_seat(agent.location, agent.name)
-                agent.position = get_room_position("break_room", agent.name)
-                agent.location = "break_room"
-                self.office_state.update_agent_position(
-                    agent.name, "break_room", agent.position
-                )
-
-        # Generate water cooler chat using the agent's OWN system prompt
-        user_prompt = (
-            f"CURRENT STATE:\n"
-            f"- Location: break_room\n"
-            f"- Working on: nothing specific\n"
-            f"- Your state: idle\n\n"
-            f"You are ALREADY in the break_room with {agent_b.name}. No query is active.\n"
-            f"You're chatting about: {topic}\n\n"
-            f"Respond with a JSON action. Say 1-2 casual sentences. Be fun and opinionated!\n"
-            f'{{"action": "speak", "target": "{agent_b.name}", '
-            f'"content": "your thought here", "reasoning": "coffee chat"}}'
-        )
-
-        # Race the LLM call against incoming queries — abort water cooler if query arrives
-        llm_task = asyncio.create_task(agent_a.llm.chat(
-            system_prompt=agent_a.system_prompt,
-            user_prompt=user_prompt,
-            temperature=0.9,
-            max_tokens=300,
-        ))
-        query_wait = asyncio.create_task(self._query_event.wait())
-
-        done, pending = await asyncio.wait(
-            [llm_task, query_wait],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for t in pending:
-            t.cancel()
-
-        if query_wait in done:
-            logger.info("Water cooler aborted — query arrived")
-            return
-
-        raw = llm_task.result()
-        logger.info("Water cooler raw LLM (%d chars): %s", len(raw), raw[:300])
-
-        # Parse the response — extract JSON or use raw text
-        import json as _json
-        chat_lines: list[tuple[Agent, Agent, str]] = []
-
-        if len(raw.strip()) > 5:  # Skip near-empty responses like just "{"
-            try:
-                # Find the most complete JSON object
-                json_match = re.search(r"\{[^{}]+\}", raw, re.DOTALL)
-                if json_match:
-                    data = _json.loads(json_match.group())
-                    content = data.get("content", "") or data.get("line1", "")
-                    if content:
-                        chat_lines.append((agent_a, agent_b, content))
-            except _json.JSONDecodeError:
-                pass
-
-            # Fallback: if no JSON parsed, try "Name: message" format
-            if not chat_lines:
-                for line in raw.strip().split("\n"):
-                    line = line.strip().strip('"')
-                    if line.startswith(f"{agent_a.name}:"):
-                        msg = line[len(agent_a.name)+1:].strip().strip('"')
-                        if msg:
-                            chat_lines.append((agent_a, agent_b, msg))
-                            break
-
-            # Last resort: use raw text if it looks like speech
-            if not chat_lines and len(raw.strip()) > 10 and not raw.strip().startswith("{"):
-                chat_lines.append((agent_a, agent_b, raw.strip()[:150]))
-
-        # Broadcast the chat lines
-        for speaker, listener, message in chat_lines[:2]:
-            speaker.state = AgentState.collaborating
-
+            query_text = self.office_state.current_query
+            self._finish_general_query_state()
             await self.broadcast({
-                "type": "agent_action",
-                "agent": speaker.name,
-                "role": speaker.role,
-                "action": "speak",
-                "content": message,
-                "target": listener.name,
-                "reasoning": "Water cooler chat",
-                "state": "collaborating",
-                "location": "break_room",
-                "position": {"x": speaker.position[0], "y": speaker.position[1]},
+                "type": "query_completed",
+                "query": query_text,
+                "status": "timeout",
                 "timestamp": datetime.now().isoformat(),
             })
+            await self._broadcast_full_state()
 
-            event = OfficeEvent(
-                type="speak",
-                agent=speaker.name,
-                data={"message": message, "target": listener.name},
-                timestamp=datetime.now(),
-            )
-            for a in self.agents:
-                if a.name != speaker.name:
-                    a.observe(event)
+    def _finish_general_query_state(self) -> None:
+        """Clear general-query state. Resets the local tick counter too."""
+        self._query_tick = 0
+        self._query_intake.finish_general_query()
 
-        # Reset states
-        for agent in pair:
-            agent.state = AgentState.idle
+    # ------------------------------------------------------------------
+    # Idle behaviour + query intake (delegated to reef/*)
+    # ------------------------------------------------------------------
+
+    async def _inject_idle_behavior(self) -> None:
+        await self._idle_chat.tick(
+            enabled=self.water_cooler_enabled,
+            forced_topic=self.water_cooler_topic,
+        )
 
     async def _process_query_queue(self) -> None:
-        """Drain every pending query from the queue."""
-        from office_agents.office.layout import get_room_position, release_room_seat
-
-        while True:
-            try:
-                query_data = self.query_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-
-            query_text = query_data["query"]
-            files = query_data.get("files", [])
-
-            # Update office state
-            self.office_state.current_query = query_text
-            self.office_state.current_files = files
-
-            # TELEPORT all agents to war room immediately — skip the "move_to" tick waste
-            for agent in self.agents:
-                release_room_seat(agent.location, agent.name)
-                agent.position = get_room_position("war_room", agent.name)
-                agent.location = "war_room"
-                agent.state = AgentState.collaborating
-                agent.current_task = query_text
-                self.office_state.update_agent_position(
-                    agent.name, "war_room", agent.position
-                )
-
-            # Create event and distribute to all agents
-            event = OfficeEvent(
-                type="new_query",
-                agent="user",
-                data={"query": query_text, "files": files},
-                timestamp=datetime.now(),
-            )
-            for agent in self.agents:
-                agent.observe(event)
-
-            # Notify frontend
-            await self.broadcast(
-                {
-                    "type": "query_received",
-                    "query": query_text,
-                    "files": files,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-            # Broadcast updated positions so frontend sees them in war room
-            await self._broadcast_full_state()
-            logger.info("New query distributed (agents teleported to war room): %s", query_text[:80])
+        await self._query_intake.drain()
 
     # ------------------------------------------------------------------
     # Event construction
@@ -610,6 +535,9 @@ class Orchestrator:
             "state": agent.state.value,
             "location": agent.location,
             "position": {"x": agent.position[0], "y": agent.position[1]},
+            "claw_id": agent.claw_id,
+            "sandbox_name": agent.sandbox_name,
+            "connect_command": agent.connect_command,
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -622,6 +550,9 @@ class Orchestrator:
                 "success": cr.get("success"),
                 "output": cr.get("output", "")[:1000],
                 "files_created": cr.get("files_created", []),
+                "claw_id": cr.get("claw_id"),
+                "sandbox_name": cr.get("sandbox_name"),
+                "nemoclaw_available": cr.get("nemoclaw_available"),
             }
         if "file_content" in result:
             payload["file_content"] = result["file_content"][:1000]
@@ -636,6 +567,7 @@ class Orchestrator:
                 "type": "full_state",
                 "agents": agents_info,
                 "office": self.office_state.to_dict(),
+                "sandbox_assignments": self.get_sandbox_assignments(),
                 "tick": self._tick_count,
                 "timestamp": datetime.now().isoformat(),
             }
