@@ -2,7 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+# Tool taxonomy — each lobster gets a distinct subset so teams have visible,
+# differentiated capabilities. These are surface labels the UI can render as
+# chips; the backend doesn't hard-gate Actions on them today (that's an easy
+# follow-up). They DO get spliced into the OpenClaw message so the sandbox
+# agent biases its behaviour toward its own toolset.
+TOOL_DESCRIPTIONS: dict[str, str] = {
+    "web_research":      "Searches the web for primary information.",
+    "fact_check":        "Verifies claims via independent searches.",
+    "data_analysis":     "Ranks, compares, extracts insights from data.",
+    "planning":          "Breaks tasks into ordered steps.",
+    "code_authoring":    "Writes and edits code.",
+    "code_execution":    "Runs shell commands inside the sandbox.",
+    "file_io":           "Reads files on disk.",
+    "final_synthesis":   "Writes the polished final answer.",
+    "team_coordination": "Delegates, asks the user, summarises.",
+}
 
 
 @dataclass(frozen=True)
@@ -12,6 +30,9 @@ class AgentRole:
     default_desk: str
     personality: str
     system_prompt: str
+    # Tools/traits this lobster brings to any team it's part of. The UI shows
+    # them as chips; the sandbox prompt is biased by them.
+    tools: tuple[str, ...] = field(default_factory=tuple)
 
 
 # ── Shared preamble ──────────────────────────────────────────────────────
@@ -123,6 +144,7 @@ MAYA = AgentRole(
         "Apologizes for tangents. Always cites sources.\n\n"
         f"{_ACTION_SCHEMA}"
     ),
+    tools=("web_research", "file_io",),
 )
 
 RAJ = AgentRole(
@@ -146,6 +168,7 @@ RAJ = AgentRole(
         "PERSONALITY: Precise, one-and-done. Delivers analysis then stays quiet.\n\n"
         f"{_ACTION_SCHEMA}"
     ),
+    tools=("data_analysis", "file_io",),
 )
 
 SOPHIE = AgentRole(
@@ -167,6 +190,7 @@ SOPHIE = AgentRole(
         "PERSONALITY: Direct, efficient. Does the work, doesn't just talk about it.\n\n"
         f"{_ACTION_SCHEMA}"
     ),
+    tools=("web_research", "fact_check",),
 )
 
 ALEX = AgentRole(
@@ -187,6 +211,7 @@ ALEX = AgentRole(
         "PERSONALITY: Only speaks when adding structure. Quiet otherwise.\n\n"
         f"{_ACTION_SCHEMA}"
     ),
+    tools=("planning", "team_coordination",),
 )
 
 JORDAN = AgentRole(
@@ -217,6 +242,7 @@ JORDAN = AgentRole(
         "- Sources mentioned where relevant\n\n"
         f"{_ACTION_SCHEMA}"
     ),
+    tools=("final_synthesis", "file_io",),
 )
 
 DEV = AgentRole(
@@ -237,6 +263,7 @@ DEV = AgentRole(
         "PERSONALITY: Silent until code is needed. Then acts fast.\n\n"
         f"{_ACTION_SCHEMA}"
     ),
+    tools=("code_authoring", "code_execution", "file_io",),
 )
 
 SAM = AgentRole(
@@ -263,6 +290,7 @@ SAM = AgentRole(
         "Checks on quiet team members. Breaks ties gracefully.\n\n"
         f"{_ACTION_SCHEMA}"
     ),
+    tools=("team_coordination", "final_synthesis", "web_research",),
 )
 
 # All roles in a convenient list

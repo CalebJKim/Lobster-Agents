@@ -346,7 +346,8 @@ class SandboxManager:
             "started_at": datetime.now().isoformat(),
             "outputs": {},
             "errors": {},
-            "mode": "single" if len(selected) == 1 else "sequential",
+            # 1 lobster → "single", 2+ → "coordinated" (each sees prior outputs).
+            "mode": "single" if len(selected) == 1 else "coordinated",
             "policies": active_policies,
         }
         self._run_tasks[run_id] = asyncio.create_task(
@@ -474,7 +475,7 @@ class SandboxManager:
                 "policies": meta_at_start.get("policies", []),
                 "timestamp": datetime.now().isoformat(),
             })
-            mode_label = "sequentially" if len(agents) > 1 else "in this sandbox"
+            mode_label = "in a coordinated relay" if len(agents) > 1 else "solo in this sandbox"
             await self._broadcast_progress(
                 run_id=run_id,
                 sandbox_name=sandbox_name,
@@ -504,10 +505,28 @@ class SandboxManager:
                     "timestamp": datetime.now().isoformat(),
                 })
 
+            # Coordinated relay: each agent sees the outputs of teammates who
+            # came before so they can build on the work instead of duplicating it.
             results: list[tuple[Agent, dict[str, Any]]] = []
+            prior_turns: list[dict[str, str]] = []
             for agent in agents:
                 try:
-                    results.append(await self._run_one_agent(run_id, sandbox_name, task, agent))
+                    agent_obj, result = await self._run_one_agent(
+                        run_id,
+                        sandbox_name,
+                        task,
+                        agent,
+                        prior_turns=list(prior_turns) if prior_turns else None,
+                    )
+                    results.append((agent_obj, result))
+                    if result.get("success"):
+                        output_text = str(result.get("output") or "").strip()
+                        if output_text:
+                            prior_turns.append({
+                                "name": agent.name,
+                                "role": agent.role,
+                                "output": output_text,
+                            })
                 except Exception as exc:
                     logger.exception("Sandbox team task failed for %s", agent.name)
                     results.append((agent, {"success": False, "output": f"{type(exc).__name__}: {exc}"}))
@@ -585,6 +604,7 @@ class SandboxManager:
         sandbox_name: str,
         task: str,
         agent: Agent,
+        prior_turns: list[dict[str, str]] | None = None,
     ) -> tuple[Agent, dict[str, Any]]:
         await self._broadcast_progress(
             run_id=run_id,
@@ -606,12 +626,16 @@ class SandboxManager:
                 agent.name,
                 str(ensure_result.get("output", ""))[:300],
             )
+        relay_note = (
+            f" — building on {len(prior_turns)} teammate turn{'s' if len(prior_turns) != 1 else ''}"
+            if prior_turns else ""
+        )
         await self._broadcast_progress(
             run_id=run_id,
             sandbox_name=sandbox_name,
             agent=agent.name,
             phase="openclaw",
-            message=f"Running {agent.name}'s OpenClaw turn in {short_sandbox_name(sandbox_name)}.",
+            message=f"Running {agent.name}'s OpenClaw turn in {short_sandbox_name(sandbox_name)}{relay_note}.",
         )
         result = await run_openclaw(
             task,
@@ -619,6 +643,11 @@ class SandboxManager:
             sandbox_name=sandbox_name,
             timeout_seconds=90,
             require_sandbox=True,
+            display_name=agent.name,
+            role_label=agent.role,
+            personality=getattr(agent, "personality", None),
+            tools=list(agent.tools),
+            prior_turns=prior_turns or None,
         )
         return agent, result
 

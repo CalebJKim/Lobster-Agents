@@ -136,6 +136,7 @@ function agentsFromBackendState(state: BackendEvent): AgentInfo[] {
       claw_id: a.claw_id ?? CLAW_METADATA[name]?.clawId,
       sandbox_name: typeof a.sandbox_name === "string" ? a.sandbox_name : undefined,
       connect_command: typeof a.connect_command === "string" ? a.connect_command : undefined,
+      tools: Array.isArray(a.tools) ? a.tools.filter((t: unknown): t is string => typeof t === "string") : undefined,
     } as AgentInfo;
   });
 }
@@ -169,6 +170,7 @@ export function useWebSocket() {
             claw_id: a.claw_id ?? CLAW_METADATA[a.name]?.clawId,
             sandbox_name: typeof a.sandbox_name === "string" ? a.sandbox_name : undefined,
             connect_command: typeof a.connect_command === "string" ? a.connect_command : undefined,
+            tools: Array.isArray(a.tools) ? a.tools.filter((t: unknown): t is string => typeof t === "string") : undefined,
           })
         );
         const currentQuery = Object.prototype.hasOwnProperty.call(office, "current_query")

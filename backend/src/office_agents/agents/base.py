@@ -49,6 +49,7 @@ class Agent:
         self.default_desk = role_config.default_desk
         self.system_prompt = role_config.system_prompt
         self.personality = role_config.personality
+        self.tools: tuple[str, ...] = role_config.tools
         self.claw_metadata = get_claw_metadata(self.name)
         self.claw_id = self.claw_metadata["claw_id"]
         self.sandbox_name: str | None = None
@@ -240,6 +241,7 @@ class Agent:
             "claw_id": self.claw_id,
             "sandbox_name": self.sandbox_name,
             "connect_command": self.connect_command,
+            "tools": list(self.tools),
         }
 
     # ------------------------------------------------------------------

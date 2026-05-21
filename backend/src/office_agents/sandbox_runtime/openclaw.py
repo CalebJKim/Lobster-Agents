@@ -39,6 +39,15 @@ async def run_openclaw(
     # through openshell now.
     require_sandbox: bool = True,
     working_dir: str | None = None,
+    # Per-lobster context — splice into the OpenClaw prompt so the agent
+    # acts in character with its specialties instead of as a generic worker.
+    display_name: str | None = None,
+    role_label: str | None = None,
+    personality: str | None = None,
+    tools: list[str] | None = None,
+    # Coordinated mode — prior teammates' outputs so this lobster can build
+    # on what came before, not just produce a parallel isolated turn.
+    prior_turns: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run one OpenClaw agent turn inside a NemoClaw sandbox.
 
@@ -60,7 +69,17 @@ async def run_openclaw(
 
     sandbox_workdir = f"{DEFAULT_SANDBOX_WORKDIR}/{claw_id}"
     message = _single_line(
-        _format_openclaw_message(task, claw_id, sandbox_name, sandbox_workdir)
+        _format_openclaw_message(
+            task,
+            claw_id,
+            sandbox_name,
+            sandbox_workdir,
+            display_name=display_name,
+            role_label=role_label,
+            personality=personality,
+            tools=tools or [],
+            prior_turns=prior_turns or [],
+        )
     )
 
     proc: asyncio.subprocess.Process | None = None
@@ -250,18 +269,66 @@ def _format_openclaw_message(
     claw_id: str,
     sandbox_name: str,
     working_dir: str,
+    *,
+    display_name: str | None,
+    role_label: str | None,
+    personality: str | None,
+    tools: list[str],
+    prior_turns: list[dict[str, str]],
 ) -> str:
-    if sandbox_name == "reef-commons":
-        return (
-            f"You are OpenClaw agent '{claw_id}' working from the shared reef "
-            f"workspace '{working_dir}'.\n\n"
-            f"Task:\n{task}"
+    """Build the message handed to `openclaw agent --message`.
+
+    Old version was generic ("You are OpenClaw agent X, here is the task")
+    so every lobster behaved identically. Now we splice in the lobster's
+    name, role, personality, and tool specialties so it acts in character.
+    For coordinated multi-lobster runs we also append prior teammate
+    outputs so this turn builds on what came before.
+    """
+    parts: list[str] = []
+
+    if display_name and role_label:
+        parts.append(
+            f"You are {display_name}, the reef's {role_label} (OpenClaw agent '{claw_id}')."
         )
-    return (
-        f"You are OpenClaw agent '{claw_id}' working from NemoClaw sandbox "
-        f"'{sandbox_name}'. Use working directory '{working_dir}'.\n\n"
-        f"Task:\n{task}"
-    )
+        if personality:
+            parts.append(f"Personality: {personality}")
+        if tools:
+            parts.append(
+                "Your specialties: " + ", ".join(tools) + ". "
+                "Lean into these. Don't try to be a generalist."
+            )
+    else:
+        parts.append(f"You are OpenClaw agent '{claw_id}'.")
+
+    if sandbox_name == "reef-commons":
+        parts.append(f"You are working from the shared reef workspace '{working_dir}'.")
+    else:
+        parts.append(
+            f"You are working from NemoClaw sandbox '{sandbox_name}'. "
+            f"Use working directory '{working_dir}'."
+        )
+
+    if prior_turns:
+        parts.append("")
+        parts.append("Teammate turns so far in this sandbox run:")
+        for turn in prior_turns:
+            name = turn.get("name", "?")
+            role = turn.get("role", "")
+            text = (turn.get("output") or "").strip()
+            if len(text) > 800:
+                text = text[:797].rstrip() + "..."
+            parts.append(f"--- {name} ({role}) ---")
+            parts.append(text)
+        parts.append("")
+        parts.append(
+            "Build on what your teammates produced. Add what only you can; "
+            "don't duplicate their work."
+        )
+
+    parts.append("")
+    parts.append("Task:")
+    parts.append(task)
+    return "\n".join(parts)
 
 
 def _single_line(message: str) -> str:

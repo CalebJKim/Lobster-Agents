@@ -43,6 +43,9 @@ export interface AgentInfo {
   claw_id?: string;
   sandbox_name?: string;
   connect_command?: string;
+  /** Trait/tool labels (e.g. "web_research", "code_authoring") — the
+   *  capabilities this lobster brings to any team. UI shows them as chips. */
+  tools?: string[];
 }
 
 export interface ChatMessage {
@@ -130,7 +133,7 @@ export interface NemoClawRunStatus {
   /** "single" for one-lobster runs, "sequential" for multi-lobster.
    *  Frontend uses this to label the row honestly — multi-lobster
    *  runs are not collaborative; each agent gets its own subprocess turn. */
-  mode?: "single" | "sequential";
+  mode?: "single" | "sequential" | "coordinated";
   /** Names of NemoClaw policy presets that were enabled when the run started.
    *  Empty list means the sandbox is running without any restrictive policies. */
   policies?: string[];

@@ -412,15 +412,24 @@ function StatusTab({
           <div className="flex flex-wrap items-center gap-2">
             {run.mode && (
               <span
+                title={
+                  run.mode === "coordinated"
+                    ? "Each lobster's OpenClaw turn sees the prior teammates' outputs and builds on them."
+                    : undefined
+                }
                 className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-                  run.mode === "sequential"
-                    ? "bg-amber-300/18 text-amber-100"
-                    : "bg-cyan-300/16 text-cyan-100"
+                  run.mode === "coordinated"
+                    ? "bg-cyan-300/22 text-cyan-50"
+                    : run.mode === "sequential"
+                      ? "bg-amber-300/18 text-amber-100"
+                      : "bg-cyan-300/16 text-cyan-100"
                 }`}
               >
-                {run.mode === "sequential"
-                  ? "Sequential — no in-sandbox chat"
-                  : "Single agent"}
+                {run.mode === "coordinated"
+                  ? "Coordinated relay"
+                  : run.mode === "sequential"
+                    ? "Sequential — no in-sandbox chat"
+                    : "Single agent"}
               </span>
             )}
             {(run.policies ?? []).map((p) => (
@@ -527,7 +536,44 @@ function StatusTab({
         </section>
       )}
 
-      {/* Team */}
+      {/* Team capabilities — union of each lobster's tool traits. */}
+      {team.length > 0 && (
+        <section>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
+            Team capabilities
+          </div>
+          {(() => {
+            const union: string[] = [];
+            for (const agent of team) {
+              for (const t of agent.tools ?? []) {
+                if (!union.includes(t)) union.push(t);
+              }
+            }
+            if (union.length === 0) {
+              return (
+                <div className="text-[12px] text-white/45">
+                  None of this team's lobsters have tools listed.
+                </div>
+              );
+            }
+            return (
+              <div className="flex flex-wrap gap-1.5">
+                {union.map((tool) => (
+                  <span
+                    key={tool}
+                    className="rounded-full bg-cyan-300/14 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-50"
+                    title={tool}
+                  >
+                    {tool.replace(/_/g, " ")}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
+        </section>
+      )}
+
+      {/* Team roster */}
       <section>
         <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
           Team in this sandbox
@@ -541,6 +587,7 @@ function StatusTab({
             {team.map((agent) => (
               <span
                 key={agent.name}
+                title={agent.tools?.length ? `Tools: ${agent.tools.join(", ")}` : undefined}
                 className="flex items-center gap-2 rounded-full bg-white/[0.08] px-3 py-1.5 text-[12px] font-semibold text-white/85"
               >
                 <span
