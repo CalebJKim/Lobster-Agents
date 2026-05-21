@@ -48,13 +48,10 @@ export const STATE_ICONS: Record<AgentState, string> = {
 
 // Room background colors for PixiJS (numeric hex)
 export const ROOM_COLORS: Record<string, number> = {
-  desk_researcher: 0xf0ddbd,
-  desk_analyst: 0xf0ddbd,
-  desk_critic: 0xf0ddbd,
-  desk_planner: 0xf0ddbd,
-  desk_writer: 0xf0ddbd,
-  desk_coder: 0xf0ddbd,
-  desk_lead: 0xf0ddbd,
+  sandbox_cove: 0xf0ddbd,
+  sandbox_hollow: 0xf0ddbd,
+  sandbox_bench: 0xf0ddbd,
+  sandbox_bridge: 0xf0ddbd,
   war_room: 0xd6d8c8,
   break_room: 0xcfe7db,
   lobby: 0xdce9ee,
@@ -73,70 +70,32 @@ export interface RoomDef {
 }
 
 export const ROOMS: RoomDef[] = [
-  // Top row - individual desks
+  // Four shared sandbox rooms (was 7, one per lobster). Lobsters can team up
+  // in any of them now, so they're communal and placed organically — the
+  // 3D layout in ThreeUnderwaterMap.tsx ignores these tile coordinates and
+  // uses VISUAL_ROOM_LAYOUT instead.
   {
-    id: "desk_researcher",
-    label: WORKSPACE_LABELS.desk_researcher ?? "Reef Workspace",
-    x: 1,
-    y: 1,
-    w: 9,
-    h: 7,
+    id: "sandbox_cove",
+    label: WORKSPACE_LABELS.sandbox_cove ?? "Coral Cove",
+    x: 1, y: 1, w: 9, h: 7,
     color: 0xf0ddbd,
   },
   {
-    id: "desk_analyst",
-    label: WORKSPACE_LABELS.desk_analyst ?? "Charts Workspace",
-    x: 11,
-    y: 1,
-    w: 9,
-    h: 7,
+    id: "sandbox_bridge",
+    label: WORKSPACE_LABELS.sandbox_bridge ?? "The Bridge",
+    x: 31, y: 1, w: 8, h: 7,
     color: 0xf0ddbd,
   },
   {
-    id: "desk_critic",
-    label: WORKSPACE_LABELS.desk_critic ?? "Review Workspace",
-    x: 21,
-    y: 1,
-    w: 9,
-    h: 7,
+    id: "sandbox_hollow",
+    label: WORKSPACE_LABELS.sandbox_hollow ?? "Quill Hollow",
+    x: 11, y: 9, w: 9, h: 7,
     color: 0xf0ddbd,
   },
   {
-    id: "desk_lead",
-    label: WORKSPACE_LABELS.desk_lead ?? "Bridge Workspace",
-    x: 31,
-    y: 1,
-    w: 8,
-    h: 7,
-    color: 0xf0ddbd,
-  },
-
-  // Middle row
-  {
-    id: "desk_planner",
-    label: WORKSPACE_LABELS.desk_planner ?? "Route Workspace",
-    x: 1,
-    y: 9,
-    w: 9,
-    h: 7,
-    color: 0xf0ddbd,
-  },
-  {
-    id: "desk_writer",
-    label: WORKSPACE_LABELS.desk_writer ?? "Writing Workspace",
-    x: 11,
-    y: 9,
-    w: 9,
-    h: 7,
-    color: 0xf0ddbd,
-  },
-  {
-    id: "desk_coder",
-    label: WORKSPACE_LABELS.desk_coder ?? "Workbench Workspace",
-    x: 21,
-    y: 9,
-    w: 9,
-    h: 7,
+    id: "sandbox_bench",
+    label: WORKSPACE_LABELS.sandbox_bench ?? "Workbench",
+    x: 21, y: 9, w: 9, h: 7,
     color: 0xf0ddbd,
   },
 

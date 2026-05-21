@@ -11,17 +11,15 @@ OFFICE_WIDTH = 40
 OFFICE_HEIGHT = 30
 TILE_SIZE = 16  # pixels per tile
 
-# Room definitions — tile coordinates (must match frontend/src/utils/sprites.ts)
+# Room definitions — tile coordinates (must match frontend/src/utils/sprites.ts).
+# Four shared sandbox rooms (was seven, one per lobster) plus the common areas.
 ROOMS: dict[str, dict] = {
-    "desk_researcher": {"x": 1, "y": 1, "w": 9, "h": 7, "label": "Reef Workspace"},
-    "desk_analyst":    {"x": 11, "y": 1, "w": 9, "h": 7, "label": "Charts Workspace"},
-    "desk_critic":     {"x": 21, "y": 1, "w": 9, "h": 7, "label": "Review Workspace"},
-    "desk_lead":       {"x": 31, "y": 1, "w": 8, "h": 7, "label": "Bridge Workspace"},
-    "desk_planner":    {"x": 1, "y": 9, "w": 9, "h": 7, "label": "Route Workspace"},
-    "desk_writer":     {"x": 11, "y": 9, "w": 9, "h": 7, "label": "Writing Workspace"},
-    "desk_coder":      {"x": 21, "y": 9, "w": 9, "h": 7, "label": "Workbench Workspace"},
-    "break_room":      {"x": 31, "y": 9, "w": 8, "h": 7, "label": "Break Room"},
-    "war_room":        {"x": 1, "y": 17, "w": 19, "h": 12, "label": "War Room"},
+    "sandbox_cove": {"x": 1,  "y": 1,  "w": 9, "h": 7,  "label": "Coral Cove"},
+    "sandbox_bridge":       {"x": 31, "y": 1,  "w": 8, "h": 7,  "label": "The Bridge"},
+    "sandbox_hollow":     {"x": 11, "y": 9,  "w": 9, "h": 7,  "label": "Quill Hollow"},
+    "sandbox_bench":      {"x": 21, "y": 9,  "w": 9, "h": 7,  "label": "Workbench"},
+    "break_room":      {"x": 31, "y": 9,  "w": 8, "h": 7,  "label": "Break Room"},
+    "war_room":        {"x": 1,  "y": 17, "w": 19, "h": 12, "label": "War Room"},
     "lobby":           {"x": 21, "y": 17, "w": 9, "h": 12, "label": "Lobby"},
     "bulletin_board":  {"x": 31, "y": 17, "w": 8, "h": 12, "label": "Bulletin Board"},
 }
@@ -93,13 +91,10 @@ BULLETIN_SPOTS: list[tuple[int, int]] = [
 ]
 
 SANDBOX_ROOMS = (
-    "desk_researcher",
-    "desk_analyst",
-    "desk_critic",
-    "desk_planner",
-    "desk_writer",
-    "desk_coder",
-    "desk_lead",
+    "sandbox_cove",
+    "sandbox_bridge",
+    "sandbox_hollow",
+    "sandbox_bench",
 )
 
 

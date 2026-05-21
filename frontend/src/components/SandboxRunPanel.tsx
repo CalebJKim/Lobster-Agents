@@ -13,6 +13,9 @@ interface SandboxRunPanelProps {
   onClose: () => void;
   /** Force-refresh the parent sandboxes index after a policy change. */
   onAfterChange?: () => void | Promise<void>;
+  /** Optimistic local rename — lets the parent update its sandboxes cache
+   *  immediately instead of waiting for the next /sandboxes poll. */
+  onLocalRename?: (sandboxName: string, displayName: string) => void;
 }
 
 function formatTime(ts: string | undefined): string {
@@ -83,6 +86,7 @@ export default function SandboxRunPanel({
   messages,
   onClose,
   onAfterChange,
+  onLocalRename,
 }: SandboxRunPanelProps) {
   const [tab, setTab] = useState<Tab>("status");
   const [policies, setPolicies] = useState<NemoClawPolicyPreset[]>([]);
@@ -169,6 +173,57 @@ export default function SandboxRunPanel({
     [messages, sandbox.name]
   );
 
+  // Inline rename state. Empty draft means "use default."
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const currentLabel = sandbox.display_name || sandbox.name;
+  const defaultLabel = sandbox.default_display_name || "";
+  const isCustomLabel =
+    Boolean(defaultLabel) && currentLabel !== defaultLabel;
+
+  const startRename = useCallback(() => {
+    setRenameDraft(currentLabel);
+    setRenameError(null);
+    setIsRenaming(true);
+  }, [currentLabel]);
+
+  const cancelRename = useCallback(() => {
+    setIsRenaming(false);
+    setRenameError(null);
+  }, []);
+
+  const submitRename = useCallback(
+    async (raw: string) => {
+      try {
+        const res = await fetch(
+          `/sandboxes/${encodeURIComponent(sandbox.name)}/display-name`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ display_name: raw }),
+          }
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.detail || `Rename failed (${res.status})`);
+        }
+        const body = await res.json().catch(() => ({}));
+        const effective = typeof body?.display_name === "string"
+          ? body.display_name
+          : (raw.trim() || defaultLabel || sandbox.name);
+        setIsRenaming(false);
+        setRenameError(null);
+        // Optimistic local update so this panel + the dock card flip instantly.
+        onLocalRename?.(sandbox.name, effective);
+        await onAfterChange?.();
+      } catch (err) {
+        setRenameError(err instanceof Error ? err.message : "Rename failed");
+      }
+    },
+    [sandbox.name, defaultLabel, onAfterChange, onLocalRename]
+  );
+
   return (
     <div
       className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-sm"
@@ -180,13 +235,78 @@ export default function SandboxRunPanel({
       >
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/8 bg-slate-900/40 px-6 py-3.5">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">
               NemoClaw Sandbox
             </div>
-            <div className="mt-0.5 truncate text-[18px] font-semibold leading-6 text-white">
-              {sandbox.display_name || sandbox.name}
-            </div>
+            {isRenaming ? (
+              <form
+                className="mt-1 flex items-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  submitRename(renameDraft);
+                }}
+              >
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") cancelRename();
+                  }}
+                  maxLength={80}
+                  placeholder={defaultLabel || "Display name"}
+                  className="min-w-0 flex-1 rounded-md border border-white/14 bg-slate-950/60 px-2.5 py-1.5 text-[16px] font-semibold text-white outline-none focus:border-cyan-200/45"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md bg-cyan-300/30 px-3 py-1.5 text-[11px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelRename}
+                  className="rounded-md bg-white/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase text-white/70 hover:bg-white/[0.16]"
+                >
+                  Cancel
+                </button>
+                {isCustomLabel && (
+                  <button
+                    type="button"
+                    onClick={() => submitRename("")}
+                    title={`Reset to "${defaultLabel}"`}
+                    className="rounded-md bg-white/[0.05] px-2 py-1.5 text-[11px] font-semibold text-white/55 hover:bg-white/[0.12]"
+                  >
+                    Reset
+                  </button>
+                )}
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={startRename}
+                title="Rename this sandbox"
+                className="mt-0.5 flex max-w-full items-center gap-2 text-left"
+              >
+                <span className="truncate text-[18px] font-semibold leading-6 text-white">
+                  {currentLabel}
+                </span>
+                <span className="shrink-0 text-[12px] text-white/35 group-hover:text-white/70">
+                  ✎
+                </span>
+                {isCustomLabel && (
+                  <span className="shrink-0 rounded-full bg-amber-300/14 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-100">
+                    renamed
+                  </span>
+                )}
+              </button>
+            )}
+            {renameError && (
+              <div className="mt-1 text-[11px] font-medium text-rose-200">
+                {renameError}
+              </div>
+            )}
             <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-white/35">
               {sandbox.name}
             </div>

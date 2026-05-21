@@ -1,11 +1,9 @@
+// Four shared sandbox rooms (was 7, one per lobster) + the common areas.
 export type Room =
-  | "desk_researcher"
-  | "desk_analyst"
-  | "desk_critic"
-  | "desk_planner"
-  | "desk_writer"
-  | "desk_coder"
-  | "desk_lead"
+  | "sandbox_cove"
+  | "sandbox_hollow"
+  | "sandbox_bench"
+  | "sandbox_bridge"
   | "break_room"
   | "war_room"
   | "lobby"
@@ -92,6 +90,9 @@ export interface OfficeState {
 export interface NemoClawSandbox {
   name: string;
   display_name?: string | null;
+  /** Original label from claw_config — shown as a "reset to default" hint
+   *  in the rename UI. */
+  default_display_name?: string | null;
   model?: string | null;
   provider?: string | null;
   policies?: string[];

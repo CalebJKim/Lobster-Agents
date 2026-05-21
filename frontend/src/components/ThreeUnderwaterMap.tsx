@@ -67,13 +67,13 @@ const VISUAL_ROOM_LAYOUT: Partial<
     { x: number; z: number; rx: number; rz: number; color: number; phase: number }
   >
 > = {
-  desk_researcher: { x: -25, z: -5, rx: 5.8, rz: 4.5, color: 0xdce8cf, phase: 0.4 },
-  desk_analyst: { x: -20, z: 11, rx: 5.6, rz: 4.2, color: 0xe0ead4, phase: 1.1 },
-  desk_critic: { x: -5, z: 15, rx: 5.4, rz: 4.1, color: 0xdce8cf, phase: 2.4 },
-  desk_lead: { x: 10, z: 7, rx: 5.5, rz: 4.2, color: 0xe3ead1, phase: 3.2 },
-  desk_planner: { x: -25, z: -18, rx: 5.8, rz: 4.5, color: 0xe4ead3, phase: 4.0 },
-  desk_writer: { x: -7, z: -21, rx: 5.7, rz: 4.4, color: 0xdce8cf, phase: 5.5 },
-  desk_coder: { x: 11, z: -12, rx: 5.6, rz: 4.3, color: 0xe1ead5, phase: 6.0 },
+  // Four shared sandboxes, scattered organically (not on a ring). The
+  // rx/rz here is the size of the kelp pad UNDER each hut — bigger now so
+  // the huts themselves can be roomier without looking cramped.
+  sandbox_cove: { x: -28, z: -14, rx: 7.4, rz: 5.6, color: 0xdce8cf, phase: 0.4 },  // Coral Cove
+  sandbox_bridge:       { x:  20, z:  14, rx: 7.4, rz: 5.6, color: 0xe3ead1, phase: 3.2 },  // The Bridge
+  sandbox_hollow:     { x:  26, z: -10, rx: 7.4, rz: 5.6, color: 0xdce8cf, phase: 5.5 },  // Quill Hollow
+  sandbox_bench:      { x: -12, z:  18, rx: 7.4, rz: 5.6, color: 0xe1ead5, phase: 6.0 },  // Workbench
   war_room: { x: VILLAGE_CENTER.x, z: VILLAGE_CENTER.z, rx: 9.8, rz: 7.6, color: 0xd8dfbd, phase: 2.0 },
   break_room: { x: -31, z: 12, rx: 5.2, rz: 3.8, color: 0xcfe7db, phase: 0.9 },
   lobby: { x: 8, z: -22, rx: 6.4, rz: 4.6, color: 0xdce9ee, phase: 3.7 },
@@ -100,7 +100,7 @@ function agentTarget(agent: AgentInfo) {
   if (visual) return visual;
 
   const target = pixelToWorld(agent.position.x, agent.position.y);
-  if (agent.location.startsWith("desk_")) {
+  if (agent.location.startsWith("sandbox_")) {
     target.z += 2.75;
   }
   return target;
@@ -153,11 +153,14 @@ function sandboxSlotLocalPosition(name: string, radiusScale = 1) {
 function visualAgentTarget(agent: AgentInfo) {
   const sandboxRoom = sandboxRoomForAgent(agent);
   if (sandboxRoom) {
-    return sandboxGatherPosition(agent.name, sandboxRoom, 0.45);
+    // Wider radius so lobsters spread out inside the (now larger) sandbox huts.
+    return sandboxGatherPosition(agent.name, sandboxRoom, 0.9);
   }
 
   const location = agent.location as RoomDef["id"];
-  if (location.startsWith("desk_")) {
+  if (location.startsWith("sandbox_")) {
+    // Inconsistent state: location is a sandbox room but no sandbox_name set.
+    // Treat them as free-roaming in the reef commons.
     return freeReefPosition(agent.name);
   }
   const layout = VISUAL_ROOM_LAYOUT[location];
@@ -409,20 +412,23 @@ function makeSpeechTexture(agent: string, _target: string, message: string) {
   roundRect(ctx, bubbleX + 18, bubbleY + 28, 10, bubbleH - 56, 5);
   ctx.fill();
 
-  // Message body — big, near-white, up to 4 lines.
+  // Message body — fill the bubble. Bigger font, fewer lines, vertically
+  // centered so 1-liners don't float at the top. Most reef chat is one or
+  // two short sentences anyway; 3 lines is the cap.
   ctx.fillStyle = "rgba(248, 252, 254, 0.97)";
-  ctx.font = "600 44px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+  ctx.font = "600 68px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
   ctx.textBaseline = "top";
   const padLeft = 56;
-  const padRight = 44;
-  const padTop = 40;
+  const padRight = 48;
   const textLeft = bubbleX + padLeft;
   const textRight = bubbleX + bubbleW - padRight;
-  const lineHeight = 60;
-  const maxLines = 4;
+  const lineHeight = 88;
+  const maxLines = 3;
   const lines = wrapCanvasText(ctx, message, textRight - textLeft, maxLines);
+  const blockHeight = lines.length * lineHeight;
+  const blockTop = bubbleY + (bubbleH - blockHeight) / 2 - 6;
   lines.forEach((line, index) => {
-    ctx.fillText(line, textLeft, bubbleY + padTop + index * lineHeight);
+    ctx.fillText(line, textLeft, blockTop + index * lineHeight);
   });
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -579,11 +585,17 @@ function makeVillageCove(scene: THREE.Scene) {
     const layout = VISUAL_ROOM_LAYOUT[room.id];
     if (!layout) return;
     const center = roomCenter(room);
-    makeOrganicPad(scene, center, layout.rx, layout.rz, layout.color, room.id === "war_room" ? 0.38 : 0.34, layout.phase);
-
-    if (room.id.startsWith("desk_")) {
-      makeShellPath(scene, center, VILLAGE_CENTER, layout.phase);
-    }
+    makeOrganicPad(
+      scene,
+      center,
+      layout.rx,
+      layout.rz,
+      layout.color,
+      room.id === "war_room" ? 0.38 : 0.34,
+      layout.phase,
+    );
+    // No more bead-paths between sandboxes and the central tide table —
+    // sandboxes are scattered and self-contained now.
   });
 
   makeShellRing(scene, VILLAGE_CENTER, 7.2, 5.4, 28);
@@ -692,18 +704,21 @@ function makeNemoSandbox(room: RoomDef) {
     if (sandboxName) obj.userData.sandboxName = sandboxName;
   });
 
+  // Scale the whole hut up so multiple lobsters fit comfortably inside.
+  // The lobster gather radius is bumped to 0.9 in visualAgentTarget to match.
+  group.scale.setScalar(1.4);
   return group;
 }
 
 function roomAgentName(roomId: string) {
   const byRoom: Record<string, string> = {
-    desk_researcher: "Clawdia",
+    sandbox_cove: "Clawdia",
     desk_analyst: "Shelldon",
     desk_critic: "Coraline",
     desk_planner: "Reefus",
-    desk_writer: "Pearl",
-    desk_coder: "Snips",
-    desk_lead: "Captain Claw",
+    sandbox_hollow: "Pearl",
+    sandbox_bench: "Snips",
+    sandbox_bridge: "Captain Claw",
   };
   return byRoom[roomId];
 }
@@ -1204,7 +1219,7 @@ function makeScene(runtime: Runtime) {
   makeGround(scene);
   makeVillageCove(scene);
   ROOMS.forEach((room) => {
-    if (room.id.startsWith("desk_")) {
+    if (room.id.startsWith("sandbox_")) {
       const sandbox = makeNemoSandbox(room);
       scene.add(sandbox);
       sandbox.traverse((obj) => {

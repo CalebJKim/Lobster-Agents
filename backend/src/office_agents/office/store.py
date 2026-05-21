@@ -36,8 +36,46 @@ class PersistentStore:
                     timestamp TEXT NOT NULL
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS sandbox_display_names (
+                    sandbox_name TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
             await db.commit()
         logger.info("Persistent store initialized at %s", self.db_path)
+
+    async def get_display_overrides(self) -> dict[str, str]:
+        """User-defined display names that win over claw_config defaults."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT sandbox_name, display_name FROM sandbox_display_names"
+            )
+            rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    async def set_display_override(self, sandbox_name: str, display_name: str) -> None:
+        """Upsert one sandbox's display name. Caller validates the names."""
+        ts = datetime.now().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO sandbox_display_names (sandbox_name, display_name, updated_at) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(sandbox_name) DO UPDATE SET display_name=excluded.display_name, "
+                "updated_at=excluded.updated_at",
+                (sandbox_name, display_name, ts),
+            )
+            await db.commit()
+        logger.info("Sandbox %s renamed to %r", sandbox_name, display_name)
+
+    async def clear_display_override(self, sandbox_name: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM sandbox_display_names WHERE sandbox_name = ?",
+                (sandbox_name,),
+            )
+            await db.commit()
 
     async def save_deliverable(
         self, query: str, agent: str, content: str

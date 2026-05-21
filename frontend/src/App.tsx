@@ -502,6 +502,13 @@ export default function App() {
             messages={messages}
             onClose={() => setOpenSandboxName(null)}
             onAfterChange={refreshOfficeState}
+            onLocalRename={(name, displayName) =>
+              setSandboxesIndex((prev) =>
+                prev.map((s) =>
+                  s.name === name ? { ...s, display_name: displayName } : s
+                )
+              )
+            }
           />
         );
       })()}

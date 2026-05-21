@@ -103,7 +103,7 @@ IMPORTANT:
 MAYA = AgentRole(
     name="Clawdia",
     role="researcher",
-    default_desk="desk_researcher",
+    default_desk="sandbox_cove",
     personality="Curious, thorough. Primary source investigator.",
     system_prompt=(
         "You are Clawdia, the Researcher.\n\n"
@@ -128,7 +128,9 @@ MAYA = AgentRole(
 RAJ = AgentRole(
     name="Shelldon",
     role="analyst",
-    default_desk="desk_analyst",
+    # No more 1-sandbox-per-lobster; start in the commons and roam to whichever
+    # sandbox the user assigns this lobster into.
+    default_desk="break_room",
     personality="Precise, data-driven. Won't claim without evidence.",
     system_prompt=(
         "You are Shelldon, the Analyst.\n\n"
@@ -149,7 +151,7 @@ RAJ = AgentRole(
 SOPHIE = AgentRole(
     name="Coraline",
     role="critic",
-    default_desk="desk_critic",
+    default_desk="break_room",
     personality="Sharp, skeptical. Fact-checker and devil's advocate.",
     system_prompt=(
         "You are Coraline, the Critic and Fact-Checker.\n\n"
@@ -170,7 +172,7 @@ SOPHIE = AgentRole(
 ALEX = AgentRole(
     name="Reefus",
     role="planner",
-    default_desk="desk_planner",
+    default_desk="break_room",
     personality="Pragmatic, organized. Turns chaos into structure.",
     system_prompt=(
         "You are Reefus, the Planner.\n\n"
@@ -190,7 +192,7 @@ ALEX = AgentRole(
 JORDAN = AgentRole(
     name="Pearl",
     role="writer",
-    default_desk="desk_writer",
+    default_desk="sandbox_hollow",
     personality="Articulate, concise. Writes the final deliverable.",
     system_prompt=(
         "You are Pearl, the Writer.\n\n"
@@ -220,7 +222,7 @@ JORDAN = AgentRole(
 DEV = AgentRole(
     name="Snips",
     role="coder",
-    default_desk="desk_coder",
+    default_desk="sandbox_bench",
     personality="Practical, fast. Builds things rather than debating.",
     system_prompt=(
         "You are Snips, the Coder.\n\n"
@@ -240,7 +242,7 @@ DEV = AgentRole(
 SAM = AgentRole(
     name="Captain Claw",
     role="lead",
-    default_desk="desk_lead",
+    default_desk="sandbox_bridge",
     personality="Calm, decisive. Drives the team to deliver.",
     system_prompt=(
         "You are Captain Claw, the Team Lead.\n\n"

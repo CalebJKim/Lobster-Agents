@@ -28,9 +28,18 @@ async def get_sandboxes() -> dict[str, object]:
     status = await get_nemoclaw_status()
 
     orch = app_state.orchestrator
+    office = app_state.office_state
     assignments = orch.get_sandbox_assignments() if orch else {}
     run_statuses = orch.get_sandbox_run_statuses() if orch else {}
     agents_by_name = {a.name: a.to_info() for a in orch.agents} if orch else {}
+
+    # User-defined display names override the claw_config defaults.
+    overrides: dict[str, str] = {}
+    if office and office._store:
+        try:
+            overrides = await office._store.get_display_overrides()
+        except Exception:
+            logger.exception("Could not load sandbox display overrides")
 
     live_by_name = {
         sandbox.get("name"): sandbox
@@ -49,7 +58,8 @@ async def get_sandboxes() -> dict[str, object]:
         item = {
             **live,
             "name": name,
-            "display_name": workspace.display_name,
+            "display_name": overrides.get(name, workspace.display_name),
+            "default_display_name": workspace.display_name,
             "model": live.get("model") or live_inference.get("model"),
             "provider": live.get("provider") or live_inference.get("provider"),
             "policies": live.get("policies") or [],
@@ -79,6 +89,48 @@ async def get_sandboxes() -> dict[str, object]:
         "error": status.get("error"),
         "sandboxes": sandboxes,
     }
+
+
+@router.post("/sandboxes/{sandbox_name}/display-name")
+async def set_sandbox_display_name(sandbox_name: str, req: dict) -> dict[str, object]:
+    """Persist a user-supplied display name for one sandbox.
+
+    Body: {"display_name": "<text>"} — pass an empty string to reset to the
+    claw_config default. Internal sandbox names never change here; only the
+    label shown in the UI.
+    """
+    raw = req.get("display_name") if isinstance(req, dict) else None
+    if raw is not None and not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="display_name must be a string")
+
+    workspace = next((w for w in SANDBOX_WORKSPACES if w.name == sandbox_name), None)
+    if workspace is None:
+        raise HTTPException(status_code=404, detail=f"Unknown sandbox {sandbox_name}")
+
+    office = app_state.require_office_state()
+    if not office._store:
+        raise HTTPException(status_code=503, detail="Persistent store not initialized")
+
+    cleaned = (raw or "").strip()[:80]
+    if not cleaned:
+        await office._store.clear_display_override(sandbox_name)
+        effective = workspace.display_name
+    else:
+        await office._store.set_display_override(sandbox_name, cleaned)
+        effective = cleaned
+
+    # Broadcast a sandbox_renamed event so all WS clients refresh without polling.
+    broadcaster = app_state.broadcaster
+    if broadcaster:
+        from datetime import datetime
+        await broadcaster.broadcast({
+            "type": "sandbox_renamed",
+            "sandbox_name": sandbox_name,
+            "display_name": effective,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    return {"status": "ok", "sandbox_name": sandbox_name, "display_name": effective}
 
 
 @router.post("/sandboxes/{sandbox_name}/team")

@@ -58,14 +58,14 @@ export const CLAW_METADATA: Record<string, ClawMetadata> = {
   },
 };
 
+// Four shared workspaces. Lobsters can team up in any of them; the names
+// aren't tied to any one lobster any more. Keep in sync with the backend's
+// SANDBOX_WORKSPACES in claw_config.py.
 export const SANDBOX_WORKSPACES: SandboxWorkspace[] = [
-  { name: "nemoclaw-clawdia-reef", displayName: "Reef Workspace", homeRoom: "desk_researcher" },
-  { name: "nemoclaw-shelldon-charts", displayName: "Charts Workspace", homeRoom: "desk_analyst" },
-  { name: "nemoclaw-coraline-cove", displayName: "Review Workspace", homeRoom: "desk_critic" },
-  { name: "nemoclaw-reefus-route", displayName: "Route Workspace", homeRoom: "desk_planner" },
-  { name: "nemoclaw-pearl-script", displayName: "Writing Workspace", homeRoom: "desk_writer" },
-  { name: "nemoclaw-snips-workbench", displayName: "Workbench Workspace", homeRoom: "desk_coder" },
-  { name: "nemoclaw-captain-bridge", displayName: "Bridge Workspace", homeRoom: "desk_lead" },
+  { name: "nemoclaw-clawdia-reef",    displayName: "Coral Cove",   homeRoom: "sandbox_cove" },
+  { name: "nemoclaw-captain-bridge",  displayName: "The Bridge",   homeRoom: "sandbox_bridge" },
+  { name: "nemoclaw-pearl-script",    displayName: "Quill Hollow", homeRoom: "sandbox_hollow" },
+  { name: "nemoclaw-snips-workbench", displayName: "Workbench",    homeRoom: "sandbox_bench" },
 ];
 
 export const CLAW_ORDER = [

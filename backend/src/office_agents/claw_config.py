@@ -59,14 +59,15 @@ CLAW_IDENTITIES: dict[str, ClawIdentity] = {
     ),
 }
 
+# Four shared workspaces — lobsters team up in any of them as needed. The
+# original 1-sandbox-per-lobster design is gone; these are communal spaces.
+# Internal sandbox names are unchanged so the live NemoClaw sandboxes on the
+# Spark don't need to be re-provisioned.
 SANDBOX_WORKSPACES: tuple[SandboxWorkspace, ...] = (
-    SandboxWorkspace("nemoclaw-clawdia-reef", "desk_researcher", "Reef Workspace"),
-    SandboxWorkspace("nemoclaw-shelldon-charts", "desk_analyst", "Charts Workspace"),
-    SandboxWorkspace("nemoclaw-coraline-cove", "desk_critic", "Review Workspace"),
-    SandboxWorkspace("nemoclaw-reefus-route", "desk_planner", "Route Workspace"),
-    SandboxWorkspace("nemoclaw-pearl-script", "desk_writer", "Writing Workspace"),
-    SandboxWorkspace("nemoclaw-snips-workbench", "desk_coder", "Workbench Workspace"),
-    SandboxWorkspace("nemoclaw-captain-bridge", "desk_lead", "Bridge Workspace"),
+    SandboxWorkspace("nemoclaw-clawdia-reef",    "sandbox_cove", "Coral Cove"),
+    SandboxWorkspace("nemoclaw-captain-bridge",  "sandbox_bridge",       "The Bridge"),
+    SandboxWorkspace("nemoclaw-pearl-script",    "sandbox_hollow",     "Quill Hollow"),
+    SandboxWorkspace("nemoclaw-snips-workbench", "sandbox_bench",      "Workbench"),
 )
 
 

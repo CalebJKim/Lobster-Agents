@@ -89,13 +89,13 @@ const LOBSTER_VISUALS: Record<string, { shell: number; belly: number; claw: numb
 };
 
 const HUT_ACCENTS: Record<string, number> = {
-  desk_researcher: AGENT_COLORS_HEX.Clawdia,
+  sandbox_cove: AGENT_COLORS_HEX.Clawdia,
   desk_analyst: AGENT_COLORS_HEX.Shelldon,
   desk_critic: AGENT_COLORS_HEX.Coraline,
   desk_planner: AGENT_COLORS_HEX.Reefus,
-  desk_writer: AGENT_COLORS_HEX.Pearl,
-  desk_coder: AGENT_COLORS_HEX.Snips,
-  desk_lead: AGENT_COLORS_HEX["Captain Claw"],
+  sandbox_hollow: AGENT_COLORS_HEX.Pearl,
+  sandbox_bench: AGENT_COLORS_HEX.Snips,
+  sandbox_bridge: AGENT_COLORS_HEX["Captain Claw"],
 };
 
 // ---------------------------------------------------------------------------
@@ -192,7 +192,7 @@ function DeskFurniture({ room }: { room: RoomDef }) {
   const draw = useCallback(
     (g: PixiGraphics) => {
       g.clear();
-      if (!room.id.startsWith("desk_")) return;
+      if (!room.id.startsWith("sandbox_")) return;
 
       const cx = (room.x + room.w / 2) * TILE;
       const cy = (room.y + room.h / 2) * TILE + 8;
@@ -841,7 +841,7 @@ export default function OfficeCanvas({
 
           {/* Furniture */}
           <pixiContainer>
-            {ROOMS.map((r) => r.id.startsWith("desk_") ? <DeskFurniture key={`f-${r.id}`} room={r} /> : null)}
+            {ROOMS.map((r) => r.id.startsWith("sandbox_") ? <DeskFurniture key={`f-${r.id}`} room={r} /> : null)}
             <WarRoomFurniture />
             <BreakRoomFurniture />
             <BulletinBoardFurniture />

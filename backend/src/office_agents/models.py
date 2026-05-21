@@ -8,13 +8,12 @@ from pydantic import BaseModel, Field
 
 
 class Room(str, Enum):
-    desk_researcher = "desk_researcher"
-    desk_analyst = "desk_analyst"
-    desk_critic = "desk_critic"
-    desk_planner = "desk_planner"
-    desk_writer = "desk_writer"
-    desk_coder = "desk_coder"
-    desk_lead = "desk_lead"
+    # Four shared sandbox rooms — not personal "desks" any more.
+    sandbox_cove = "sandbox_cove"        # Coral Cove
+    sandbox_bridge = "sandbox_bridge"    # The Bridge
+    sandbox_hollow = "sandbox_hollow"    # Quill Hollow
+    sandbox_bench = "sandbox_bench"      # Workbench
+    # Common areas.
     break_room = "break_room"
     war_room = "war_room"
     lobby = "lobby"
