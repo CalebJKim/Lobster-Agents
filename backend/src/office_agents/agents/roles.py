@@ -30,9 +30,14 @@ class AgentRole:
     default_desk: str
     personality: str
     system_prompt: str
-    # Tools/traits this lobster brings to any team it's part of. The UI shows
-    # them as chips; the sandbox prompt is biased by them.
+    # Soft trait labels. The UI shows them as chips; the sandbox prompt is
+    # biased by them. Not enforced — purely descriptive.
     tools: tuple[str, ...] = field(default_factory=tuple)
+    # Real ClawHub skills installed into this lobster's OpenClaw agent via
+    # `openclaw skills install <slug> --agent <claw_id>` when the agent is
+    # first provisioned in a sandbox. These ARE enforced — the agent has them
+    # installed and can call them as real OpenClaw skills.
+    openclaw_skills: tuple[str, ...] = field(default_factory=tuple)
 
 
 # ── Shared preamble ──────────────────────────────────────────────────────
@@ -145,6 +150,7 @@ MAYA = AgentRole(
         f"{_ACTION_SCHEMA}"
     ),
     tools=("web_research", "file_io",),
+    openclaw_skills=("summarize", "session-logs",),
 )
 
 RAJ = AgentRole(
@@ -169,6 +175,7 @@ RAJ = AgentRole(
         f"{_ACTION_SCHEMA}"
     ),
     tools=("data_analysis", "file_io",),
+    openclaw_skills=("model-usage", "mcporter",),
 )
 
 SOPHIE = AgentRole(
@@ -191,6 +198,7 @@ SOPHIE = AgentRole(
         f"{_ACTION_SCHEMA}"
     ),
     tools=("web_research", "fact_check",),
+    openclaw_skills=("oracle",),
 )
 
 ALEX = AgentRole(
@@ -212,6 +220,7 @@ ALEX = AgentRole(
         f"{_ACTION_SCHEMA}"
     ),
     tools=("planning", "team_coordination",),
+    openclaw_skills=("taskflow",),
 )
 
 JORDAN = AgentRole(
@@ -243,6 +252,7 @@ JORDAN = AgentRole(
         f"{_ACTION_SCHEMA}"
     ),
     tools=("final_synthesis", "file_io",),
+    openclaw_skills=("summarize",),
 )
 
 DEV = AgentRole(
@@ -264,6 +274,7 @@ DEV = AgentRole(
         f"{_ACTION_SCHEMA}"
     ),
     tools=("code_authoring", "code_execution", "file_io",),
+    openclaw_skills=("coding-agent", "github",),
 )
 
 SAM = AgentRole(
@@ -291,6 +302,7 @@ SAM = AgentRole(
         f"{_ACTION_SCHEMA}"
     ),
     tools=("team_coordination", "final_synthesis", "web_research",),
+    openclaw_skills=("taskflow", "skill-creator",),
 )
 
 # All roles in a convenient list

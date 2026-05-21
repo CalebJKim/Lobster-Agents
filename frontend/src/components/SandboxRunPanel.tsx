@@ -536,37 +536,69 @@ function StatusTab({
         </section>
       )}
 
-      {/* Team capabilities — union of each lobster's tool traits. */}
+      {/* Team capabilities — real OpenClaw skills first (these are actually
+          installed on each agent inside the sandbox), then soft trait chips. */}
       {team.length > 0 && (
         <section>
           <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
             Team capabilities
           </div>
           {(() => {
-            const union: string[] = [];
+            const skills: string[] = [];
+            const traits: string[] = [];
             for (const agent of team) {
+              for (const s of agent.openclaw_skills ?? []) {
+                if (!skills.includes(s)) skills.push(s);
+              }
               for (const t of agent.tools ?? []) {
-                if (!union.includes(t)) union.push(t);
+                if (!traits.includes(t)) traits.push(t);
               }
             }
-            if (union.length === 0) {
+            if (skills.length === 0 && traits.length === 0) {
               return (
                 <div className="text-[12px] text-white/45">
-                  None of this team's lobsters have tools listed.
+                  None of this team's lobsters have capabilities listed.
                 </div>
               );
             }
             return (
-              <div className="flex flex-wrap gap-1.5">
-                {union.map((tool) => (
-                  <span
-                    key={tool}
-                    className="rounded-full bg-cyan-300/14 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-50"
-                    title={tool}
-                  >
-                    {tool.replace(/_/g, " ")}
-                  </span>
-                ))}
+              <div className="space-y-2">
+                {skills.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-100/72">
+                      Installed OpenClaw skills
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {skills.map((s) => (
+                        <span
+                          key={s}
+                          className="rounded-full bg-emerald-300/16 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-50"
+                          title={`Real ClawHub skill installed via openclaw skills install ${s}`}
+                        >
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {traits.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/40">
+                      Personality traits (soft prompt bias)
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {traits.map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-full bg-cyan-300/14 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-50"
+                          title={`Soft trait: ${t}`}
+                        >
+                          {t.replace(/_/g, " ")}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}

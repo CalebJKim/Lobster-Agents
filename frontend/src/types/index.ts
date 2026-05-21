@@ -43,9 +43,13 @@ export interface AgentInfo {
   claw_id?: string;
   sandbox_name?: string;
   connect_command?: string;
-  /** Trait/tool labels (e.g. "web_research", "code_authoring") — the
-   *  capabilities this lobster brings to any team. UI shows them as chips. */
+  /** Trait/tool labels (e.g. "web_research", "code_authoring") — soft
+   *  prompt biases. Not gated. UI shows them as muted trait chips. */
   tools?: string[];
+  /** Real ClawHub skill slugs installed into this lobster's OpenClaw agent
+   *  via `openclaw skills install <slug> --agent <claw_id>`. These ARE
+   *  real, persistent skills the agent can invoke inside the sandbox. */
+  openclaw_skills?: string[];
 }
 
 export interface ChatMessage {

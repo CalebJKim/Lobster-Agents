@@ -618,6 +618,7 @@ class SandboxManager:
             claw_id=agent.claw_id,
             display_name=agent.name,
             model=f"inference/{settings.llm_model}",
+            skills=list(agent.openclaw_skills),
         )
         if not ensure_result.get("success"):
             logger.warning(

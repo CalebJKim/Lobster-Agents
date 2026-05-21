@@ -289,12 +289,25 @@ function AgentChip({
         <span className="block truncate text-[10px] font-medium leading-4 text-white/38">
           {assignedTo ? `In ${sandboxNameLabel(assignedTo)}` : ROLE_LABELS[agent.role]}
         </span>
+        {(agent.openclaw_skills && agent.openclaw_skills.length > 0) && (
+          <span className="mt-0.5 flex flex-wrap gap-0.5">
+            {agent.openclaw_skills.slice(0, 3).map((slug) => (
+              <span
+                key={`s-${slug}`}
+                title={`OpenClaw skill: ${slug}`}
+                className="rounded bg-emerald-300/16 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-emerald-100"
+              >
+                {slug}
+              </span>
+            ))}
+          </span>
+        )}
         {agent.tools && agent.tools.length > 0 && (
           <span className="mt-0.5 flex flex-wrap gap-0.5">
             {agent.tools.slice(0, 3).map((tool) => (
               <span
-                key={tool}
-                title={tool}
+                key={`t-${tool}`}
+                title={`Trait: ${tool}`}
                 className="rounded bg-white/[0.08] px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/55"
               >
                 {tool.replace(/_/g, " ")}

@@ -156,9 +156,16 @@ async def ensure_openclaw_agent(
     claw_id: str,
     display_name: str,
     model: str,
-    timeout_seconds: int = 60,
+    skills: list[str] | None = None,
+    timeout_seconds: int = 120,
 ) -> dict[str, Any]:
-    """Make sure an OpenClaw agent profile exists inside the sandbox."""
+    """Make sure an OpenClaw agent profile exists inside the sandbox.
+
+    If ``skills`` is provided, installs each ClawHub slug via
+    ``openclaw skills install <slug> --agent <claw_id>``. Already-installed
+    skills are skipped via ``openclaw skills check`` before the install pass
+    so re-running this on existing agents is cheap.
+    """
 
     openshell = _which_openshell()
     if not openshell:
@@ -168,16 +175,33 @@ async def ensure_openclaw_agent(
             mode="cli_missing",
         )
 
+    # Sanitize skill slugs so we don't quote-inject the shell. ClawHub slugs
+    # are word-chars / dashes only.
+    safe_skills = [s for s in (skills or []) if s.replace("-", "").replace("_", "").isalnum()]
+    skills_arg = " ".join(safe_skills)
+
+    # NOTE on the cd dance: the openclaw inside the sandbox is older than the
+    # one on the host (2026.4.24 vs 2026.5.12). The older `skills install`
+    # subcommand has no `--agent` flag — it operates on the "active workspace"
+    # which is resolved from cwd. So we `cd` into each agent's workspace dir
+    # before installing skills, and they land in /sandbox/workspaces/<agent>/
+    # scoped to that agent.
     script = (
         'set -u; '
-        'agent_id="$1"; display_name="$2"; model="$3"; '
+        'agent_id="$1"; display_name="$2"; model="$3"; skills="$4"; '
         'workspace="/sandbox/workspaces/$agent_id"; '
         'mkdir -p "$workspace"; '
         'openclaw agents add "$agent_id" --workspace "$workspace" --model "$model" '
         '--non-interactive --json >/tmp/openclaw-agent-add.log 2>&1 || true; '
         'openclaw agents set-identity --agent "$agent_id" --name "$display_name" '
         '--json >/tmp/openclaw-agent-identity.log 2>&1 || true; '
-        'openclaw agents list --json'
+        '(cd "$workspace" && for slug in $skills; do '
+        '  openclaw skills install "$slug" --force '
+        '    >>/tmp/openclaw-skills-install.log 2>&1 || true; '
+        'done); '
+        'openclaw agents list --json; '
+        'echo "==SKILLS=="; '
+        '(cd "$workspace" && openclaw skills list 2>/dev/null) || true'
     )
 
     proc: asyncio.subprocess.Process | None = None
@@ -191,7 +215,7 @@ async def ensure_openclaw_agent(
             "--",
             "sh", "-lc", script,
             "openclaw-agent-ensure",
-            claw_id, display_name, model,
+            claw_id, display_name, model, skills_arg,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -214,17 +238,24 @@ async def ensure_openclaw_agent(
 
     stdout = stdout_bytes.decode("utf-8", errors="replace")
     stderr = stderr_bytes.decode("utf-8", errors="replace")
-    found = f'"id": "{claw_id}"' in stdout
+    agents_part, _, skills_part = stdout.partition("==SKILLS==")
+    found = f'"id": "{claw_id}"' in agents_part
     if proc.returncode != 0 or not found:
         logger.warning(
             "Could not ensure OpenClaw agent %s in %s: %s",
             claw_id, sandbox_name, (stderr or stdout)[:500],
+        )
+    if safe_skills:
+        logger.info(
+            "Ensured agent %s in %s with skills=%s", claw_id, sandbox_name, safe_skills,
         )
     return {
         "success": proc.returncode == 0 and found,
         "output": stdout or stderr,
         "claw_id": claw_id,
         "sandbox_name": sandbox_name,
+        "skills_requested": list(safe_skills),
+        "skills_status_raw": skills_part.strip()[:4000],
     }
 
 
