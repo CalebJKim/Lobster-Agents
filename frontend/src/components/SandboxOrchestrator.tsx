@@ -927,7 +927,7 @@ export default function SandboxOrchestrator({
   }, [messages]);
 
   return (
-    <aside className="pointer-events-auto flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/18 bg-slate-950/48 p-4 text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-2xl">
+    <aside className="pointer-events-auto flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/18 bg-slate-950/48 p-4 text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-md">
       <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-bold uppercase leading-4 tracking-normal text-white/36">

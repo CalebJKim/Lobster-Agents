@@ -52,7 +52,7 @@ export default function WaterCoolerControls({ onSetWaterCooler }: WaterCoolerCon
   }
 
   return (
-    <div className="animate-fade-in absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-white/45 bg-[#f8fbfb]/86 p-3 shadow-[0_20px_70px_rgba(4,22,31,0.22)] backdrop-blur-2xl">
+    <div className="animate-fade-in absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-white/45 bg-[#f8fbfb]/86 p-3 shadow-[0_20px_70px_rgba(4,22,31,0.22)] backdrop-blur-md">
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-semibold text-slate-800">Reef Chat</span>
         <button

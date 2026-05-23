@@ -144,7 +144,7 @@ export default function QueryInput({
   return (
     <div
       ref={dropRef}
-      className={`rounded-lg border border-white/30 bg-[#f8fbfb]/72 shadow-[0_18px_55px_rgba(4,22,31,0.18)] backdrop-blur-2xl transition-colors ${
+      className={`rounded-lg border border-white/30 bg-[#f8fbfb]/72 shadow-[0_18px_55px_rgba(4,22,31,0.18)] backdrop-blur-md transition-colors ${
         isDragging ? "border-rose-400/50 bg-white/84" : ""
       }`}
       onDrop={handleDrop}

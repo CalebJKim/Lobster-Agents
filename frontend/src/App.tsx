@@ -280,7 +280,7 @@ export default function App() {
       </div>
 
       <header className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3 max-md:left-3 max-md:right-3 max-md:top-3">
-        <div className="pointer-events-auto rounded-xl border border-white/15 bg-slate-950/52 px-4 py-3 text-white shadow-[0_18px_60px_rgba(4,22,31,0.22)] backdrop-blur-2xl max-sm:hidden">
+        <div className="pointer-events-auto rounded-xl border border-white/15 bg-slate-950/52 px-4 py-3 text-white shadow-[0_18px_60px_rgba(4,22,31,0.22)] backdrop-blur-md max-sm:hidden">
           <div className="min-w-0">
             <h1 className="text-base font-semibold">
               NemoClaw Reef
@@ -311,7 +311,7 @@ export default function App() {
       )}
 
       <section
-        className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-lg border border-white/18 bg-slate-950/46 shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-2xl transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
+        className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-lg border border-white/18 bg-slate-950/46 shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-md transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
           commsDockOpen
             ? `p-2 opacity-100 ${presentationMode ? "right-5 bottom-32 h-[56vh] max-h-[620px] w-[620px]" : "right-5 bottom-32 h-[390px] w-[620px]"} max-md:left-3 max-md:right-3 max-md:bottom-28 max-md:h-[40vh] max-md:!w-auto`
             : "right-5 bottom-32 h-11 w-[172px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
@@ -462,7 +462,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSandboxDockOpen(true)}
-            className="pointer-events-auto flex h-full w-full items-center justify-between gap-3 rounded-lg border border-white/18 bg-slate-950/48 px-3 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-2xl"
+            className="pointer-events-auto flex h-full w-full items-center justify-between gap-3 rounded-lg border border-white/18 bg-slate-950/48 px-3 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-md"
             title="Open sandboxes"
             aria-label="Open sandboxes"
           >

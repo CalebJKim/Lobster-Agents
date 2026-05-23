@@ -433,9 +433,14 @@ function makeSpeechTexture(agent: string, _target: string, message: string) {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  // No mipmaps — text doesn't need trilinear smoothing between mip levels,
+  // and the smoothing is what was making it look fuzzy when the bubble
+  // shrinks to ~60-100 px on screen. LinearFilter both ways + max anisotropy
+  // gives crisp downsampling without the mipmap smear.
+  texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  texture.anisotropy = 8;
+  texture.generateMipmaps = false;
+  texture.anisotropy = 16;
   return texture;
 }
 
