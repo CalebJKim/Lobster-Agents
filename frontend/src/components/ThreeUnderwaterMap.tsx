@@ -583,8 +583,11 @@ function makeShellRing(scene: THREE.Scene, center: THREE.Vector3, rx: number, rz
 }
 
 function makeVillageCove(scene: THREE.Scene) {
-  makeOrganicPad(scene, VILLAGE_CENTER, 32, 24, 0xd8dfbd, 0.23, 0.2);
-  makeOrganicPad(scene, new THREE.Vector3(-7, 0, -2), 20, 15, 0xe5dfbe, 0.16, 2.7);
+  // The two big pale "village" pads (32×24 and 20×15) used to live here as
+  // a hub for the 7-sandbox-on-a-ring layout. With scattered huts they
+  // stacked into a ~60%-opacity wash that gave the centre of the map a
+  // milky cast. Removed. War-room landmark pad is still drawn below via
+  // the per-room loop, just smaller and less opaque.
 
   ROOMS.forEach((room) => {
     const layout = VISUAL_ROOM_LAYOUT[room.id];
@@ -596,13 +599,14 @@ function makeVillageCove(scene: THREE.Scene) {
       layout.rx,
       layout.rz,
       layout.color,
-      room.id === "war_room" ? 0.38 : 0.34,
+      // War room used to be 0.38, dropped to match the sandbox huts so the
+      // centre isn't visibly brighter than the rest of the reef floor.
+      0.3,
       layout.phase,
     );
-    // No more bead-paths between sandboxes and the central tide table —
-    // sandboxes are scattered and self-contained now.
   });
 
+  // Tide-table ring landmark stays — small, defined accent, not a wash.
   makeShellRing(scene, VILLAGE_CENTER, 7.2, 5.4, 28);
 }
 
