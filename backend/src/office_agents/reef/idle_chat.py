@@ -257,25 +257,38 @@ class IdleChat:
         self,
         idle_agents: list[Agent],
     ) -> tuple[tuple[Agent, Agent] | None, str | None, list[Agent]]:
-        """Pick a speaker/listener pair; prefer sandbox teams with ≥2 idle members."""
+        """Pick a speaker/listener pair from any active chat group.
+
+        A "group" with ≥2 idle members is a candidate: each sandbox team is
+        one group; the free-reef pool of unassigned lobsters is another.
+        We roll uniformly across all candidate groups so a sandbox having
+        chatter doesn't silence the wandering lobsters outside.
+        """
 
         idle_by_name = {a.name: a for a in idle_agents}
-        sandbox_teams: list[tuple[str, list[Agent]]] = []
+        # Each entry: (sandbox_name or None, members)
+        groups: list[tuple[str | None, list[Agent]]] = []
         for sandbox_name, assigned in self._sandbox_assignments.items():
             members = [idle_by_name[n] for n in assigned if n in idle_by_name]
             if len(members) >= 2:
-                sandbox_teams.append((sandbox_name, members))
+                groups.append((sandbox_name, members))
 
         free_reef = [a for a in idle_agents if not a.sandbox_name]
-
-        if sandbox_teams:
-            sandbox_name, members = random.choice(sandbox_teams)
-            pair = random.sample(members, 2)
-            return (pair[0], pair[1]), sandbox_name, members
         if len(free_reef) >= 2:
-            pair = random.sample(free_reef, 2)
-            return (pair[0], pair[1]), None, []
-        return None, None, []
+            groups.append((None, free_reef))
+
+        if not groups:
+            return None, None, []
+
+        sandbox_name, members = random.choice(groups)
+        pair = random.sample(members, 2)
+        # Sandbox label/team data only flows to the prompt when this turn is
+        # from a sandbox group; reef-commons turns leave them empty.
+        return (
+            (pair[0], pair[1]),
+            sandbox_name,
+            members if sandbox_name else [],
+        )
 
     async def _call_llm_with_abort(
         self,
