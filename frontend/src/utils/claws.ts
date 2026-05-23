@@ -95,3 +95,49 @@ export function getSandboxHomeRoom(sandboxName: string): Room | undefined {
 export function sandboxConnectCommand(sandboxName: string): string {
   return `nemoclaw ${sandboxName} connect`;
 }
+
+
+// ── Squad templates — one-click team + policy bundles ───────────────────────
+//
+// Each squad sets the sandbox's team and enables a coordinated set of
+// policy presets. The dock's selected-sandbox panel renders them as
+// buttons so the user can drop a ready-to-go team into any sandbox.
+
+export interface Squad {
+  id: string;
+  label: string;
+  emoji: string;
+  description: string;
+  team: string[];          // lobster display names
+  policies: string[];      // NemoClaw policy preset names to enable
+}
+
+export const SQUADS: Squad[] = [
+  {
+    id: "research",
+    label: "Research Squad",
+    emoji: "🔎",
+    description:
+      "Web research + verification. Coraline fact-checks, Pearl synthesises. Brave search policy on.",
+    team: ["Coraline", "Pearl"],
+    policies: ["brave"],
+  },
+  {
+    id: "code",
+    label: "Code Squad",
+    emoji: "🛠️",
+    description:
+      "Build + analyse. Snips writes code, Shelldon evaluates. GitHub + npm policies on so deps resolve.",
+    team: ["Snips", "Shelldon"],
+    policies: ["github", "npm"],
+  },
+  {
+    id: "synthesis",
+    label: "Synthesis Squad",
+    emoji: "🪸",
+    description:
+      "Plan + coordinate. Captain Claw drives, Reefus sequences steps. No extra hosts unblocked.",
+    team: ["Captain Claw", "Reefus"],
+    policies: [],
+  },
+];

@@ -481,6 +481,38 @@ function StatusTab({
         </div>
       )}
 
+      {/* Attempted violations — red rows visible to the user */}
+      {run?.violations && run.violations.length > 0 && (
+        <section>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-rose-100/85">
+            🔒 Attempted violations ({run.violations.length})
+          </div>
+          <div className="space-y-2">
+            {run.violations.map((v, idx) => (
+              <div
+                key={`v-${idx}`}
+                className="rounded-xl border border-rose-300/26 bg-rose-300/[0.08] px-4 py-2.5"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-rose-300/22 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-50">
+                    {v.kind}
+                  </span>
+                  <span className="text-[12px] font-semibold text-rose-50">
+                    {v.agent}
+                  </span>
+                  <span className="text-[11px] text-rose-100/80">
+                    {v.label}
+                  </span>
+                </div>
+                <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-slate-950/40 px-2.5 py-1.5 font-mono text-[10px] leading-4 text-white/65">
+                  {v.snippet}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Per-agent outputs */}
       {(outputs.length > 0 || errors.length > 0) && (
         <section>

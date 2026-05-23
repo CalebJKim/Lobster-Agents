@@ -662,9 +662,20 @@ class SandboxManager:
         agent.state = AgentState.idle
         agent.current_task = None
 
-        output = str(result.get("output") or "").strip()
-        if not output:
-            output = "No visible response returned."
+        raw_output = str(result.get("output") or "").strip()
+
+        # Surface attempted violations — when an agent tried to reach a tool /
+        # host / file the sandbox blocked. Today these show up as substrings
+        # in the OpenClaw subprocess output. If we see one, fire a visible
+        # sandbox_violation event so the UI can render it as a red row.
+        await self._detect_and_broadcast_violations(
+            run_id=run_id,
+            sandbox_name=sandbox_name,
+            agent=agent,
+            raw_output=raw_output,
+        )
+
+        output = raw_output or "No visible response returned."
         if len(output) > 700:
             output = output[:697].rstrip() + "..."
 
@@ -709,6 +720,83 @@ class SandboxManager:
             "connect_command": agent.connect_command,
             "timestamp": datetime.now().isoformat(),
         })
+
+    # Patterns that indicate an agent tried to invoke a tool / host / file
+    # the sandbox or its per-agent filter denied. These are matched against
+    # the raw OpenClaw subprocess output and surfaced over WS so the UI can
+    # render them as visible "attempted violation" events.
+    _VIOLATION_PATTERNS = [
+        (r"blocked by allowlist", "Blocked by policy allowlist", "policy"),
+        (r"connection refused|connect timed out|EHOSTUNREACH|ENETUNREACH",
+         "Network endpoint refused", "policy"),
+        (r"permission denied|EACCES|EPERM", "Permission denied (filesystem/process)", "policy"),
+        (r"skill (?:not (?:installed|available)|filter|denied)",
+         "Skill not in this agent's allowed set", "skill"),
+        (r"tool .{0,40}? (?:denied|not allowed|disallowed)",
+         "Tool call disallowed for this agent", "skill"),
+        (r"unknown skill|skill .{0,40}? was not found",
+         "Agent referenced a skill that isn't installed", "skill"),
+        (r"could not resolve host|name or service not known",
+         "DNS blocked at the sandbox boundary", "policy"),
+    ]
+
+    async def _detect_and_broadcast_violations(
+        self,
+        *,
+        run_id: str,
+        sandbox_name: str,
+        agent: Agent,
+        raw_output: str,
+    ) -> None:
+        """Scan an agent's output for refusal/denial signatures and report them.
+
+        Best-effort regex on the raw subprocess output. A hit fires a
+        `sandbox_violation` WS event with the matched snippet so the Task
+        Monitor can render a red row. Doesn't gate or retry — purely
+        observability.
+        """
+        if not raw_output:
+            return
+        import re
+
+        seen: list[dict[str, str]] = []
+        for pattern, label, kind in self._VIOLATION_PATTERNS:
+            match = re.search(pattern, raw_output, re.IGNORECASE)
+            if not match:
+                continue
+            # Grab a short snippet around the match for context.
+            start = max(0, match.start() - 60)
+            end = min(len(raw_output), match.end() + 60)
+            snippet = raw_output[start:end].strip()
+            if len(snippet) > 200:
+                snippet = snippet[:197] + "..."
+            seen.append({"label": label, "kind": kind, "snippet": snippet})
+
+        if not seen:
+            return
+
+        meta = self._run_meta.get(run_id)
+        if meta is not None:
+            log = meta.setdefault("violations", [])
+            for entry in seen:
+                log.append({"agent": agent.name, **entry})
+
+        for entry in seen:
+            logger.warning(
+                "Sandbox violation: sandbox=%s agent=%s kind=%s label=%s",
+                sandbox_name, agent.name, entry["kind"], entry["label"],
+            )
+            await self._broadcast({
+                "type": "sandbox_violation",
+                "run_id": run_id,
+                "sandbox_name": sandbox_name,
+                "agent": agent.name,
+                "claw_id": agent.claw_id,
+                "kind": entry["kind"],
+                "label": entry["label"],
+                "snippet": entry["snippet"],
+                "timestamp": datetime.now().isoformat(),
+            })
 
     def _reset_agents(self, agents: list[Agent]) -> None:
         """Return task-running agents to idle after stop/finish cleanup."""

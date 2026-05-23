@@ -8,7 +8,7 @@ import type {
   NemoClawStatus,
   OpenClawApprovalsStatus,
 } from "../types";
-import { SANDBOX_WORKSPACES } from "../utils/claws";
+import { SANDBOX_WORKSPACES, SQUADS, type Squad } from "../utils/claws";
 import { AGENT_COLORS, ROLE_LABELS } from "../utils/sprites";
 import LobsterBuilder from "./LobsterBuilder";
 
@@ -532,6 +532,12 @@ export default function SandboxOrchestrator({
   // track open/closed here; the modal owns its own form state.
   const [builderOpen, setBuilderOpen] = useState(false);
   const [popError, setPopError] = useState<string | null>(null);
+  // Policy preview — Run Team first opens a confirmation modal so the user
+  // sees the cage (enabled policies, deny-by-default everywhere else)
+  // before actually firing the task.
+  const [pendingRun, setPendingRun] = useState<
+    { sandboxName: string; task: string; agentNames: string[] } | null
+  >(null);
 
   const removeLobster = useCallback(
     async (name: string) => {
@@ -715,34 +721,52 @@ export default function SandboxOrchestrator({
     [sandboxes, updateTeam]
   );
 
-  const handleRunTask = useCallback(async () => {
+  // Stage 1: Run Team button → open the preview modal. The actual task
+  // submission happens in confirmRunTask once the user clicks Confirm.
+  const handleRunTask = useCallback(() => {
     if (!selected || !task.trim()) return;
+    setNotice(null);
+    setPendingRun({
+      sandboxName: selected.name,
+      task: task.trim(),
+      agentNames: selected.assigned_agents,
+    });
+  }, [selected, task]);
+
+  // Stage 2: user confirmed — actually fire the task.
+  const confirmRunTask = useCallback(async () => {
+    if (!pendingRun || !selected) return;
     setBusy(true);
     setNotice(null);
     try {
-      const result = await runSandboxTask(selected.name, task.trim(), selected.assigned_agents);
+      const result = await runSandboxTask(
+        pendingRun.sandboxName,
+        pendingRun.task,
+        pendingRun.agentNames,
+      );
       if (!result.run_id) {
         throw new Error("Backend accepted the run but did not return a run id.");
       }
       const runId = result.run_id;
-      const message = `Run started with ${selected.assigned_agents.length} claw${selected.assigned_agents.length === 1 ? "" : "s"}. Progress appears in Task Monitor.`;
+      const message = `Run started with ${pendingRun.agentNames.length} claw${pendingRun.agentNames.length === 1 ? "" : "s"}. Progress appears in Task Monitor.`;
       setRunStatus((current) => ({
         ...current,
-        [selected.name]: {
+        [pendingRun.sandboxName]: {
           runId,
           message,
-            status: "running",
-            agents: selected.assigned_agents,
-            task: task.trim(),
+          status: "running",
+          agents: pendingRun.agentNames,
+          task: pendingRun.task,
         },
       }));
+      setPendingRun(null);
       await onStateRefresh?.();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Could not start sandbox task");
     } finally {
       setBusy(false);
     }
-  }, [onStateRefresh, selected, task]);
+  }, [onStateRefresh, pendingRun, selected]);
 
   const handleStopTask = useCallback(async () => {
     if (!selected) return;
@@ -809,6 +833,41 @@ export default function SandboxOrchestrator({
       }
     },
     [selected]
+  );
+
+  const deploySquad = useCallback(
+    async (squad: Squad) => {
+      if (!selected) return;
+      setBusy(true);
+      setNotice(null);
+      try {
+        // 1. Assign the squad's team to this sandbox (drops any prior team).
+        await assignTeam(selected.name, squad.team);
+        // 2. Enable each squad policy. set_policy_preset is idempotent —
+        //    already-enabled presets short-circuit.
+        for (const preset of squad.policies) {
+          try {
+            await setPolicy(selected.name, preset, true, false);
+          } catch (err) {
+            // Don't bail on one preset failure; surface it but keep going.
+            console.warn("[squad] policy enable failed", preset, err);
+          }
+        }
+        setAssignmentSnapshot((current) =>
+          mergeAssignments(current, { [selected.name]: squad.team }),
+        );
+        onSandboxAssignments?.({ [selected.name]: squad.team });
+        await Promise.all([load(), loadSelectedDetails(selected.name), onStateRefresh?.()]);
+        setNotice(
+          `${squad.label} deployed${squad.policies.length ? ` (policies: ${squad.policies.join(", ")})` : ""}.`,
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Could not deploy squad");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, loadSelectedDetails, onSandboxAssignments, onStateRefresh, selected],
   );
 
   const handleApplyPolicy = useCallback(async () => {
@@ -888,6 +947,108 @@ export default function SandboxOrchestrator({
     });
   }, [messages]);
 
+  // Policy preview content — the enabled presets on this sandbox + a clear
+  // deny-by-default note. Built lazily so we only render when pendingRun
+  // is set.
+  const renderPolicyPreview = () => {
+    if (!pendingRun || !selected) return null;
+    const enabledPolicies = (policies?.policies ?? []).filter((p) => p.enabled);
+    return (
+      <div
+        className="pointer-events-auto fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-6 backdrop-blur-sm"
+        onClick={() => !busy && setPendingRun(null)}
+      >
+        <div
+          className="flex h-[min(70vh,640px)] w-[min(92vw,640px)] flex-col overflow-hidden rounded-2xl border border-white/14 bg-slate-950/94 shadow-[0_40px_120px_rgba(4,22,31,0.55)]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="shrink-0 border-b border-white/8 bg-slate-900/40 px-6 py-3.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-100/65">
+              🔒 Confirm sandbox run
+            </div>
+            <div className="mt-0.5 text-[17px] font-semibold leading-6 text-white">
+              {sandboxLabel(selected)}
+            </div>
+            <div className="mt-0.5 text-[11px] font-medium leading-4 text-white/45">
+              {pendingRun.agentNames.length} lobster{pendingRun.agentNames.length === 1 ? "" : "s"} — {pendingRun.agentNames.join(", ")}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4 text-white/82">
+            <div className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-white/45">
+                Task
+              </div>
+              <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-white/85">
+                {pendingRun.task}
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-emerald-300/22 bg-emerald-300/[0.05] px-3 py-2.5">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-100/75">
+                Allowed via policy presets ({enabledPolicies.length})
+              </div>
+              {enabledPolicies.length === 0 ? (
+                <div className="mt-1 text-[12px] leading-5 text-white/65">
+                  No policy presets are enabled. The sandbox can ONLY reach
+                  hosts that the NemoClaw base policy permits by default.
+                </div>
+              ) : (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {enabledPolicies.map((p) => (
+                    <span
+                      key={p.name}
+                      title={p.description}
+                      className="rounded-full bg-emerald-300/16 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-50"
+                    >
+                      {p.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 rounded-lg border border-rose-300/22 bg-rose-300/[0.05] px-3 py-2.5">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-rose-100/80">
+                Blocked at the sandbox boundary
+              </div>
+              <div className="mt-1 text-[12px] leading-5 text-white/72">
+                Every other outbound network destination, every host filesystem
+                path, and every plugin not on the enabled list above.
+                Lobsters in this sandbox cannot reach them — even if the LLM
+                tells them to try.
+              </div>
+            </div>
+
+            <div className="mt-3 text-[11px] leading-4 text-white/45">
+              Adjust policies anytime from the Task Monitor's Policies tab
+              after the run starts. Cancel here to back out.
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-white/8 bg-slate-900/40 px-6 py-3">
+            <button
+              type="button"
+              onClick={() => setPendingRun(null)}
+              disabled={busy}
+              className="rounded-md bg-white/[0.08] px-3 py-1.5 text-[12px] font-bold uppercase text-white/70 hover:bg-white/[0.16] hover:text-white disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmRunTask}
+              disabled={busy}
+              className="rounded-md bg-cyan-300/30 px-4 py-1.5 text-[12px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
+            >
+              {busy ? "Starting…" : "🦞 Run inside this sandbox"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
     <LobsterBuilder
@@ -895,6 +1056,7 @@ export default function SandboxOrchestrator({
       onClose={() => setBuilderOpen(false)}
       onSpawned={onStateRefresh}
     />
+    {renderPolicyPreview()}
     <aside className="pointer-events-auto flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/18 bg-slate-950/48 p-4 text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-md">
       <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1047,6 +1209,35 @@ export default function SandboxOrchestrator({
                 </button>
               )}
             </div>
+            {selected && (
+              <div className="mb-2 rounded-md border border-white/10 bg-white/[0.03] p-2">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/45">
+                  Quick squads
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {SQUADS.map((squad) => (
+                    <button
+                      key={squad.id}
+                      type="button"
+                      disabled={busy || !selected.live}
+                      onClick={() => deploySquad(squad)}
+                      title={squad.description}
+                      className="rounded-md border border-white/12 bg-white/[0.04] px-2 py-1 text-left text-[10px] font-semibold leading-3 text-white/80 transition hover:border-cyan-200/40 hover:bg-cyan-200/10 hover:text-white disabled:opacity-40"
+                    >
+                      <span className="block">
+                        {squad.emoji} {squad.label}
+                      </span>
+                      <span className="mt-0.5 block text-[9px] font-medium text-white/45">
+                        {squad.team.join(" + ")}
+                        {squad.policies.length > 0 && (
+                          <span className="text-cyan-100/60"> · {squad.policies.join("+")}</span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <textarea
               value={task}
               onChange={(event) => setTask(event.target.value)}

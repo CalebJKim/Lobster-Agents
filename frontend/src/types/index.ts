@@ -141,6 +141,14 @@ export interface NemoClawRunStatus {
   /** Names of NemoClaw policy presets that were enabled when the run started.
    *  Empty list means the sandbox is running without any restrictive policies. */
   policies?: string[];
+  /** Attempted violations detected in agent outputs — refusals to reach blocked
+   *  hosts, denied tool calls, etc. Surfaced so the UI can render red rows. */
+  violations?: {
+    agent: string;
+    kind: "policy" | "skill";
+    label: string;
+    snippet: string;
+  }[];
 }
 
 export interface NemoClawStatus {
