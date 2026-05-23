@@ -91,6 +91,15 @@ async def add_lobster(req: AddLobsterRequest) -> dict[str, object]:
     await mem.init_db()
     agent = Agent(role_config=role_config, llm_client=llm, memory=mem)
 
+    # Agent.__init__ defaults unknown names to war_room (168, 376). Spawning
+    # multiple lobsters in a row would pile them all on the same point until
+    # the reef-chat tick wandered them apart. Reseat them in break_room
+    # with a unique slot from the room's seat tracker so they appear at
+    # distinct positions immediately.
+    from office_agents.office.layout import get_room_position
+    agent.location = "break_room"
+    agent.position = get_room_position("break_room", agent.name)
+
     await orch.add_lobster(agent)
     logger.info("Spawned lobster %r (archetype=%s)", req.name, req.archetype)
     return {"status": "ok", "lobster": agent.to_info()}
