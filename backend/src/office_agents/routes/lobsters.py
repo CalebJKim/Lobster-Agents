@@ -20,6 +20,7 @@ from office_agents.agents.memory import AgentMemory
 from office_agents.agents.roles import list_archetypes, make_lobster
 from office_agents.config import settings
 from office_agents.infra.app_state import app_state
+from office_agents.skill_catalog import SKILL_CATALOG
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,9 @@ _SAFE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9 _'\-]{0,40}$")
 class AddLobsterRequest(BaseModel):
     archetype: str
     name: str
+    # Optional override — when the builder UI lets the user hand-pick skills,
+    # we pass them in here. None means "inherit archetype defaults".
+    skills: list[str] | None = None
 
 
 @router.get("/archetypes")
@@ -39,6 +43,18 @@ async def get_archetypes() -> dict[str, object]:
     """List the archetype templates the user can spawn lobsters from."""
 
     return {"archetypes": list_archetypes()}
+
+
+@router.get("/skills/catalog")
+async def get_skill_catalog() -> dict[str, object]:
+    """Curated ClawHub skills the builder UI can offer.
+
+    Hand-picked subset of bundled skills that are useful for the reef demo.
+    Each entry has `{slug, name, description, needs_setup}` — needs_setup
+    flags ones that won't be "ready" without additional config (API keys
+    for slack/github/notion, ffmpeg for summarize, etc.).
+    """
+    return {"skills": SKILL_CATALOG}
 
 
 @router.post("/lobsters")
@@ -59,7 +75,11 @@ async def add_lobster(req: AddLobsterRequest) -> dict[str, object]:
         )
 
     try:
-        role_config = make_lobster(req.name, req.archetype)
+        role_config = make_lobster(
+            req.name,
+            req.archetype,
+            skills_override=tuple(req.skills) if req.skills is not None else None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

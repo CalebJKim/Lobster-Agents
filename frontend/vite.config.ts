@@ -28,6 +28,7 @@ export default defineConfig({
       "/query": BACKEND,
       "/archetypes": BACKEND,
       "/lobsters": BACKEND,
+      "/skills": BACKEND,
     },
   },
 });

@@ -335,13 +335,23 @@ def list_archetypes() -> list[dict[str, object]]:
     ]
 
 
-def make_lobster(name: str, archetype: str) -> AgentRole:
+def make_lobster(
+    name: str,
+    archetype: str,
+    *,
+    skills_override: tuple[str, ...] | None = None,
+) -> AgentRole:
     """Spawn a new AgentRole from an archetype with a custom name.
 
     The archetype's system_prompt has the original lobster's name baked in
     multiple times (e.g. "You are Clawdia, the Researcher" plus references
     in the workflow rules). We substitute the original name with the new
     one so the LLM still gets a coherent in-character prompt.
+
+    ``skills_override`` lets the lobster builder UI pick a custom set of
+    ClawHub skill slugs instead of inheriting the archetype's defaults.
+    Pass ``None`` to keep the archetype's defaults; pass an empty tuple to
+    spawn with no installed skills.
     """
     template = ARCHETYPES.get(archetype)
     if template is None:
@@ -352,10 +362,13 @@ def make_lobster(name: str, archetype: str) -> AgentRole:
     name = name.strip()
     if not name:
         raise ValueError("Lobster name cannot be empty.")
+    effective_skills = (
+        tuple(skills_override) if skills_override is not None else template.openclaw_skills
+    )
     # Replace the template's name with the requested one in BOTH the
-    # personality blurb and the system prompt. Skip if user happens to ask
-    # for the template's own name.
-    if name == template.name:
+    # personality blurb and the system prompt. Skip the prompt substitution
+    # if user happens to ask for the template's own name.
+    if name == template.name and skills_override is None:
         return template
     return AgentRole(
         name=name,
@@ -364,7 +377,7 @@ def make_lobster(name: str, archetype: str) -> AgentRole:
         personality=template.personality.replace(template.name, name),
         system_prompt=template.system_prompt.replace(template.name, name),
         tools=template.tools,
-        openclaw_skills=template.openclaw_skills,
+        openclaw_skills=effective_skills,
     )
 
 

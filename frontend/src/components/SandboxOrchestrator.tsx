@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { SANDBOX_WORKSPACES } from "../utils/claws";
 import { AGENT_COLORS, ROLE_LABELS } from "../utils/sprites";
+import LobsterBuilder from "./LobsterBuilder";
 
 interface SandboxOrchestratorProps {
   agents: AgentInfo[];
@@ -527,49 +528,10 @@ export default function SandboxOrchestrator({
   const [assignmentSnapshot, setAssignmentSnapshot] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  // Population editor state — add/remove lobsters at runtime.
-  const [archetypes, setArchetypes] = useState<
-    { role: string; label: string; default_name: string; tools: string[]; openclaw_skills: string[] }[]
-  >([]);
-  const [addOpen, setAddOpen] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newArchetype, setNewArchetype] = useState<string>("");
-  const [popBusy, setPopBusy] = useState(false);
+  // The full LobsterBuilder modal replaces the old inline + form. We just
+  // track open/closed here; the modal owns its own form state.
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [popError, setPopError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/archetypes", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((d) => {
-        const list = (d.archetypes ?? []) as typeof archetypes;
-        setArchetypes(list);
-        if (list.length && !newArchetype) setNewArchetype(list[0].role);
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const spawnLobster = useCallback(async () => {
-    if (!newName.trim() || !newArchetype) return;
-    setPopBusy(true);
-    setPopError(null);
-    try {
-      const res = await fetch("/lobsters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ archetype: newArchetype, name: newName.trim() }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.detail || `spawn failed (${res.status})`);
-      setNewName("");
-      setAddOpen(false);
-      await onStateRefresh?.();
-    } catch (err) {
-      setPopError(err instanceof Error ? err.message : "Could not spawn lobster");
-    } finally {
-      setPopBusy(false);
-    }
-  }, [newName, newArchetype, onStateRefresh]);
 
   const removeLobster = useCallback(
     async (name: string) => {
@@ -927,6 +889,12 @@ export default function SandboxOrchestrator({
   }, [messages]);
 
   return (
+    <>
+    <LobsterBuilder
+      open={builderOpen}
+      onClose={() => setBuilderOpen(false)}
+      onSpawned={onStateRefresh}
+    />
     <aside className="pointer-events-auto flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/18 bg-slate-950/48 p-4 text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-md">
       <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
         <div className="min-w-0">
@@ -996,63 +964,17 @@ export default function SandboxOrchestrator({
             </span>
             <button
               type="button"
-              onClick={() => setAddOpen((open) => !open)}
-              title="Spawn a new lobster"
-              className="grid h-5 w-5 place-items-center rounded bg-white/[0.08] text-[11px] font-bold leading-3 text-white/70 hover:bg-cyan-300/30 hover:text-cyan-50"
-              aria-label="Add lobster"
+              onClick={() => setBuilderOpen(true)}
+              title="Open the Lobster Builder"
+              className="rounded bg-cyan-300/14 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-100 hover:bg-cyan-300/26"
+              aria-label="Open lobster builder"
             >
-              +
+              + New
             </button>
           </div>
-          {addOpen && (
-            <div className="mb-2 rounded-md border border-white/12 bg-white/[0.05] p-2">
-              <select
-                value={newArchetype}
-                onChange={(event) => setNewArchetype(event.target.value)}
-                className="mb-1.5 w-full rounded border border-white/10 bg-slate-950/40 px-2 py-1 text-[11px] font-semibold text-white/86 outline-none focus:border-cyan-200/40"
-              >
-                {archetypes.map((a) => (
-                  <option key={a.role} value={a.role}>
-                    {a.label} ({a.openclaw_skills.join("+") || "no skills"})
-                  </option>
-                ))}
-              </select>
-              <input
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") spawnLobster();
-                  if (event.key === "Escape") setAddOpen(false);
-                }}
-                placeholder="Name (e.g. Pip)"
-                maxLength={40}
-                className="mb-1.5 w-full rounded border border-white/10 bg-slate-950/40 px-2 py-1 text-[11px] text-white/86 outline-none placeholder:text-white/30 focus:border-cyan-200/40"
-              />
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={spawnLobster}
-                  disabled={popBusy || !newName.trim()}
-                  className="flex-1 rounded bg-cyan-300/30 px-2 py-1 text-[10px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
-                >
-                  {popBusy ? "Spawning…" : "Spawn"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddOpen(false);
-                    setPopError(null);
-                  }}
-                  className="rounded bg-white/[0.08] px-2 py-1 text-[10px] font-bold uppercase text-white/65 hover:bg-white/[0.16]"
-                >
-                  Cancel
-                </button>
-              </div>
-              {popError && (
-                <div className="mt-1 text-[10px] font-medium leading-4 text-rose-200">
-                  {popError}
-                </div>
-              )}
+          {popError && (
+            <div className="mb-1.5 rounded border border-rose-300/24 bg-rose-300/10 px-2 py-1 text-[10px] font-medium leading-4 text-rose-100">
+              {popError}
             </div>
           )}
           <div className="space-y-1.5">
@@ -1283,5 +1205,6 @@ export default function SandboxOrchestrator({
         </div>
       )}
     </aside>
+    </>
   );
 }
