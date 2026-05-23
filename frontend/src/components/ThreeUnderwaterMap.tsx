@@ -1391,6 +1391,9 @@ export default function ThreeUnderwaterMap({
     makeScene(runtime);
 
     const ensureActors = () => {
+      const liveNames = new Set(agentsRef.current.map((a) => a.name));
+
+      // Spawn actors for any new lobsters.
       agentsRef.current.forEach((agent) => {
         let actor = runtime.actors.get(agent.name);
         if (!actor) {
@@ -1402,6 +1405,39 @@ export default function ThreeUnderwaterMap({
           });
         }
       });
+
+      // Remove actors for lobsters that disappeared (delete via the UI).
+      // Free the Three.js resources or we leak GPU memory across deletes.
+      for (const [name, actor] of runtime.actors) {
+        if (liveNames.has(name)) continue;
+        runtime.scene.remove(actor.group);
+        const objs = new Set<THREE.Object3D>();
+        actor.group.traverse((obj) => {
+          objs.add(obj);
+          if (obj instanceof THREE.Mesh) {
+            obj.geometry?.dispose();
+            const mat = obj.material;
+            if (Array.isArray(mat)) {
+              mat.forEach((m) => m?.dispose());
+            } else {
+              mat?.dispose();
+            }
+          } else if (obj instanceof THREE.Sprite) {
+            const mat = obj.material as THREE.SpriteMaterial | undefined;
+            mat?.map?.dispose();
+            mat?.dispose();
+          }
+        });
+        // Anything we added to the clickable list when this actor spawned
+        // must be evicted, or raycasts can hit a phantom mesh whose
+        // material has already been disposed.
+        runtime.clickable = runtime.clickable.filter((obj) => !objs.has(obj));
+        runtime.actors.delete(name);
+        if (selectedRef.current === name) {
+          selectedRef.current = null;
+          onSelectRef.current?.(null);
+        }
+      }
     };
 
     const onPointerDown = (event: PointerEvent) => {
