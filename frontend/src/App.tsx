@@ -496,10 +496,12 @@ export default function App() {
         const messages: ChatMessage[] = officeState.messages.filter(
           (m) => m.sandbox_name === openSandboxName
         );
+        const consoleLines = officeState.sandbox_consoles[openSandboxName] ?? [];
         return (
           <SandboxRunPanel
             sandbox={sandbox}
             messages={messages}
+            consoleLines={consoleLines}
             onClose={() => setOpenSandboxName(null)}
             onAfterChange={refreshOfficeState}
             onLocalRename={(name, displayName) =>

@@ -32,6 +32,7 @@ function createInitialState(): OfficeState {
     whiteboard: [],
     current_query: null,
     thinking_agents: [],
+    sandbox_consoles: {},
   };
 }
 
@@ -413,6 +414,26 @@ export function useWebSocket() {
           run_id: runId ?? null,
         };
         return { ...prev, messages: appendUniqueMessage(prev.messages, msg) };
+      }
+
+      if (type === "sandbox_console") {
+        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : "";
+        const runId = typeof event.run_id === "string" ? event.run_id : "";
+        const agent = typeof event.agent === "string" ? event.agent : "";
+        const stream = event.stream === "stdout" ? "stdout" : "stderr";
+        const line = typeof event.line === "string" ? event.line : "";
+        const ts = typeof event.timestamp === "string" ? event.timestamp : new Date().toISOString();
+        if (!sandboxName || !line) return prev;
+        const existing = prev.sandbox_consoles[sandboxName] ?? [];
+        // Cap to avoid unbounded memory if a long run streams thousands of lines.
+        const next = [
+          ...existing.slice(Math.max(0, existing.length - 999)),
+          { run_id: runId, agent, stream: stream as "stdout" | "stderr", line, timestamp: ts },
+        ];
+        return {
+          ...prev,
+          sandbox_consoles: { ...prev.sandbox_consoles, [sandboxName]: next },
+        };
       }
 
       if (type === "sandbox_task_progress") {

@@ -638,6 +638,21 @@ class SandboxManager:
             phase="openclaw",
             message=f"Running {agent.name}'s OpenClaw turn in {short_sandbox_name(sandbox_name)}{relay_note}.",
         )
+        # Forward each stderr/stdout line to a sandbox_console WS event so
+        # the Task Monitor can render a live trace of what OpenClaw's
+        # subprocess is doing. Cheap, observable proof the run is real.
+        async def emit_console(stream: str, line: str) -> None:
+            await self._broadcast({
+                "type": "sandbox_console",
+                "run_id": run_id,
+                "sandbox_name": sandbox_name,
+                "agent": agent.name,
+                "claw_id": agent.claw_id,
+                "stream": stream,
+                "line": line[:2000],
+                "timestamp": datetime.now().isoformat(),
+            })
+
         result = await run_openclaw(
             task,
             claw_id=agent.claw_id,
@@ -649,6 +664,7 @@ class SandboxManager:
             personality=getattr(agent, "personality", None),
             tools=list(agent.tools),
             prior_turns=prior_turns or None,
+            on_chunk=emit_console,
         )
         return agent, result
 

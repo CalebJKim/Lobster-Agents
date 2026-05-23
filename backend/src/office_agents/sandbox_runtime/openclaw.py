@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 import shutil
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,10 @@ async def run_openclaw(
     # Coordinated mode — prior teammates' outputs so this lobster can build
     # on what came before, not just produce a parallel isolated turn.
     prior_turns: list[dict[str, str]] | None = None,
+    # Optional callback fired for each stderr line as it arrives. The
+    # SandboxManager wires this to a `sandbox_console` WS broadcast so the
+    # UI gets a live trace of what OpenClaw is doing during the turn.
+    on_chunk: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """Run one OpenClaw agent turn inside a NemoClaw sandbox.
 
@@ -104,9 +108,18 @@ async def run_openclaw(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_seconds + 45
+
+        # Stream both pipes concurrently. OpenClaw with --json buffers
+        # stdout (the JSON result) until completion, but emits stderr as it
+        # works (tool calls, progress notes). Forward each stderr line to
+        # on_chunk so the UI can render a live console; accumulate both
+        # streams for the final result.
+        stdout_buf, stderr_buf = await asyncio.wait_for(
+            _stream_subprocess(proc, on_chunk),
+            timeout=timeout_seconds + 45,
         )
+        stdout_bytes = stdout_buf
+        stderr_bytes = stderr_buf
     except asyncio.TimeoutError:
         logger.error("OpenClaw run timed out after %ss in sandbox=%s", timeout_seconds, sandbox_name)
         await _terminate(proc, "OpenClaw run timed out")
@@ -308,6 +321,49 @@ def _failure(
         "execution_mode": mode,
         "error": message,
     }
+
+
+async def _stream_subprocess(
+    proc: asyncio.subprocess.Process,
+    on_chunk: Callable[[str, str], Awaitable[None]] | None,
+) -> tuple[bytes, bytes]:
+    """Read stdout + stderr concurrently, calling on_chunk(stream, line).
+
+    Returns the accumulated stdout and stderr bytes. We need the full
+    stdout for JSON parsing at the end, so we buffer it; stderr we also
+    buffer for the failure-path logging.
+
+    on_chunk is invoked per UTF-8 line (newline stripped). Exceptions
+    inside on_chunk are caught and logged — they must never break the
+    subprocess read loop.
+    """
+    if proc.stdout is None or proc.stderr is None:
+        # Subprocess wasn't created with PIPE for both streams.
+        return (b"", b"")
+
+    async def drain(reader: asyncio.StreamReader, stream_name: str, buf: bytearray) -> None:
+        while True:
+            line = await reader.readline()
+            if not line:
+                return
+            buf.extend(line)
+            if on_chunk is None:
+                continue
+            try:
+                text = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if text:
+                    await on_chunk(stream_name, text)
+            except Exception:
+                logger.exception("on_chunk callback raised; continuing to drain %s", stream_name)
+
+    stdout_buf = bytearray()
+    stderr_buf = bytearray()
+    await asyncio.gather(
+        drain(proc.stdout, "stdout", stdout_buf),
+        drain(proc.stderr, "stderr", stderr_buf),
+    )
+    await proc.wait()
+    return bytes(stdout_buf), bytes(stderr_buf)
 
 
 async def _terminate(proc: asyncio.subprocess.Process | None, reason: str) -> None:
