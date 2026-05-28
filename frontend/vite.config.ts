@@ -27,8 +27,10 @@ export default defineConfig({
       "/approvals": BACKEND,
       "/query": BACKEND,
       "/archetypes": BACKEND,
+      "/accessories": BACKEND,
       "/lobsters": BACKEND,
       "/skills": BACKEND,
+      "/models": BACKEND,
     },
   },
 });

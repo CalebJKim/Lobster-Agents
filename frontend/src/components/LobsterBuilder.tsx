@@ -1,4 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import LobsterStage from "./LobsterStage";
+import type {
+  AgentInfo,
+  AgentRole,
+  Room,
+  AgentState,
+  GeneratedHeadwear,
+  LobsterEyewear,
+  LobsterHeadwear,
+} from "../types";
+
+// Reef-tasteful palette for the shell-color picker. Eight presets cover the
+// obvious crustacean reds + complementary kelp/tide/sand hues so the user
+// can spawn lobsters that stand out from the starter 7 without falling back
+// to the OS color dialog.
+const COLOR_SWATCHES: { label: string; hex: string }[] = [
+  { label: "Coral red", hex: "#ff6f61" },
+  { label: "Tide cyan", hex: "#5ec8ce" },
+  { label: "Kelp green", hex: "#76b900" },
+  { label: "Anemone pink", hex: "#ff7fb5" },
+  { label: "Deep ocean", hex: "#1d6fa5" },
+  { label: "Sun amber", hex: "#f6c14a" },
+  { label: "Sand", hex: "#e6b873" },
+  { label: "Sea purple", hex: "#a168c8" },
+];
+
+const HEADWEAR_OPTIONS: { value: LobsterHeadwear; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "cowboy_hat", label: "Cowboy hat" },
+  { value: "baseball_cap", label: "Baseball cap" },
+];
+
+const EYEWEAR_OPTIONS: { value: LobsterEyewear; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "sunglasses", label: "Sunglasses" },
+];
 
 interface Archetype {
   role: string;
@@ -35,19 +71,30 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   // null = inherit archetype defaults; non-null = user has touched the picker
   const [skillsDirty, setSkillsDirty] = useState(false);
+  // null = the lobster builder uses the default per-archetype color from
+  // the frontend palette; set when the user clicks a swatch or the custom picker.
+  const [color, setColor] = useState<string | null>(null);
+  const [headwear, setHeadwear] = useState<LobsterHeadwear>("none");
+  const [eyewear, setEyewear] = useState<LobsterEyewear>("none");
+  const [accessoryPrompt, setAccessoryPrompt] = useState("");
+  const [generatedHeadwear, setGeneratedHeadwear] = useState<GeneratedHeadwear | null>(null);
+  // Free-form user-supplied mission text. Empty string = no mission; the
+  // backend trims and discards empty strings, so we don't have to guard here.
+  const [mission, setMission] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [generatingAccessory, setGeneratingAccessory] = useState(false);
 
   // Load catalogs once when first opened.
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
+    const controller = new AbortController();
     Promise.all([
-      fetch("/archetypes", { cache: "no-store" }).then((r) => r.json()),
-      fetch("/skills/catalog", { cache: "no-store" }).then((r) => r.json()),
+      fetch("/archetypes", { cache: "no-store", signal: controller.signal }).then((r) => r.json()),
+      fetch("/skills/catalog", { cache: "no-store", signal: controller.signal }).then((r) => r.json()),
     ])
       .then(([arch, cat]) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setArchetypes(arch.archetypes ?? []);
         setCatalog(cat.skills ?? []);
         if (!archetype && arch.archetypes?.length) {
@@ -55,11 +102,10 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
         }
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load catalogs");
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Could not load catalogs");
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -68,6 +114,26 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
   const currentArch = useMemo(
     () => archetypes.find((a) => a.role === archetype) ?? null,
     [archetype, archetypes]
+  );
+
+  // Synthesize an AgentInfo for the LobsterStage preview canvas. The
+  // stage's effect re-runs whenever this object identity changes, so we
+  // memoize on the exact fields it cares about (name/role/color/skills)
+  // to avoid pointless scene rebuilds.
+  const previewAgent: AgentInfo = useMemo(
+    () => ({
+      name: name.trim() || "New Lobster",
+      role: (archetype || "researcher") as AgentRole,
+      state: "idle" as AgentState,
+      location: "break_room" as Room,
+      position: { x: 0, y: 0 },
+      current_task: null,
+      tools: currentArch?.tools ?? [],
+      openclaw_skills: selectedSkills,
+      color,
+      appearance: { headwear, eyewear, generated_headwear: generatedHeadwear },
+    }),
+    [name, archetype, color, headwear, eyewear, generatedHeadwear, selectedSkills, currentArch?.tools],
   );
 
   useEffect(() => {
@@ -90,8 +156,15 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     setName("");
     setSelectedSkills([]);
     setSkillsDirty(false);
+    setColor(null);
+    setHeadwear("none");
+    setEyewear("none");
+    setAccessoryPrompt("");
+    setGeneratedHeadwear(null);
+    setMission("");
     setError(null);
     setBusy(false);
+    setGeneratingAccessory(false);
   }, [open]);
 
   const toggleSkill = useCallback((slug: string) => {
@@ -100,6 +173,33 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
       prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
     );
   }, []);
+
+  const generateAccessory = useCallback(async () => {
+    const description = accessoryPrompt.trim();
+    if (!description) {
+      setError("Describe the headwear you want to generate.");
+      return;
+    }
+    setGeneratingAccessory(true);
+    setError(null);
+    try {
+      const res = await fetch("/accessories/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot: "headwear", description }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.detail || `Accessory generation failed (${res.status})`);
+      const accessory = body?.accessory as GeneratedHeadwear | undefined;
+      if (!accessory?.kind) throw new Error("Accessory generation returned an invalid spec.");
+      setGeneratedHeadwear(accessory);
+      setHeadwear("generated");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Accessory generation failed");
+    } finally {
+      setGeneratingAccessory(false);
+    }
+  }, [accessoryPrompt]);
 
   const submit = useCallback(async () => {
     if (!name.trim() || !archetype) {
@@ -117,6 +217,13 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
           name: name.trim(),
           // Only send a skills override if user actually changed from defaults
           skills: skillsDirty ? selectedSkills : undefined,
+          color: color ?? undefined,
+          appearance: {
+            headwear,
+            eyewear,
+            generated_headwear: headwear === "generated" ? generatedHeadwear : undefined,
+          },
+          mission: mission.trim() || undefined,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -128,7 +235,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     } finally {
       setBusy(false);
     }
-  }, [name, archetype, selectedSkills, skillsDirty, onSpawned, onClose]);
+  }, [name, archetype, selectedSkills, skillsDirty, color, headwear, eyewear, generatedHeadwear, mission, onSpawned, onClose]);
 
   if (!open) return null;
 
@@ -145,10 +252,10 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/8 bg-slate-900/40 px-6 py-3.5">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">
-              🦞 New Lobster
+              🦞 New OpenClaw profile
             </div>
             <div className="mt-0.5 text-[17px] font-semibold leading-6 text-white">
-              Lobster Builder
+              Build a Claw
             </div>
           </div>
           <button
@@ -209,6 +316,226 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Shell color picker */}
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
+                  Shell color
+                </span>
+                {color && (
+                  <button
+                    type="button"
+                    onClick={() => setColor(null)}
+                    className="text-[10px] font-semibold uppercase tracking-wide text-white/40 hover:text-white/72"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                {COLOR_SWATCHES.map((swatch) => {
+                  const on = color?.toLowerCase() === swatch.hex.toLowerCase();
+                  return (
+                    <button
+                      key={swatch.hex}
+                      type="button"
+                      title={swatch.label}
+                      aria-label={swatch.label}
+                      onClick={() => setColor(swatch.hex)}
+                      className={`h-7 w-7 rounded-full border transition ${
+                        on
+                          ? "border-white/85 ring-2 ring-white/40"
+                          : "border-white/20 hover:border-white/45"
+                      }`}
+                      style={{ backgroundColor: swatch.hex }}
+                    />
+                  );
+                })}
+                <label
+                  className="ml-1 flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.04] px-2 text-[10px] font-semibold uppercase tracking-wide text-white/60 hover:border-white/30 hover:text-white"
+                  title="Pick a custom color"
+                >
+                  Custom
+                  <input
+                    type="color"
+                    value={color ?? "#76b900"}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="h-4 w-6 cursor-pointer border-0 bg-transparent p-0"
+                  />
+                </label>
+              </div>
+              <p className="mt-1 text-[10px] text-white/35">
+                {color
+                  ? <>Using <span className="font-mono text-white/55">{color}</span></>
+                  : "Defaults to the archetype's palette color."}
+              </p>
+            </div>
+
+            {/* Accessory slots */}
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
+                  Accessories
+                </span>
+                {(headwear !== "none" || eyewear !== "none" || generatedHeadwear) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHeadwear("none");
+                      setEyewear("none");
+                      setGeneratedHeadwear(null);
+                      setAccessoryPrompt("");
+                    }}
+                    className="text-[10px] font-semibold uppercase tracking-wide text-white/40 hover:text-white/72"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-white/35">
+                    Headwear
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {HEADWEAR_OPTIONS.map((option) => {
+                      const on = headwear === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setHeadwear(option.value);
+                            setGeneratedHeadwear(null);
+                          }}
+                          className={`rounded-md border px-2 py-1 text-[11px] font-semibold transition ${
+                            on
+                              ? "border-cyan-300/50 bg-cyan-300/12 text-white"
+                              : "border-white/10 bg-white/[0.04] text-white/60 hover:border-white/22 hover:text-white"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-white/35">
+                    Eyewear
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {EYEWEAR_OPTIONS.map((option) => {
+                      const on = eyewear === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setEyewear(option.value)}
+                          className={`rounded-md border px-2 py-1 text-[11px] font-semibold transition ${
+                            on
+                              ? "border-cyan-300/50 bg-cyan-300/12 text-white"
+                              : "border-white/10 bg-white/[0.04] text-white/60 hover:border-white/22 hover:text-white"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 rounded-md border border-white/10 bg-white/[0.035] p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-white/35">
+                    Generate headwear
+                  </div>
+                  {generatedHeadwear && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGeneratedHeadwear(null);
+                        setHeadwear("none");
+                      }}
+                      className="text-[10px] font-semibold uppercase tracking-wide text-white/40 hover:text-white/72"
+                    >
+                      Clear generated
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1.5 flex gap-1.5">
+                  <input
+                    value={accessoryPrompt}
+                    onChange={(event) => setAccessoryPrompt(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && accessoryPrompt.trim()) {
+                        event.preventDefault();
+                        generateAccessory();
+                      }
+                    }}
+                    placeholder="e.g. purple wizard hat with yellow stars"
+                    maxLength={240}
+                    className="min-w-0 flex-1 rounded-md border border-white/12 bg-slate-950/55 px-2.5 py-1.5 text-[12px] text-white outline-none placeholder:text-white/28 focus:border-cyan-200/45"
+                  />
+                  <button
+                    type="button"
+                    onClick={generateAccessory}
+                    disabled={generatingAccessory || !accessoryPrompt.trim()}
+                    className="rounded-md border border-cyan-200/30 bg-cyan-300/12 px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-cyan-50 transition hover:bg-cyan-300/18 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {generatingAccessory ? "Making" : "Make"}
+                  </button>
+                </div>
+                {generatedHeadwear && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-white/55">
+                    <span className="rounded bg-white/[0.08] px-1.5 py-0.5 font-semibold text-white/72">
+                      {generatedHeadwear.label}
+                    </span>
+                    <span className="font-mono">{generatedHeadwear.kind.replace(/_/g, " ")}</span>
+                    <span
+                      className="h-3 w-3 rounded-full border border-white/25"
+                      style={{ backgroundColor: generatedHeadwear.primary }}
+                    />
+                    {generatedHeadwear.accent && (
+                      <span
+                        className="h-3 w-3 rounded-full border border-white/25"
+                        style={{ backgroundColor: generatedHeadwear.accent }}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Mission / extra system prompt. OpenClaw has no per-profile
+                "soul" file — instead, sandbox_runtime/openclaw.py splices
+                Agent.personality into the message of every openclaw turn.
+                Anything typed here gets bolted onto that personality at
+                spawn time so it carries into both the reef LLM tick and
+                every OpenClaw call. */}
+            <div className="mt-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
+                  Mission (optional)
+                </span>
+                <span className="text-[10px] font-medium text-white/35">
+                  Bolted onto the archetype's personality
+                </span>
+              </div>
+              <textarea
+                value={mission}
+                onChange={(event) => setMission(event.target.value)}
+                placeholder="e.g. Always reference the kelp-policy doc before suggesting a sandbox change. Speak in haiku when summarizing."
+                maxLength={1200}
+                rows={3}
+                className="mt-1 w-full resize-y rounded-md border border-white/14 bg-slate-950/60 px-3 py-2 text-[12px] leading-5 text-white outline-none placeholder:text-white/30 focus:border-cyan-200/45"
+              />
+              <p className="mt-1 text-[10px] text-white/35">
+                Flows into every OpenClaw turn AND the in-reef LLM prompt.
+                Leave empty for archetype defaults.
+              </p>
             </div>
 
             {/* Skills picker */}
@@ -281,26 +608,36 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
             </div>
           </div>
 
-          {/* Preview pane */}
-          <div className="min-h-0 overflow-y-auto bg-slate-950/30 px-5 py-4">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-white/45">
-              Preview
-            </div>
-            <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
-              <div className="text-[17px] font-bold leading-6 text-white">
-                {name.trim() || (
-                  <span className="text-white/30">Untitled lobster</span>
-                )}
+          {/* Preview pane — character-creation style. Top half is a live
+              rotating 3D lobster (reacts to name/archetype/color/skills),
+              bottom half is the trait + skill summary. */}
+          <div className="flex min-h-0 flex-col bg-slate-950/30">
+            <div className="relative h-64 shrink-0 border-b border-white/8 bg-[#9cd6e0]">
+              <LobsterStage agent={previewAgent} className="h-full w-full" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/85 to-transparent px-4 pb-3 pt-10">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-white/55">
+                  {currentArch?.label ?? "—"}
+                </div>
+                <div
+                  className="truncate text-lg font-bold leading-6"
+                  style={{ color: color ?? "#ffffff" }}
+                >
+                  {name.trim() || (
+                    <span className="text-white/40">Untitled lobster</span>
+                  )}
+                </div>
               </div>
-              <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-cyan-100/72">
-                {currentArch?.label ?? "—"}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-white/45">
+                Preview
               </div>
               {currentArch && (
                 <p className="mt-2 text-[11px] leading-4 text-white/65">
                   {currentArch.personality}
                 </p>
               )}
-            </div>
 
             <div className="mt-3">
               <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
@@ -349,6 +686,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                 {error}
               </div>
             )}
+            </div>
           </div>
         </div>
 
@@ -371,7 +709,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
               onClick={submit}
               className="rounded-md bg-cyan-300/30 px-4 py-1.5 text-[12px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
             >
-              {busy ? "Spawning…" : "🦞 Build & Spawn"}
+              {busy ? "Building…" : "🦞 Build Claw"}
             </button>
           </div>
         </div>

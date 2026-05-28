@@ -1,17 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { OfficeState, AgentInfo, ChatMessage, ActivityEntry } from "../types";
+import type {
+  OfficeState,
+  AgentInfo,
+  AccessoryDecorationKind,
+  ChatMessage,
+  LobsterAppearance,
+  LobsterEyewear,
+  GeneratedHeadwear,
+  GeneratedHeadwearKind,
+  LobsterHeadwear,
+} from "../types";
+import type { BackendAgentSnapshot, WSClientMessage, WSServerEvent } from "../types/ws";
 import {
   CLAW_METADATA,
   SANDBOX_HOME_ROOMS,
   sandboxConnectCommand,
 } from "../utils/claws";
+import {
+  MESSAGE_DEDUP_WINDOW,
+  RECONNECT_BASE_DELAY_MS,
+  RECONNECT_MAX_DELAY_MS,
+} from "../utils/config";
 import { isLandOfficeIdleMessage } from "../utils/messageFilters";
 import { DEFAULT_AGENT_POSITIONS } from "../utils/sprites";
 import { playSpeak, playSearch, playAnswerReady } from "../utils/sounds";
 
 const WS_URL = "ws://" + window.location.host + "/ws";
-const RECONNECT_BASE_DELAY = 1000;
-const RECONNECT_MAX_DELAY = 30000;
 
 function createInitialState(): OfficeState {
   const defaultAgents: AgentInfo[] = [
@@ -47,8 +61,102 @@ function chatFingerprint(msg: Pick<ChatMessage, "agent" | "target" | "message" |
 function appendUniqueMessage(messages: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   if (isLandOfficeIdleMessage(msg)) return messages;
   const key = chatFingerprint(msg);
-  const duplicate = messages.slice(-12).some((existing) => chatFingerprint(existing) === key);
+  const duplicate = messages
+    .slice(-MESSAGE_DEDUP_WINDOW)
+    .some((existing) => chatFingerprint(existing) === key);
   return duplicate ? messages : [...messages, msg];
+}
+
+const DEFAULT_LOBSTER_APPEARANCE: LobsterAppearance = {
+  headwear: "none",
+  eyewear: "none",
+  generated_headwear: null,
+};
+
+const HEADWEAR_VALUES = new Set<LobsterHeadwear>([
+  "none",
+  "cowboy_hat",
+  "baseball_cap",
+  "generated",
+]);
+const EYEWEAR_VALUES = new Set<LobsterEyewear>(["none", "sunglasses"]);
+const GENERATED_HEADWEAR_VALUES = new Set<GeneratedHeadwearKind>([
+  "party_hat",
+  "wizard_hat",
+  "top_hat",
+  "crown",
+  "beanie",
+]);
+const DECORATION_VALUES = new Set<AccessoryDecorationKind>([
+  "star",
+  "dot",
+  "stripe",
+  "band",
+  "gem",
+  "pom",
+]);
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+function normalizeGeneratedHeadwear(raw: unknown): GeneratedHeadwear | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const kind =
+    typeof value.kind === "string" && GENERATED_HEADWEAR_VALUES.has(value.kind as GeneratedHeadwearKind)
+      ? (value.kind as GeneratedHeadwearKind)
+      : null;
+  if (!kind) return null;
+  const primary = typeof value.primary === "string" && HEX_COLOR.test(value.primary)
+    ? value.primary
+    : "#7c3aed";
+  const accent = typeof value.accent === "string" && HEX_COLOR.test(value.accent)
+    ? value.accent
+    : null;
+  const decorations = Array.isArray(value.decorations)
+    ? value.decorations
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const dec = item as Record<string, unknown>;
+          const type =
+            typeof dec.type === "string" && DECORATION_VALUES.has(dec.type as AccessoryDecorationKind)
+              ? (dec.type as AccessoryDecorationKind)
+              : null;
+          if (!type) return null;
+          const color = typeof dec.color === "string" && HEX_COLOR.test(dec.color)
+            ? dec.color
+            : accent ?? "#facc15";
+          const count = typeof dec.count === "number"
+            ? Math.max(1, Math.min(8, Math.round(dec.count)))
+            : 1;
+          return { type, color, count };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+    : [];
+  return {
+    kind,
+    label: typeof value.label === "string" && value.label.trim()
+      ? value.label.trim().slice(0, 36)
+      : "Custom hat",
+    primary,
+    accent,
+    decorations,
+  };
+}
+
+function normalizeLobsterAppearance(raw: unknown): LobsterAppearance {
+  if (!raw || typeof raw !== "object") return DEFAULT_LOBSTER_APPEARANCE;
+  const value = raw as Record<string, unknown>;
+  const generated_headwear = normalizeGeneratedHeadwear(value.generated_headwear);
+  const headwear = typeof value.headwear === "string" && HEADWEAR_VALUES.has(value.headwear as LobsterHeadwear)
+    ? value.headwear as LobsterHeadwear
+    : "none";
+  const eyewear = typeof value.eyewear === "string" && EYEWEAR_VALUES.has(value.eyewear as LobsterEyewear)
+    ? value.eyewear as LobsterEyewear
+    : "none";
+  return {
+    headwear: headwear === "generated" && !generated_headwear ? "none" : headwear,
+    eyewear,
+    generated_headwear,
+  };
 }
 
 function sanitizeAssignments(assignments: Record<string, string[]>): Record<string, string[]> {
@@ -117,84 +225,99 @@ function applyAssignmentsToAgents(
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type BackendEvent = Record<string, any>;
+// /state REST payload — shape is wider than any single WS event so we accept
+// loose Record<string, unknown> and narrow inside the function. The agents
+// dictionary uses lobster name as key (Pydantic serialized AgentState).
+type BackendStateResponse = {
+  agents?: Record<string, Record<string, unknown>>;
+  current_query?: string | null;
+  bulletin_posts?: unknown;
+  whiteboard?: unknown;
+};
 
-function agentsFromBackendState(state: BackendEvent): AgentInfo[] {
+function normalizeAgentSnapshot(
+  name: string,
+  a: BackendAgentSnapshot | Record<string, unknown>,
+): AgentInfo {
+  const raw = a as Record<string, unknown>;
+  const role = raw.role as AgentInfo["role"];
+  const state = (raw.state as AgentInfo["state"]) ?? "idle";
+  const location = (raw.location as AgentInfo["location"]) ?? "lobby";
+  const position =
+    (raw.position as AgentInfo["position"]) ??
+    DEFAULT_AGENT_POSITIONS[name] ??
+    { x: 0, y: 0 };
+  const tools = Array.isArray(raw.tools)
+    ? (raw.tools as unknown[]).filter((t): t is string => typeof t === "string")
+    : undefined;
+  const openclaw_skills = Array.isArray(raw.openclaw_skills)
+    ? (raw.openclaw_skills as unknown[]).filter(
+        (t): t is string => typeof t === "string",
+      )
+    : undefined;
+  return {
+    name,
+    role,
+    state,
+    location,
+    position,
+    current_task: (raw.current_task as string | null | undefined) ?? null,
+    openclaw_capable: Boolean(raw.openclaw_capable ?? true),
+    claw_id: (raw.claw_id as string | undefined) ?? CLAW_METADATA[name]?.clawId,
+    sandbox_name:
+      typeof raw.sandbox_name === "string" ? raw.sandbox_name : undefined,
+    connect_command:
+      typeof raw.connect_command === "string" ? raw.connect_command : undefined,
+    tools,
+    openclaw_skills,
+    // User-picked shell color from the Build a Claw form. Without this,
+    // the map falls back to the name-keyed palette and every spawned
+    // lobster reads as plain-coral.
+    color: typeof raw.color === "string" ? raw.color : null,
+    appearance: normalizeLobsterAppearance(raw.appearance),
+  };
+}
+
+function agentsFromBackendState(state: BackendStateResponse): AgentInfo[] {
   const rawAgents = state.agents;
   if (!rawAgents || typeof rawAgents !== "object") return [];
-
-  return Object.entries(rawAgents).map(([name, raw]) => {
-    const a = raw as BackendEvent;
-    return {
-      name,
-      role: a.role,
-      state: a.state ?? "idle",
-      location: a.location ?? "lobby",
-      position: a.position ?? DEFAULT_AGENT_POSITIONS[name] ?? { x: 0, y: 0 },
-      current_task: a.current_task ?? null,
-      openclaw_capable: Boolean(a.openclaw_capable ?? true),
-      claw_id: a.claw_id ?? CLAW_METADATA[name]?.clawId,
-      sandbox_name: typeof a.sandbox_name === "string" ? a.sandbox_name : undefined,
-      connect_command: typeof a.connect_command === "string" ? a.connect_command : undefined,
-      tools: Array.isArray(a.tools) ? a.tools.filter((t: unknown): t is string => typeof t === "string") : undefined,
-      openclaw_skills: Array.isArray(a.openclaw_skills) ? a.openclaw_skills.filter((t: unknown): t is string => typeof t === "string") : undefined,
-    } as AgentInfo;
-  });
+  return Object.entries(rawAgents).map(([name, raw]) => normalizeAgentSnapshot(name, raw));
 }
 
 export function useWebSocket() {
   const [connected, setConnected] = useState(false);
   const [officeState, setOfficeState] = useState<OfficeState>(createInitialState);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectDelay = useRef(RECONNECT_BASE_DELAY);
+  const reconnectDelay = useRef(RECONNECT_BASE_DELAY_MS);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const connectionIdRef = useRef(0);
 
-  const processEvent = useCallback((event: BackendEvent) => {
+  const processEvent = useCallback((event: WSServerEvent) => {
     setOfficeState((prev) => {
-      const type = event.type as string;
-
-      // ── Full state sync (sent on connect + every 5 ticks) ─────────
-      if (type === "full_state") {
-        const office = event.office && typeof event.office === "object" ? event.office : {};
-        const agents: AgentInfo[] = (event.agents ?? []).map(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (a: any) => ({
-            name: a.name,
-            role: a.role,
-            state: a.state ?? "idle",
-            location: a.location ?? "",
-            position: a.position ?? DEFAULT_AGENT_POSITIONS[a.name] ?? { x: 0, y: 0 },
-            current_task: a.current_task ?? null,
-            openclaw_capable: Boolean(a.openclaw_capable ?? true),
-            claw_id: a.claw_id ?? CLAW_METADATA[a.name]?.clawId,
-            sandbox_name: typeof a.sandbox_name === "string" ? a.sandbox_name : undefined,
-            connect_command: typeof a.connect_command === "string" ? a.connect_command : undefined,
-            tools: Array.isArray(a.tools) ? a.tools.filter((t: unknown): t is string => typeof t === "string") : undefined,
-      openclaw_skills: Array.isArray(a.openclaw_skills) ? a.openclaw_skills.filter((t: unknown): t is string => typeof t === "string") : undefined,
-          })
+      // Full snapshot (sent on connect + every 5 ticks).
+      if (event.type === "full_state") {
+        const office = event.office ?? {};
+        const agents: AgentInfo[] = (event.agents ?? []).map((a) =>
+          normalizeAgentSnapshot(a.name, a),
         );
-        const currentQuery = Object.prototype.hasOwnProperty.call(office, "current_query")
-          ? (office.current_query || null)
-          : prev.current_query;
-        const sandboxAssignments =
-          event.sandbox_assignments && typeof event.sandbox_assignments === "object"
-            ? sanitizeAssignments(event.sandbox_assignments as Record<string, string[]>)
-            : {};
-        const hasSandboxAssignments = Object.prototype.hasOwnProperty.call(event, "sandbox_assignments");
+        const currentQuery =
+          office.current_query === undefined ? prev.current_query : office.current_query ?? null;
+        const sandboxAssignments = event.sandbox_assignments
+          ? sanitizeAssignments(event.sandbox_assignments)
+          : {};
+        const hasSandboxAssignments = event.sandbox_assignments !== undefined;
         const nextAgents = hasSandboxAssignments
           ? applyAssignmentsToAgents(
               agents.length > 0 ? agents : prev.agents,
               sandboxAssignments,
               currentQuery,
-              "replace"
+              "replace",
             )
           : agents.length > 0
             ? agents
             : prev.agents;
-        // Preserve accumulated messages/bulletin/whiteboard — don't wipe
+        // Preserve accumulated messages/bulletin/whiteboard — don't wipe.
         return {
           ...prev,
           agents: nextAgents,
@@ -204,30 +327,32 @@ export function useWebSocket() {
         };
       }
 
-      // ── agent_action: the main event type from backend orchestrator ─
-      if (type === "agent_action") {
-        const agentName = event.agent as string;
-        const action = event.action as string;
-        const content = event.content as string;
-        const target = event.target as string | null;
-        const position = event.position as { x: number; y: number } | undefined;
-        const state = event.state as string | undefined;
-        const location = event.location as string | undefined;
-        const clawId = event.claw_id as string | undefined;
-        const hasSandboxName = Object.prototype.hasOwnProperty.call(event, "sandbox_name");
-        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : undefined;
-        const hasConnectCommand = Object.prototype.hasOwnProperty.call(event, "connect_command");
-        const connectCommand = typeof event.connect_command === "string" ? event.connect_command : undefined;
+      // The main event type from the orchestrator — covers all 10 ActionTypes.
+      if (event.type === "agent_action") {
+        const {
+          agent: agentName,
+          action,
+          content,
+          target,
+          position,
+          state,
+          location,
+          claw_id: clawId,
+          current_task,
+        } = event;
+        const hasSandboxName = "sandbox_name" in event;
+        const sandboxName = event.sandbox_name;
+        const hasConnectCommand = "connect_command" in event;
+        const connectCommand = event.connect_command;
 
-        // Update agent position/state
         const agents = prev.agents.map((a) => {
           if (a.name !== agentName) return a;
           return {
             ...a,
             ...(position ? { position } : {}),
-            ...(state ? { state: state as AgentInfo["state"] } : {}),
-            ...(location ? { location: location as AgentInfo["location"] } : {}),
-            ...(event.current_task !== undefined ? { current_task: event.current_task } : {}),
+            ...(state ? { state } : {}),
+            ...(location ? { location } : {}),
+            ...(current_task !== undefined ? { current_task } : {}),
             ...(clawId ? { claw_id: clawId } : {}),
             ...(hasSandboxName ? { sandbox_name: sandboxName } : {}),
             ...(hasConnectCommand ? { connect_command: connectCommand } : {}),
@@ -239,10 +364,9 @@ export function useWebSocket() {
         let bulletin = prev.bulletin;
         let whiteboard = prev.whiteboard;
 
-        // Create chat message based on action type
-        // Key actions go to BOTH Chat (for audience) and Activity (for detail)
+        // Key actions go to BOTH Chat (audience) and Activity (detail).
         if (action === "speak" || action === "announce") {
-          const msg: ChatMessage = {
+          messages = appendUniqueMessage(messages, {
             id: generateId(),
             agent: agentName,
             target: target ?? "all",
@@ -250,11 +374,10 @@ export function useWebSocket() {
             timestamp: new Date().toISOString(),
             type: action === "announce" ? "announce" : "speak",
             sandbox_name: sandboxName ?? null,
-          };
-          messages = appendUniqueMessage(messages, msg);
+          });
           setTimeout(playSpeak, 0);
         } else if (action === "ask_user") {
-          const msg: ChatMessage = {
+          messages = appendUniqueMessage(messages, {
             id: generateId(),
             agent: agentName,
             target: "user",
@@ -262,10 +385,8 @@ export function useWebSocket() {
             timestamp: new Date().toISOString(),
             type: "ask_user",
             sandbox_name: sandboxName ?? null,
-          };
-          messages = appendUniqueMessage(messages, msg);
+          });
         } else if (action === "research") {
-          // Research goes to BOTH chat and activity — this is key visible action
           setTimeout(playSearch, 0);
           const searchQuery = content.length > 100 ? content.slice(0, 97) + "..." : content;
           messages = appendUniqueMessage(messages, {
@@ -277,42 +398,30 @@ export function useWebSocket() {
             type: "speak" as const,
             sandbox_name: sandboxName ?? null,
           });
-          activity = [...activity, {
-            id: generateId(),
-            agent: agentName,
-            action,
-            content: content ?? "",
-            timestamp: new Date().toISOString(),
-          }];
+          activity = [
+            ...activity,
+            { id: generateId(), agent: agentName, action, content, timestamp: new Date().toISOString() },
+          ];
         } else if (action === "code") {
-          // Code actions are interesting — show in chat
           const taskDesc = content.length > 100 ? content.slice(0, 97) + "..." : content;
-          const sandbox = sandboxName;
           messages = appendUniqueMessage(messages, {
             id: generateId(),
             agent: agentName,
             target: "all",
-            message: `Opening OpenClaw in ${sandbox ?? "shared reef workspace"}: ${taskDesc}`,
+            message: `Opening OpenClaw in ${sandboxName ?? "shared reef workspace"}: ${taskDesc}`,
             timestamp: new Date().toISOString(),
             type: "speak" as const,
-            sandbox_name: sandbox,
+            sandbox_name: sandboxName,
           });
-          activity = [...activity, {
-            id: generateId(),
-            agent: agentName,
-            action,
-            content: content ?? "",
-            timestamp: new Date().toISOString(),
-          }];
+          activity = [
+            ...activity,
+            { id: generateId(), agent: agentName, action, content, timestamp: new Date().toISOString() },
+          ];
         } else if (action === "think" || action === "move_to" || action === "idle") {
-          // Only activity tab for these
-          activity = [...activity, {
-            id: generateId(),
-            agent: agentName,
-            action,
-            content: content ?? "",
-            timestamp: new Date().toISOString(),
-          }];
+          activity = [
+            ...activity,
+            { id: generateId(), agent: agentName, action, content, timestamp: new Date().toISOString() },
+          ];
         } else if (action === "post_bulletin") {
           bulletin = [
             ...bulletin,
@@ -320,218 +429,203 @@ export function useWebSocket() {
           ];
         } else if (action === "write_whiteboard") {
           setTimeout(playAnswerReady, 0);
-          whiteboard = [
-            ...whiteboard,
-            { agent: agentName, content, timestamp: new Date().toISOString() },
-          ];
+          whiteboard = [...whiteboard, { agent: agentName, content, timestamp: new Date().toISOString() }];
         }
 
-        // Clear this agent from thinking list since they've acted
+        // Clear this agent from thinking list since they've acted.
         const thinking_agents = prev.thinking_agents.filter((n) => n !== agentName);
         return { ...prev, agents, messages, activity, bulletin, whiteboard, thinking_agents };
       }
 
-      // ── agents_thinking: broadcast before each LLM batch ────────────
-      if (type === "agents_thinking") {
-        return { ...prev, thinking_agents: (event.agents as string[]) ?? [] };
+      if (event.type === "agents_thinking") {
+        return { ...prev, thinking_agents: event.agents ?? [] };
       }
 
-      if (type === "sandbox_team_updated") {
-        const assignments =
-          event.assignments && typeof event.assignments === "object"
-            ? (event.assignments as Record<string, string[]>)
-            : {};
+      if (event.type === "sandbox_team_updated") {
+        const assignments = event.assignments ?? {};
         return {
           ...prev,
           agents: applyAssignmentsToAgents(
             prev.agents,
             assignments,
             prev.current_query,
-            Object.keys(assignments).length === 0 ? "replace" : "patch"
+            Object.keys(assignments).length === 0 ? "replace" : "patch",
           ),
         };
       }
 
-      // ── query_received ──────────────────────────────────────────────
-      if (type === "query_received") {
-        const q = (event.query as string) || null;
-        return { ...prev, current_query: q };
+      if (event.type === "query_received") {
+        return { ...prev, current_query: event.query || null };
       }
 
-      if (type === "query_completed") {
+      if (event.type === "query_completed") {
         return { ...prev, current_query: null, thinking_agents: [] };
       }
 
-      // ── query_accepted (confirmation from WS submit) ────────────────
-      if (type === "query_accepted") {
-        return { ...prev, current_query: event.query as string };
+      if (event.type === "query_accepted") {
+        return { ...prev, current_query: event.query };
       }
 
-      if (type === "sandbox_task_started") {
-        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : undefined;
-        const runId = typeof event.run_id === "string" ? event.run_id : undefined;
-        const agents = Array.isArray(event.agents) ? event.agents.join(", ") : "team";
-        const msg: ChatMessage = {
-          id: generateId(),
-          agent: "NemoClaw",
-          target: sandboxName ?? "all",
-          message: `Run started for ${agents}.`,
-          timestamp: new Date().toISOString(),
-          type: "announce",
-          sandbox_name: sandboxName ?? null,
-          run_id: runId ?? null,
+      if (event.type === "sandbox_task_started") {
+        const agentsLabel = event.agents.length > 0 ? event.agents.join(", ") : "team";
+        return {
+          ...prev,
+          messages: appendUniqueMessage(prev.messages, {
+            id: generateId(),
+            agent: "NemoClaw",
+            target: event.sandbox_name,
+            message: `Run started for ${agentsLabel}.`,
+            timestamp: new Date().toISOString(),
+            type: "announce",
+            sandbox_name: event.sandbox_name,
+            run_id: event.run_id,
+          }),
         };
-        return { ...prev, messages: appendUniqueMessage(prev.messages, msg) };
       }
 
-      if (type === "sandbox_task_finished") {
-        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : undefined;
-        const runId = typeof event.run_id === "string" ? event.run_id : undefined;
-        const msg: ChatMessage = {
-          id: generateId(),
-          agent: "NemoClaw",
-          target: sandboxName ?? "all",
-          message: "Run finished. Agent results are above.",
-          timestamp: new Date().toISOString(),
-          type: "announce",
-          sandbox_name: sandboxName ?? null,
-          run_id: runId ?? null,
+      if (event.type === "sandbox_task_finished") {
+        return {
+          ...prev,
+          messages: appendUniqueMessage(prev.messages, {
+            id: generateId(),
+            agent: "NemoClaw",
+            target: event.sandbox_name,
+            message: "Run finished. Agent results are above.",
+            timestamp: new Date().toISOString(),
+            type: "announce",
+            sandbox_name: event.sandbox_name,
+            run_id: event.run_id,
+          }),
         };
-        return { ...prev, messages: appendUniqueMessage(prev.messages, msg) };
       }
 
-      if (type === "sandbox_task_cancelling") {
-        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : undefined;
-        const runId = typeof event.run_id === "string" ? event.run_id : undefined;
-        const msg: ChatMessage = {
-          id: generateId(),
-          agent: "NemoClaw",
-          target: sandboxName ?? "all",
-          message: "Stop requested. Waiting for the active OpenClaw turn to unwind.",
-          timestamp: new Date().toISOString(),
-          type: "announce",
-          sandbox_name: sandboxName ?? null,
-          run_id: runId ?? null,
+      if (event.type === "sandbox_task_cancelling") {
+        return {
+          ...prev,
+          messages: appendUniqueMessage(prev.messages, {
+            id: generateId(),
+            agent: "NemoClaw",
+            target: event.sandbox_name,
+            message: "Stop requested. Waiting for the active OpenClaw turn to unwind.",
+            timestamp: new Date().toISOString(),
+            type: "announce",
+            sandbox_name: event.sandbox_name,
+            run_id: event.run_id,
+          }),
         };
-        return { ...prev, messages: appendUniqueMessage(prev.messages, msg) };
       }
 
-      if (type === "sandbox_console") {
-        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : "";
-        const runId = typeof event.run_id === "string" ? event.run_id : "";
-        const agent = typeof event.agent === "string" ? event.agent : "";
-        const stream = event.stream === "stdout" ? "stdout" : "stderr";
-        const line = typeof event.line === "string" ? event.line : "";
-        const ts = typeof event.timestamp === "string" ? event.timestamp : new Date().toISOString();
-        if (!sandboxName || !line) return prev;
-        const existing = prev.sandbox_consoles[sandboxName] ?? [];
+      if (event.type === "sandbox_console") {
+        if (!event.sandbox_name || !event.line) return prev;
+        const existing = prev.sandbox_consoles[event.sandbox_name] ?? [];
         // Cap to avoid unbounded memory if a long run streams thousands of lines.
         const next = [
           ...existing.slice(Math.max(0, existing.length - 999)),
-          { run_id: runId, agent, stream: stream as "stdout" | "stderr", line, timestamp: ts },
+          {
+            run_id: event.run_id,
+            agent: event.agent,
+            stream: event.stream,
+            line: event.line,
+            timestamp: event.timestamp,
+          },
         ];
         return {
           ...prev,
-          sandbox_consoles: { ...prev.sandbox_consoles, [sandboxName]: next },
+          sandbox_consoles: { ...prev.sandbox_consoles, [event.sandbox_name]: next },
         };
       }
 
-      if (type === "sandbox_task_progress") {
-        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : undefined;
-        const runId = typeof event.run_id === "string" ? event.run_id : undefined;
-        const msg: ChatMessage = {
-          id: generateId(),
-          agent: "NemoClaw",
-          target: sandboxName ?? "all",
-          message: String(event.message ?? "Sandbox run is progressing."),
-          timestamp: new Date().toISOString(),
-          type: "announce",
-          sandbox_name: sandboxName ?? null,
-          run_id: runId ?? null,
+      if (event.type === "sandbox_task_progress") {
+        return {
+          ...prev,
+          messages: appendUniqueMessage(prev.messages, {
+            id: generateId(),
+            agent: "NemoClaw",
+            target: event.sandbox_name,
+            message: event.message,
+            timestamp: new Date().toISOString(),
+            type: "announce",
+            sandbox_name: event.sandbox_name,
+            run_id: event.run_id,
+          }),
         };
-        return { ...prev, messages: appendUniqueMessage(prev.messages, msg) };
       }
 
-      if (type === "sandbox_task_cancelled") {
-        const sandboxName = typeof event.sandbox_name === "string" ? event.sandbox_name : undefined;
-        const runId = typeof event.run_id === "string" ? event.run_id : undefined;
-        const msg: ChatMessage = {
-          id: generateId(),
-          agent: "NemoClaw",
-          target: sandboxName ?? "all",
-          message: "Run cancelled.",
-          timestamp: new Date().toISOString(),
-          type: "announce",
-          sandbox_name: sandboxName ?? null,
-          run_id: runId ?? null,
+      if (event.type === "sandbox_task_cancelled") {
+        return {
+          ...prev,
+          messages: appendUniqueMessage(prev.messages, {
+            id: generateId(),
+            agent: "NemoClaw",
+            target: event.sandbox_name,
+            message: "Run cancelled.",
+            timestamp: new Date().toISOString(),
+            type: "announce",
+            sandbox_name: event.sandbox_name,
+            run_id: event.run_id,
+          }),
         };
-        return { ...prev, messages: appendUniqueMessage(prev.messages, msg) };
       }
 
-      // ── Legacy / specific event types (fallback) ────────────────────
-      if (type === "agent_moved") {
-        const agents = prev.agents.map((a) =>
-          a.name === event.agent ? { ...a, position: { x: event.x, y: event.y } } : a
-        );
-        return { ...prev, agents };
-      }
-
-      if (type === "agent_spoke") {
-        const msg: ChatMessage = {
-          id: generateId(),
-          agent: event.agent,
-          target: event.target,
-          message: event.message,
-          timestamp: new Date().toISOString(),
-          type: "speak",
+      if (event.type === "sandbox_cleared") {
+        if (!event.sandbox_name) return prev;
+        const { [event.sandbox_name]: _cleared, ...sandbox_consoles } = prev.sandbox_consoles;
+        void _cleared;
+        return {
+          ...prev,
+          sandbox_consoles,
+          messages: appendUniqueMessage(
+            prev.messages.filter((m) => m.sandbox_name !== event.sandbox_name),
+            {
+              id: generateId(),
+              agent: "NemoClaw",
+              target: event.sandbox_name,
+              message: "Sandbox cleared. Old workspace files were archived.",
+              timestamp: new Date().toISOString(),
+              type: "announce",
+              sandbox_name: event.sandbox_name,
+            },
+          ),
         };
-        return { ...prev, messages: appendUniqueMessage(prev.messages, msg) };
       }
 
-      if (type === "agent_thinking") {
-        const entry: ActivityEntry = {
-          id: generateId(),
-          agent: event.agent,
-          action: "think",
-          content: event.thought,
-          timestamp: new Date().toISOString(),
+      // Backend-side incidents — surface them in chat so the user sees the
+      // warning even between state snapshots. HealthBanner handles persistent
+      // outages via /health polling; StatusTab renders the running violations
+      // list from run_status. This branch covers the transient gap.
+      if (event.type === "system_warning") {
+        return {
+          ...prev,
+          messages: appendUniqueMessage(prev.messages, {
+            id: generateId(),
+            agent: "System",
+            target: "all",
+            message: `⚠️ ${event.message}`,
+            timestamp: new Date().toISOString(),
+            type: "announce",
+          }),
         };
-        return { ...prev, activity: [...prev.activity, entry] };
       }
 
-      if (type === "agent_state_changed") {
-        const agents = prev.agents.map((a) =>
-          a.name === event.agent
-            ? {
-                ...a,
-                state: event.state,
-                ...(event.location ? { location: event.location } : {}),
-                ...(event.current_task !== undefined ? { current_task: event.current_task } : {}),
-              }
-            : a
-        );
-        return { ...prev, agents };
-      }
-
-      if (type === "bulletin_post") {
-        const post = {
-          id: generateId(),
-          agent: event.agent,
-          content: event.content,
-          timestamp: new Date().toISOString(),
+      if (event.type === "sandbox_violation") {
+        return {
+          ...prev,
+          messages: appendUniqueMessage(prev.messages, {
+            id: generateId(),
+            agent: "NemoClaw",
+            target: event.sandbox_name,
+            message: `🔒 ${event.agent} hit "${event.label}" — see Task Monitor.`,
+            timestamp: new Date().toISOString(),
+            type: "announce",
+            sandbox_name: event.sandbox_name,
+            run_id: event.run_id,
+          }),
         };
-        return { ...prev, bulletin: [...prev.bulletin, post] };
       }
 
-      if (type === "whiteboard_update") {
-        const entry = {
-          agent: event.agent,
-          content: event.content,
-          timestamp: new Date().toISOString(),
-        };
-        return { ...prev, whiteboard: [...prev.whiteboard, entry] };
-      }
-
+      // Other backend-emitted types (lobster_added, lobster_removed,
+      // sandbox_renamed, water_cooler_status, reply_accepted, error, pong)
+      // are not yet acted on here — they reconcile via the next `full_state` snapshot.
       return prev;
     });
   }, []);
@@ -557,7 +651,7 @@ export function useWebSocket() {
           return;
         }
         setConnected(true);
-        reconnectDelay.current = RECONNECT_BASE_DELAY;
+        reconnectDelay.current = RECONNECT_BASE_DELAY_MS;
         console.log("[WS] Connected to Office Agents backend");
       };
 
@@ -567,7 +661,14 @@ export function useWebSocket() {
         }
         try {
           const data = JSON.parse(event.data);
-          processEvent(data);
+          // The discriminated union is asserted here at the boundary. Any
+          // unrecognized `type` simply falls through processEvent's switch
+          // and is ignored — there's no runtime crash on contract drift.
+          if (data && typeof data === "object" && typeof data.type === "string") {
+            processEvent(data as WSServerEvent);
+          } else {
+            console.warn("[WS] Dropping malformed message:", data);
+          }
         } catch (e) {
           console.error("[WS] Failed to parse message:", e);
         }
@@ -582,7 +683,7 @@ export function useWebSocket() {
         console.log(`[WS] Disconnected. Reconnecting in ${reconnectDelay.current}ms...`);
         reconnectTimer.current = setTimeout(() => {
           reconnectTimer.current = null;
-          reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_DELAY);
+          reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_DELAY_MS);
           connect();
         }, reconnectDelay.current);
       };
@@ -596,7 +697,7 @@ export function useWebSocket() {
       console.error("[WS] Connection failed:", err);
       reconnectTimer.current = setTimeout(() => {
         reconnectTimer.current = null;
-        reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_DELAY);
+        reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_DELAY_MS);
         connect();
       }, reconnectDelay.current);
     }
@@ -618,13 +719,21 @@ export function useWebSocket() {
     };
   }, [connect]);
 
+  const sendClient = useCallback((msg: WSClientMessage) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(msg));
+      return true;
+    }
+    return false;
+  }, []);
+
   const sendQuery = useCallback((query: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       // If there's an active query, send as a reply instead of a new query
       setOfficeState((prev) => {
         if (prev.current_query) {
           // This is a reply to an agent question
-          wsRef.current!.send(JSON.stringify({ type: "reply", message: query }));
+          sendClient({ type: "reply", message: query });
           const userMessage: ChatMessage = {
             id: generateId(),
             agent: "You",
@@ -641,7 +750,7 @@ export function useWebSocket() {
 
         // New query: free lobsters gather in the war room immediately.
         // Sandbox-assigned lobsters stay reserved for sandbox-specific work.
-        wsRef.current!.send(JSON.stringify({ type: "query", query }));
+        sendClient({ type: "query", query });
         const warRoomSeats = [
           { x: 112, y: 340 }, { x: 168, y: 340 }, { x: 224, y: 340 },
           { x: 112, y: 412 }, { x: 168, y: 412 }, { x: 224, y: 412 },
@@ -683,20 +792,16 @@ export function useWebSocket() {
     } else {
       console.warn("[WS] Cannot send query - not connected");
     }
-  }, []);
+  }, [sendClient]);
 
   const resetOffice = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "reset" }));
-    }
+    sendClient({ type: "reset" });
     setOfficeState(createInitialState());
-  }, []);
+  }, [sendClient]);
 
   const setWaterCooler = useCallback((opts: { enabled?: boolean; topic?: string | null }) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "water_cooler", ...opts }));
-    }
-  }, []);
+    sendClient({ type: "water_cooler", ...opts });
+  }, [sendClient]);
 
   const refreshOfficeState = useCallback(async () => {
     try {

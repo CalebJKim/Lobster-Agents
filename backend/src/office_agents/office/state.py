@@ -3,11 +3,35 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Coroutine
 
 from office_agents.models import Action, ActionType, AgentState, Position
 from office_agents.office.store import PersistentStore
+
+logger = logging.getLogger(__name__)
+
+
+def _fire_and_log(coro: Coroutine[Any, Any, Any], *, label: str) -> None:
+    """Schedule a coroutine and log any exception it raises.
+
+    The previous implementation called :func:`asyncio.ensure_future` with no
+    done-callback, so a failed SQLite write would silently disappear into the
+    void. We now attach a callback that surfaces the traceback via the module
+    logger — same fire-and-forget semantics, but failures become visible.
+    """
+
+    task = asyncio.ensure_future(coro)
+
+    def _on_done(t: asyncio.Task[Any]) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.exception("Background persistence failed: %s", label, exc_info=exc)
+
+    task.add_done_callback(_on_done)
 
 
 class OfficeState:
@@ -20,6 +44,11 @@ class OfficeState:
         self.current_files: list[str] = []
         self.agent_states: dict[str, dict[str, Any]] = {}
         self._store = store
+
+    def get_store(self) -> PersistentStore | None:
+        """Public accessor for the persistent store. May be ``None`` when the
+        in-memory state is constructed without persistence (e.g. tests)."""
+        return self._store
 
     async def load_history(self) -> None:
         """Load persisted deliverables and bulletin posts from SQLite."""
@@ -57,6 +86,8 @@ class OfficeState:
         location: str,
         position: tuple[int, int],
         metadata: dict[str, Any] | None = None,
+        color: str | None = None,
+        appearance: dict[str, str] | None = None,
     ) -> None:
         self.agent_states[name] = {
             "role": role,
@@ -64,6 +95,12 @@ class OfficeState:
             "location": location,
             "position": {"x": position[0], "y": position[1]},
             "current_task": None,
+            # Per-lobster shell color (user-picked at build time). Kept on
+            # office_state so the /state REST snapshot carries it too,
+            # otherwise a refreshOfficeState() call after spawn clobbers
+            # the WS-delivered color back to null.
+            "color": color,
+            "appearance": appearance or {"headwear": "none", "eyewear": "none"},
             **(metadata or {}),
         }
 
@@ -118,8 +155,9 @@ class OfficeState:
             })
             # Persist
             if self._store:
-                asyncio.ensure_future(
-                    self._store.save_bulletin_post(agent_name, action.content, "finding")
+                _fire_and_log(
+                    self._store.save_bulletin_post(agent_name, action.content, "finding"),
+                    label="save_bulletin_post",
                 )
 
         if action.type == ActionType.write_whiteboard:
@@ -138,8 +176,9 @@ class OfficeState:
             })
             # Persist
             if self._store:
-                asyncio.ensure_future(
-                    self._store.save_deliverable(query, agent_name, action.content)
+                _fire_and_log(
+                    self._store.save_deliverable(query, agent_name, action.content),
+                    label="save_deliverable",
                 )
 
         self.agent_states[agent_name] = info

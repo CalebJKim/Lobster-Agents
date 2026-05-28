@@ -12,6 +12,32 @@ class Settings(BaseSettings):
     allowed_file_paths: list[str] = []
     tavily_api_key: str = ""
 
+    # Path where the live-editable water-cooler topics file is found.
+    # Override via OFFICE_AGENTS_WATER_COOLER_TOPICS_PATH on non-Spark hosts.
+    water_cooler_topics_path: str = (
+        "/home/nvidia/documents/demo-files/water-cooler-topics.md"
+    )
+
+    # Reef chat tuning.
+    # When the LLM times out / is unreachable, fall back to templated
+    # narration so the canvas keeps moving instead of going silent.
+    reef_fallback_on_outage: bool = True
+    # Per-call timeout for reef chat — generous because the 35B model on
+    # Spark warms up slowly on first call.
+    reef_chat_timeout: float = 180.0
+
+    # Per-sandbox filesystem layout managed by openshell. These match the
+    # NemoClaw Spark host layout; override for local-dev environments.
+    sandbox_workspaces_dir: str = "/sandbox/workspaces"
+    sandbox_runs_dir: str = "/sandbox/runs"
+
+    # Extra directories searched by sandbox_runtime._which() when nemoclaw /
+    # openshell aren't on PATH. Defaults are the Spark host's NVIDIA layout.
+    extra_bin_paths: list[str] = [
+        "/home/nvidia/.local/bin",
+        "/usr/local/bin",
+    ]
+
     model_config = {
         "env_prefix": "OFFICE_AGENTS_",
         "env_file": ".env",

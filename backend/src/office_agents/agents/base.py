@@ -43,6 +43,9 @@ class Agent:
         role_config: AgentRole,
         llm_client: LLMClient,
         memory: AgentMemory,
+        *,
+        color: str | None = None,
+        appearance: dict[str, str] | None = None,
     ) -> None:
         self.name = role_config.name
         self.role = role_config.role
@@ -51,6 +54,14 @@ class Agent:
         self.personality = role_config.personality
         self.tools: tuple[str, ...] = role_config.tools
         self.openclaw_skills: tuple[str, ...] = role_config.openclaw_skills
+        # Optional override for the 3D shell color. Hex string like "#ff6f61".
+        # When None, the frontend falls back to its name-keyed palette so the
+        # 7 starter lobsters keep their established look.
+        self.color: str | None = color
+        self.appearance: dict[str, str] = appearance or {
+            "headwear": "none",
+            "eyewear": "none",
+        }
         self.claw_metadata = get_claw_metadata(self.name)
         self.claw_id = self.claw_metadata["claw_id"]
         self.sandbox_name: str | None = None
@@ -244,6 +255,8 @@ class Agent:
             "connect_command": self.connect_command,
             "tools": list(self.tools),
             "openclaw_skills": list(self.openclaw_skills),
+            "color": self.color,
+            "appearance": self.appearance,
         }
 
     # ------------------------------------------------------------------
@@ -265,11 +278,30 @@ class Agent:
         lines.append(f"- Your state: {self.state.value}")
         lines.append("")
 
-        # ── Movement encouragement based on context ──
-        has_query = bool(office_state.get("current_query"))
+        lines.extend(self._movement_hints(office_state))
+        lines.extend(self._query_urgency_block(office_state))
+        lines.extend(self._recent_events_block(recent_events))
+        lines.extend(self._memories_block(recent_memories, long_term))
+        lines.extend(self._reef_status_block(office_state))
 
+        lines.append(
+            "Based on all this, what do you do next? "
+            "Remember you are in a physical underwater reef habitat - move around! "
+            "Respond with a single JSON object."
+        )
+        return "\n".join(lines)
+
+    def _movement_hints(self, office_state: dict[str, Any]) -> list[str]:
+        """Lines that nudge the lobster to move (or stay put) based on context.
+
+        Encodes the only place the prompt diverges by location/query state.
+        Returns an empty list if neither a query is active nor the lobster has
+        been idling — keeps the prompt compact for short-lived ticks.
+        """
+        has_query = bool(office_state.get("current_query"))
         sandbox_room = get_home_room_for_sandbox(self.sandbox_name) if self.sandbox_name else None
         assigned_to_sandbox = bool(sandbox_room and self.location == sandbox_room)
+        lines: list[str] = []
 
         if has_query and assigned_to_sandbox:
             lines.append(
@@ -292,7 +324,6 @@ class Agent:
             )
             lines.append("")
         elif not has_query:
-            # Check if there's an idle reef chat nudge in recent events.
             has_water_cooler = any(
                 ev.type == "water_cooler" for ev in self.event_queue[-5:]
             ) if self.event_queue else False
@@ -327,57 +358,74 @@ class Agent:
                         "someone nearby or moving to a different room."
                     )
             lines.append("")
+        return lines
 
-        if office_state.get("current_query"):
-            lines.append(f"USER QUERY: {office_state['current_query']}")
-            if office_state.get("current_files"):
-                lines.append(
-                    f"FILES PROVIDED: {', '.join(office_state['current_files'])}"
-                )
-            query_tick = office_state.get("query_tick", 0)
-            writer_name = office_state.get("general_query_writer") or "Pearl"
-            if writer_name != "Pearl" and self.name == writer_name:
-                lines.append(
-                    "Pearl is unavailable because she is sandbox-reserved. "
-                    "You are the backup writer for this general query and may use write_whiteboard."
-                )
-            if query_tick >= 3 and self.name == writer_name:
-                lines.append(
-                    f"🚨 YOU MUST USE write_whiteboard NOW (round {query_tick}). "
-                    "Do NOT use speak. Your action MUST be: "
-                    '{"action": "write_whiteboard", "content": "<your full answer here>"}. '
-                    "Write the complete answer based on everything discussed so far."
-                )
-            elif query_tick >= 3:
-                lines.append(
-                    f"⚠️ URGENCY: Round {query_tick}. The answer is overdue. "
-                    f"{writer_name} must use write_whiteboard NOW. If you're coordinating, tell {writer_name} directly."
-                )
-            elif query_tick >= 2:
-                lines.append(
-                    f"Round {query_tick}. Time to wrap up. {writer_name} should write the answer."
-                )
-            lines.append("")
+    def _query_urgency_block(self, office_state: dict[str, Any]) -> list[str]:
+        """Query header + escalating nudges to write the whiteboard.
 
-        lines.append("RECENT REEF ACTIVITY:")
-        if recent_events.strip():
-            lines.append(recent_events)
-        else:
-            lines.append("  (nothing recent)")
+        Encodes the convergence pressure: round 1-2 is permissive, round 3+
+        forces the writer to emit ``write_whiteboard`` instead of more chatter.
+        """
+        if not office_state.get("current_query"):
+            return []
+
+        lines: list[str] = [f"USER QUERY: {office_state['current_query']}"]
+        if office_state.get("current_files"):
+            lines.append(f"FILES PROVIDED: {', '.join(office_state['current_files'])}")
+
+        query_tick = office_state.get("query_tick", 0)
+        writer_name = office_state.get("general_query_writer") or "Pearl"
+        if writer_name != "Pearl" and self.name == writer_name:
+            lines.append(
+                "Pearl is unavailable because she is sandbox-reserved. "
+                "You are the backup writer for this general query and may use write_whiteboard."
+            )
+        # Urgency thresholds mirror orchestrator.WRITER_NUDGE_TICK /
+        # WRITER_DIRECT_TICK. Kept as literals here (rather than imported)
+        # because base.py shouldn't reach back into the orchestrator.
+        if query_tick >= 5 and self.name == writer_name:
+            lines.append(
+                f"🚨 YOU MUST USE write_whiteboard NOW (round {query_tick}). "
+                "Do NOT use speak. Your action MUST be: "
+                '{"action": "write_whiteboard", "content": "<your full answer here>"}. '
+                "Write the complete answer based on everything discussed so far."
+            )
+        elif query_tick >= 5:
+            lines.append(
+                f"⚠️ URGENCY: Round {query_tick}. The answer is overdue. "
+                f"{writer_name} must use write_whiteboard NOW. If you're coordinating, tell {writer_name} directly."
+            )
+        elif query_tick >= 3:
+            lines.append(
+                f"Round {query_tick}. Time to wrap up. {writer_name} should write the answer."
+            )
         lines.append("")
+        return lines
 
+    @staticmethod
+    def _recent_events_block(recent_events: str) -> list[str]:
+        lines = ["RECENT REEF ACTIVITY:"]
+        lines.append(recent_events if recent_events.strip() else "  (nothing recent)")
+        lines.append("")
+        return lines
+
+    @staticmethod
+    def _memories_block(recent_memories: list[str], long_term: list[str]) -> list[str]:
+        lines: list[str] = []
         if recent_memories:
             lines.append("YOUR RECENT MEMORIES:")
             for mem in recent_memories[-10:]:
                 lines.append(f"  - {mem}")
             lines.append("")
-
         if long_term:
             lines.append("RELEVANT LONG-TERM MEMORIES:")
             for mem in long_term:
                 lines.append(f"  - {mem}")
             lines.append("")
+        return lines
 
+    def _reef_status_block(self, office_state: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
         agents = office_state.get("agents", {})
         if agents:
             lines.append("REEF STATUS (who is where):")
@@ -398,13 +446,7 @@ class Agent:
             for post in bulletin[-5:]:
                 lines.append(f"  [{post.get('agent', '?')}]: {post.get('content', '')}")
             lines.append("")
-
-        lines.append(
-            "Based on all this, what do you do next? "
-            "Remember you are in a physical underwater reef habitat - move around! "
-            "Respond with a single JSON object."
-        )
-        return "\n".join(lines)
+        return lines
 
     def _format_events(self) -> str:
         """Format the event queue as a conversation-like log."""
@@ -421,7 +463,14 @@ class Agent:
                 elif ev.type == "system_nudge":
                     data_str = f"⚠️ SYSTEM: {ev.data.get('message', '')}"
                 elif "message" in ev.data:
-                    data_str = ev.data["message"]
+                    # Render speech with addressee + speaker's reasoning so
+                    # peers can react to *why* something was said, not just
+                    # the surface message. Target empty/None = room-wide line.
+                    target = ev.data.get("target")
+                    addr = f" → {target}" if target else " → (room)"
+                    reasoning = ev.data.get("reasoning") or ""
+                    reasoning_str = f" (thinking: {reasoning[:120]})" if reasoning else ""
+                    data_str = f"{addr}: {ev.data['message']}{reasoning_str}"
                 elif "query" in ev.data:
                     data_str = f"[query] {ev.data['query']}"
                 elif "thought" in ev.data:

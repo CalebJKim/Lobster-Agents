@@ -2,11 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ChatMessage,
   NemoClawPolicyPreset,
-  NemoClawPolicyStatus,
   NemoClawSandbox,
   SandboxConsoleLine,
 } from "../types";
-import { AGENT_COLORS } from "../utils/sprites";
+import { fetchPolicies, setPolicy } from "../utils/sandboxApi";
+import { statusDot } from "./sandbox/format";
+import StatusTab from "./sandbox/StatusTab";
+import PoliciesTab from "./sandbox/PoliciesTab";
+import ChatTab from "./sandbox/ChatTab";
+import ConsoleTab from "./sandbox/ConsoleTab";
 
 interface SandboxRunPanelProps {
   sandbox: NemoClawSandbox;
@@ -21,58 +25,13 @@ interface SandboxRunPanelProps {
   onLocalRename?: (sandboxName: string, displayName: string) => void;
 }
 
-function formatTime(ts: string | undefined): string {
-  if (!ts) return "";
-  try {
-    return new Date(ts).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
-
-function statusDot(status?: string | null): string {
-  switch (status) {
-    case "running":
-      return "bg-cyan-300";
-    case "cancelling":
-    case "stopping":
-    case "cancelled":
-      return "bg-amber-300";
-    case "finished":
-      return "bg-emerald-300";
-    case "error":
-      return "bg-rose-300";
-    default:
-      return "bg-white/40";
-  }
-}
-
-async function fetchPolicies(sandboxName: string): Promise<NemoClawPolicyStatus> {
-  const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/policies`, {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Could not load policies (${res.status})`);
-  return res.json();
-}
-
-async function setPolicy(
-  sandboxName: string,
-  preset: string,
-  enabled: boolean,
-  dryRun: boolean
-): Promise<{ output?: string; ok?: boolean; error?: string }> {
-  const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/policies`, {
+async function clearSandbox(sandboxName: string): Promise<{ archive?: string; error?: string }> {
+  const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/clear`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ preset, enabled, dry_run: dryRun }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return { ok: false, error: body?.detail || `Policy change failed (${res.status})` };
+    return { error: body?.detail || `Clear failed (${res.status})` };
   }
   return body;
 }
@@ -102,6 +61,12 @@ export default function SandboxRunPanel({
     output: string;
   } | null>(null);
   const [policyNotice, setPolicyNotice] = useState<string | null>(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
+  const [taskDraft, setTaskDraft] = useState("");
+  const [taskBusy, setTaskBusy] = useState(false);
+  const [taskNotice, setTaskNotice] = useState<string | null>(null);
 
   // Close on Escape.
   useEffect(() => {
@@ -169,6 +134,8 @@ export default function SandboxRunPanel({
   }, [policyPreview, sandbox.name, loadPolicies, onAfterChange]);
 
   const run = sandbox.run_status ?? null;
+  const runActive = Boolean(run?.running || run?.status === "running" || run?.status === "stopping");
+  const clearDisabled = clearBusy || runActive || !sandbox.live;
   const outputs = useMemo(() => Object.entries(run?.outputs ?? {}), [run]);
   const errors = useMemo(() => Object.entries(run?.errors ?? {}), [run]);
   const team = sandbox.assigned_agent_details ?? [];
@@ -218,7 +185,8 @@ export default function SandboxRunPanel({
           : (raw.trim() || defaultLabel || sandbox.name);
         setIsRenaming(false);
         setRenameError(null);
-        // Optimistic local update so this panel + the dock card flip instantly.
+        // Update local cached label using what the server actually stored;
+        // onAfterChange then refreshes the source of truth from /sandboxes.
         onLocalRename?.(sandbox.name, effective);
         await onAfterChange?.();
       } catch (err) {
@@ -227,6 +195,74 @@ export default function SandboxRunPanel({
     },
     [sandbox.name, defaultLabel, onAfterChange, onLocalRename]
   );
+
+  useEffect(() => {
+    setClearConfirm(false);
+    setClearNotice(null);
+    setTaskNotice(null);
+  }, [sandbox.name]);
+
+  const runTask = useCallback(async () => {
+    const task = taskDraft.trim();
+    if (!task || taskBusy) return;
+    setTaskBusy(true);
+    setTaskNotice(null);
+    try {
+      const res = await fetch(
+        `/sandboxes/${encodeURIComponent(sandbox.name)}/task`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTaskNotice(body?.detail || `Run failed (${res.status})`);
+        return;
+      }
+      setTaskDraft("");
+      setTaskNotice(body?.run_id ? `Run started: ${body.run_id.slice(0, 8)}…` : "Run started.");
+      await onAfterChange?.();
+    } catch (err) {
+      setTaskNotice(err instanceof Error ? err.message : "Run failed");
+    } finally {
+      setTaskBusy(false);
+    }
+  }, [taskDraft, taskBusy, sandbox.name, onAfterChange]);
+
+  const cancelRun = useCallback(async () => {
+    if (!run?.run_id) return;
+    setTaskBusy(true);
+    try {
+      await fetch(
+        `/sandboxes/${encodeURIComponent(sandbox.name)}/task/${encodeURIComponent(run.run_id)}/cancel`,
+        { method: "POST" },
+      );
+      await onAfterChange?.();
+    } finally {
+      setTaskBusy(false);
+    }
+  }, [run?.run_id, sandbox.name, onAfterChange]);
+
+  const handleClearSandbox = useCallback(async () => {
+    if (clearDisabled) return;
+    if (!clearConfirm) {
+      setClearConfirm(true);
+      setClearNotice(null);
+      return;
+    }
+    setClearBusy(true);
+    const result = await clearSandbox(sandbox.name);
+    setClearBusy(false);
+    setClearConfirm(false);
+    if (result.error) {
+      setClearNotice(result.error);
+      return;
+    }
+    setClearNotice(result.archive ? `Cleared. Archive: ${result.archive}` : "Cleared.");
+    await onAfterChange?.();
+  }, [clearConfirm, clearDisabled, onAfterChange, sandbox.name]);
 
   return (
     <div
@@ -238,9 +274,9 @@ export default function SandboxRunPanel({
         onClick={(event) => event.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/8 bg-slate-900/40 px-6 py-3.5">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/8 bg-gradient-to-b from-slate-900/60 to-slate-900/30 px-7 py-5">
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200/65">
               NemoClaw Sandbox
             </div>
             {isRenaming ? (
@@ -291,12 +327,12 @@ export default function SandboxRunPanel({
                 type="button"
                 onClick={startRename}
                 title="Rename this sandbox"
-                className="mt-0.5 flex max-w-full items-center gap-2 text-left"
+                className="group/title mt-1.5 flex max-w-full items-center gap-2.5 text-left"
               >
-                <span className="truncate text-[18px] font-semibold leading-6 text-white">
+                <span className="truncate text-[22px] font-semibold leading-7 text-white">
                   {currentLabel}
                 </span>
-                <span className="shrink-0 text-[12px] text-white/35 group-hover:text-white/70">
+                <span className="shrink-0 text-[13px] text-white/30 transition group-hover/title:text-white/70">
                   ✎
                 </span>
                 {isCustomLabel && (
@@ -306,26 +342,64 @@ export default function SandboxRunPanel({
                 )}
               </button>
             )}
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-white/45">
+                {sandbox.name}
+              </span>
+              {sandbox.home_room && (
+                <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-medium text-white/55">
+                  {sandbox.home_room}
+                </span>
+              )}
+              <span className={`rounded-md px-2 py-0.5 font-semibold ${
+                sandbox.live
+                  ? "bg-emerald-300/14 text-emerald-100"
+                  : "bg-amber-300/14 text-amber-100"
+              }`}>
+                {sandbox.live ? "● live" : "● not live"}
+              </span>
+            </div>
             {renameError && (
-              <div className="mt-1 text-[11px] font-medium text-rose-200">
+              <div className="mt-1.5 text-[11px] font-medium text-rose-200">
                 {renameError}
               </div>
             )}
-            <div className="mt-0.5 truncate font-mono text-[11px] leading-4 text-white/35">
-              {sandbox.name}
-            </div>
+            {clearNotice && (
+              <div className="mt-1.5 truncate text-[11px] font-medium text-cyan-100/72">
+                {clearNotice}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {run && (
-              <span className="flex items-center gap-1.5 rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/75">
+              <span className="flex items-center gap-1.5 rounded-full bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/80">
                 <span className={`h-2 w-2 rounded-full ${statusDot(run.status)}`} />
                 {run.status}
               </span>
             )}
             <button
               type="button"
+              disabled={clearDisabled}
+              onClick={handleClearSandbox}
+              className={`h-9 rounded-lg px-3 text-[11px] font-bold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                clearConfirm
+                  ? "bg-rose-300/22 text-rose-50 hover:bg-rose-300/34"
+                  : "bg-white/[0.07] text-white/68 hover:bg-white/[0.16] hover:text-white"
+              }`}
+              title={
+                runActive
+                  ? "Stop the active run before clearing"
+                  : !sandbox.live
+                    ? "Sandbox is not live"
+                  : "Archive and wipe this sandbox's workspace files"
+              }
+            >
+              {clearBusy ? "Clearing" : clearConfirm ? "Confirm" : "Clear"}
+            </button>
+            <button
+              type="button"
               onClick={onClose}
-              className="grid h-8 w-8 place-items-center rounded-md bg-white/[0.07] text-white/72 hover:bg-white/[0.16] hover:text-white"
+              className="grid h-9 w-9 place-items-center rounded-lg bg-white/[0.07] text-[15px] text-white/72 hover:bg-white/[0.16] hover:text-white"
               aria-label="Close"
               title="Close (Esc)"
             >
@@ -335,28 +409,102 @@ export default function SandboxRunPanel({
         </div>
 
         {/* Tabs */}
-        <div className="flex shrink-0 gap-1 border-b border-white/8 bg-slate-900/30 px-4 py-2">
+        <div className="flex shrink-0 gap-1 border-b border-white/10 bg-slate-900/40 px-6">
           {(
             [
-              { id: "status" as Tab, label: "Run + Outputs" },
-              { id: "policies" as Tab, label: `Policies${policies.length ? ` (${policies.filter((p) => p.enabled).length})` : ""}` },
-              { id: "chat" as Tab, label: `Sandbox Chat${localMessages.length ? ` (${localMessages.length})` : ""}` },
-              { id: "console" as Tab, label: `Console${consoleLines.length ? ` (${consoleLines.length})` : ""}` },
+              { id: "status" as Tab, label: "Run + Outputs", count: 0 },
+              { id: "policies" as Tab, label: "Policies", count: policies.filter((p) => p.enabled).length },
+              { id: "chat" as Tab, label: "Chat", count: localMessages.length },
+              { id: "console" as Tab, label: "Console", count: consoleLines.length },
             ] as const
-          ).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition ${
-                tab === t.id
-                  ? "bg-cyan-300/14 text-cyan-100"
-                  : "text-white/55 hover:bg-white/[0.06] hover:text-white/82"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+          ).map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`relative flex items-center gap-2 px-4 py-5 text-[15px] font-semibold transition ${
+                  active
+                    ? "text-cyan-100"
+                    : "text-white/55 hover:text-white"
+                }`}
+              >
+                {t.label}
+                {t.count > 0 && (
+                  <span
+                    className={`inline-grid min-w-[22px] place-items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-4 ${
+                      active
+                        ? "bg-cyan-300/25 text-cyan-50"
+                        : "bg-white/[0.10] text-white/65"
+                    }`}
+                  >
+                    {t.count}
+                  </span>
+                )}
+                {active && (
+                  <span className="absolute inset-x-2 -bottom-px h-[3px] rounded-t-full bg-cyan-300/80" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Run prompt bar — always visible, drives the sandbox directly. */}
+        <div className="shrink-0 border-b border-white/8 bg-slate-900/25 px-6 py-3">
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-white/40">
+                Run a task in this sandbox
+              </label>
+              <textarea
+                value={taskDraft}
+                onChange={(e) => setTaskDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    runTask();
+                  }
+                }}
+                disabled={taskBusy || runActive || !sandbox.live}
+                rows={1}
+                placeholder={
+                  !sandbox.live
+                    ? "Sandbox is not live"
+                    : runActive
+                      ? "Run in progress — cancel it to start another"
+                      : team.length === 0
+                        ? "No lobsters assigned — runs the default solo team"
+                        : `What should the team do? (⌘↵ to run)`
+                }
+                className="min-h-[40px] max-h-32 w-full resize-none rounded-lg border border-white/12 bg-slate-950/55 px-3 py-2 text-[13px] leading-5 text-white outline-none placeholder:text-white/35 focus:border-cyan-200/45 disabled:opacity-60"
+              />
+            </div>
+            {runActive ? (
+              <button
+                type="button"
+                onClick={cancelRun}
+                disabled={taskBusy}
+                className="h-10 shrink-0 rounded-lg bg-rose-300/22 px-4 text-[12px] font-bold uppercase tracking-wide text-rose-50 transition hover:bg-rose-300/34 disabled:opacity-50"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={runTask}
+                disabled={!taskDraft.trim() || taskBusy || !sandbox.live}
+                className="h-10 shrink-0 rounded-lg bg-cyan-300/30 px-4 text-[12px] font-bold uppercase tracking-wide text-cyan-50 transition hover:bg-cyan-300/45 disabled:cursor-not-allowed disabled:bg-white/[0.07] disabled:text-white/35"
+              >
+                {taskBusy ? "Starting…" : "Run"}
+              </button>
+            )}
+          </div>
+          {taskNotice && (
+            <div className="mt-1.5 text-[11px] font-medium text-cyan-100/80">
+              {taskNotice}
+            </div>
+          )}
         </div>
 
         {/* Body */}
@@ -367,7 +515,6 @@ export default function SandboxRunPanel({
               outputs={outputs}
               errors={errors}
               team={team}
-              sandbox={sandbox}
             />
           )}
 
@@ -390,545 +537,6 @@ export default function SandboxRunPanel({
           {tab === "console" && <ConsoleTab lines={consoleLines} />}
         </div>
       </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Status tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-function StatusTab({
-  run,
-  outputs,
-  errors,
-  team,
-  sandbox,
-}: {
-  run: NemoClawSandbox["run_status"] | null | undefined;
-  outputs: [string, string][];
-  errors: [string, string][];
-  team: NonNullable<NemoClawSandbox["assigned_agent_details"]>;
-  sandbox: NemoClawSandbox;
-}) {
-  return (
-    <div className="space-y-4">
-      {/* Run summary */}
-      {run ? (
-        <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3.5">
-          <div className="flex flex-wrap items-center gap-2">
-            {run.mode && (
-              <span
-                title={
-                  run.mode === "coordinated"
-                    ? "Each lobster's OpenClaw turn sees the prior teammates' outputs and builds on them."
-                    : undefined
-                }
-                className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-                  run.mode === "coordinated"
-                    ? "bg-cyan-300/22 text-cyan-50"
-                    : run.mode === "sequential"
-                      ? "bg-amber-300/18 text-amber-100"
-                      : "bg-cyan-300/16 text-cyan-100"
-                }`}
-              >
-                {run.mode === "coordinated"
-                  ? "Coordinated relay"
-                  : run.mode === "sequential"
-                    ? "Sequential — no in-sandbox chat"
-                    : "Single agent"}
-              </span>
-            )}
-            {(run.policies ?? []).map((p) => (
-              <span
-                key={p}
-                className="rounded-full bg-emerald-300/14 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-100"
-              >
-                policy: {p}
-              </span>
-            ))}
-            {run.phase && (
-              <span className="rounded-full bg-white/[0.06] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white/70">
-                phase: {run.phase}
-              </span>
-            )}
-          </div>
-          {run.task && (
-            <div className="mt-3">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
-                Task
-              </div>
-              <div className="mt-1 break-words text-[13px] leading-5 text-white/85">
-                {run.task}
-              </div>
-            </div>
-          )}
-          {run.last_message && (
-            <div className="mt-3">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
-                Latest
-              </div>
-              <div className="mt-1 text-[12px] leading-5 text-white/72">
-                {run.last_message}
-              </div>
-            </div>
-          )}
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-white/38">
-            <span>run_id: {run.run_id}</span>
-            {run.current_agent && <span>active: {run.current_agent}</span>}
-            {run.started_at && <span>started: {formatTime(run.started_at)}</span>}
-            {run.finished_at && <span>finished: {formatTime(run.finished_at)}</span>}
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-10 text-center text-[13px] font-medium text-white/55">
-          No active run for this sandbox.
-          <br />
-          Drop lobsters in and click <span className="font-semibold text-white/82">Run Team</span> in the dock to start one.
-        </div>
-      )}
-
-      {/* Attempted violations — red rows visible to the user */}
-      {run?.violations && run.violations.length > 0 && (
-        <section>
-          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-rose-100/85">
-            🔒 Attempted violations ({run.violations.length})
-          </div>
-          <div className="space-y-2">
-            {run.violations.map((v, idx) => (
-              <div
-                key={`v-${idx}`}
-                className="rounded-xl border border-rose-300/26 bg-rose-300/[0.08] px-4 py-2.5"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-rose-300/22 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-50">
-                    {v.kind}
-                  </span>
-                  <span className="text-[12px] font-semibold text-rose-50">
-                    {v.agent}
-                  </span>
-                  <span className="text-[11px] text-rose-100/80">
-                    {v.label}
-                  </span>
-                </div>
-                <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded bg-slate-950/40 px-2.5 py-1.5 font-mono text-[10px] leading-4 text-white/65">
-                  {v.snippet}
-                </pre>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Per-agent outputs */}
-      {(outputs.length > 0 || errors.length > 0) && (
-        <section>
-          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
-            Per-agent results
-          </div>
-          <div className="space-y-2.5">
-            {outputs.map(([agent, text]) => (
-              <div
-                key={`out-${agent}`}
-                className="rounded-xl border border-emerald-300/22 bg-emerald-300/[0.05] px-4 py-3"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: AGENT_COLORS[agent] ?? "#5eead4" }}
-                  />
-                  <span className="text-[13px] font-semibold text-emerald-50">
-                    {agent}
-                  </span>
-                  <span className="text-[11px] font-medium uppercase text-emerald-200/75">
-                    finished
-                  </span>
-                </div>
-                <div className="mt-1.5 whitespace-pre-wrap break-words text-[13px] leading-5 text-white/85">
-                  {text}
-                </div>
-              </div>
-            ))}
-            {errors.map(([agent, text]) => (
-              <div
-                key={`err-${agent}`}
-                className="rounded-xl border border-rose-300/24 bg-rose-300/[0.07] px-4 py-3"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: AGENT_COLORS[agent] ?? "#fda4af" }}
-                  />
-                  <span className="text-[13px] font-semibold text-rose-50">
-                    {agent}
-                  </span>
-                  <span className="text-[11px] font-medium uppercase text-rose-200/85">
-                    error
-                  </span>
-                </div>
-                <div className="mt-1.5 whitespace-pre-wrap break-words text-[13px] leading-5 text-white/85">
-                  {text}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Team capabilities — real OpenClaw skills first (these are actually
-          installed on each agent inside the sandbox), then soft trait chips. */}
-      {team.length > 0 && (
-        <section>
-          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
-            Team capabilities
-          </div>
-          {(() => {
-            const skills: string[] = [];
-            const traits: string[] = [];
-            for (const agent of team) {
-              for (const s of agent.openclaw_skills ?? []) {
-                if (!skills.includes(s)) skills.push(s);
-              }
-              for (const t of agent.tools ?? []) {
-                if (!traits.includes(t)) traits.push(t);
-              }
-            }
-            if (skills.length === 0 && traits.length === 0) {
-              return (
-                <div className="text-[12px] text-white/45">
-                  None of this team's lobsters have capabilities listed.
-                </div>
-              );
-            }
-            return (
-              <div className="space-y-2">
-                {skills.length > 0 && (
-                  <div>
-                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-100/72">
-                      Installed OpenClaw skills
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {skills.map((s) => (
-                        <span
-                          key={s}
-                          className="rounded-full bg-emerald-300/16 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-50"
-                          title={`Real ClawHub skill installed via openclaw skills install ${s}`}
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {traits.length > 0 && (
-                  <div>
-                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/40">
-                      Personality traits (soft prompt bias)
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {traits.map((t) => (
-                        <span
-                          key={t}
-                          className="rounded-full bg-cyan-300/14 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-50"
-                          title={`Soft trait: ${t}`}
-                        >
-                          {t.replace(/_/g, " ")}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </section>
-      )}
-
-      {/* Team roster */}
-      <section>
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
-          Team in this sandbox
-        </div>
-        {team.length === 0 ? (
-          <div className="text-[12px] text-white/45">
-            No lobsters assigned. Drag claws into this workspace from the dock or the reef.
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {team.map((agent) => (
-              <span
-                key={agent.name}
-                title={agent.tools?.length ? `Tools: ${agent.tools.join(", ")}` : undefined}
-                className="flex items-center gap-2 rounded-full bg-white/[0.08] px-3 py-1.5 text-[12px] font-semibold text-white/85"
-              >
-                <span
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: AGENT_COLORS[agent.name] ?? "#94a3b8" }}
-                />
-                {agent.name}
-                <span className="text-[10px] font-medium text-white/45">
-                  {agent.role}
-                </span>
-              </span>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg bg-white/[0.04] px-3 py-2">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
-            Live
-          </div>
-          <div className="mt-0.5 text-[12px] font-semibold text-white/82">
-            {sandbox.live ? "Yes — managed by NemoClaw" : "Configured but not live"}
-          </div>
-        </div>
-        <div className="rounded-lg bg-white/[0.04] px-3 py-2">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
-            Home room
-          </div>
-          <div className="mt-0.5 text-[12px] font-semibold text-white/82">
-            {sandbox.home_room ?? "—"}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Policies tab — live editor
-// ─────────────────────────────────────────────────────────────────────────────
-
-function PoliciesTab({
-  policies,
-  error,
-  busy,
-  notice,
-  preview,
-  onPreview,
-  onApply,
-  onCancelPreview,
-  onReload,
-}: {
-  policies: NemoClawPolicyPreset[];
-  error: string | null;
-  busy: string | null;
-  notice: string | null;
-  preview: { preset: string; enabled: boolean; output: string } | null;
-  onPreview: (preset: string, enabled: boolean) => void;
-  onApply: () => void;
-  onCancelPreview: () => void;
-  onReload: () => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[12px] leading-5 text-white/65">
-          Toggle a preset to preview what the NemoClaw policy CLI would do.
-          Nothing is applied until you click <span className="font-semibold text-white/82">Apply</span>.
-        </p>
-        <button
-          type="button"
-          onClick={onReload}
-          className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/72 hover:bg-white/[0.16] hover:text-white"
-        >
-          Reload
-        </button>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-[12px] text-rose-100">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div className="rounded-lg border border-emerald-300/24 bg-emerald-300/10 px-3 py-2 text-[12px] text-emerald-100">
-          {notice}
-        </div>
-      )}
-
-      {policies.length === 0 && !error ? (
-        <div className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
-          Loading policies…
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-          {policies.map((p) => {
-            const isBusy = busy === p.name;
-            const previewMatches = preview?.preset === p.name;
-            const nextEnabled = previewMatches ? preview!.enabled : !p.enabled;
-            return (
-              <div
-                key={p.name}
-                className={`rounded-xl border px-3 py-3 transition ${
-                  p.enabled
-                    ? "border-emerald-300/22 bg-emerald-300/[0.05]"
-                    : "border-white/10 bg-white/[0.04]"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-[12px] font-semibold text-white/88">
-                      {p.name}
-                    </div>
-                    {p.description && (
-                      <div className="mt-0.5 break-words text-[11px] leading-4 text-white/55">
-                        {p.description}
-                      </div>
-                    )}
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                      p.enabled
-                        ? "bg-emerald-300/16 text-emerald-100"
-                        : "bg-white/[0.08] text-white/65"
-                    }`}
-                  >
-                    {p.enabled ? "on" : "off"}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => onPreview(p.name, nextEnabled)}
-                    className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/82 hover:bg-white/[0.16] disabled:opacity-40"
-                  >
-                    {isBusy ? "Working…" : `Preview turning ${nextEnabled ? "on" : "off"}`}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {preview && (
-        <div className="rounded-xl border border-cyan-300/30 bg-cyan-300/[0.08] px-4 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-cyan-100/85">
-                Preview
-              </div>
-              <div className="mt-0.5 text-[13px] font-semibold text-white">
-                Will {preview.enabled ? "enable" : "disable"} {preview.preset}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={onCancelPreview}
-                className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/72 hover:bg-white/[0.16] hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onApply}
-                disabled={busy === preview.preset}
-                className="rounded-md bg-cyan-300/30 px-3 py-1 text-[11px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
-              >
-                {busy === preview.preset ? "Applying…" : "Apply"}
-              </button>
-            </div>
-          </div>
-          {preview.output && (
-            <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded bg-slate-950/40 px-3 py-2 font-mono text-[11px] leading-4 text-white/75">
-              {preview.output}
-            </pre>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Chat tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ChatTab({ messages }: { messages: ChatMessage[] }) {
-  if (messages.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-10 text-center text-[13px] font-medium text-white/55">
-        No chatter in this sandbox yet. Reef chat between 2+ assigned lobsters
-        will appear here; nothing from the reef commons leaks in.
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      {messages.map((msg) => (
-        <div
-          key={msg.id}
-          className="rounded-lg bg-white/[0.05] px-3 py-2"
-        >
-          <div className="flex items-center gap-2">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: AGENT_COLORS[msg.agent] ?? "#94a3b8" }}
-            />
-            <span className="text-[12px] font-semibold text-white/86">
-              {msg.agent}
-            </span>
-            <span className="text-[11px] font-medium text-white/35">
-              {formatTime(msg.timestamp)}
-            </span>
-            {msg.target && msg.target !== "all" && (
-              <span className="text-[10px] font-medium uppercase text-white/35">
-                → {msg.target}
-              </span>
-            )}
-          </div>
-          <div className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-5 text-white/82">
-            {msg.message}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Console tab — live stderr/stdout from openclaw subprocesses
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ConsoleTab({ lines }: { lines: SandboxConsoleLine[] }) {
-  if (lines.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-10 text-center text-[13px] font-medium text-white/55">
-        No console output yet. Once a Run Team task fires, this tab will stream
-        the OpenClaw subprocess output as each agent runs — tool calls,
-        progress logs, errors. Stays empty between runs.
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-xl border border-white/10 bg-slate-950/60 px-3 py-3 font-mono text-[11px] leading-5 text-white/82">
-      {lines.map((entry, idx) => (
-        <div
-          key={idx}
-          className={`flex items-baseline gap-2 ${
-            entry.stream === "stderr" ? "text-amber-100/85" : "text-white/82"
-          }`}
-        >
-          <span className="shrink-0 text-[9px] text-white/35">
-            {formatTime(entry.timestamp)}
-          </span>
-          <span
-            className="shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase"
-            style={{
-              backgroundColor:
-                entry.stream === "stderr" ? "rgba(252,211,77,0.18)" : "rgba(125,211,252,0.12)",
-            }}
-          >
-            {entry.agent}
-          </span>
-          <span className="break-words whitespace-pre-wrap">{entry.line}</span>
-        </div>
-      ))}
     </div>
   );
 }

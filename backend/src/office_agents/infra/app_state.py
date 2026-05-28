@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from office_agents.agents.orchestrator import Orchestrator
     from office_agents.infra.broadcaster import Broadcaster
     from office_agents.llm.client import LLMClient
+    from office_agents.llm.registry import ModelRegistry
     from office_agents.office.state import OfficeState
 
 
@@ -31,6 +32,7 @@ class AppState:
     orchestrator: "Orchestrator | None" = None
     office_state: "OfficeState | None" = None
     llm: "LLMClient | None" = None
+    model_registry: "ModelRegistry | None" = None
     broadcaster: "Broadcaster | None" = None
     sim_task: "asyncio.Task[None] | None" = None
 
@@ -48,6 +50,11 @@ class AppState:
         if self.broadcaster is None:
             raise RuntimeError("Broadcaster not initialized")
         return self.broadcaster
+
+    def require_model_registry(self) -> "ModelRegistry":
+        if self.model_registry is None:
+            raise RuntimeError("Model registry not initialized")
+        return self.model_registry
 
 
 app_state = AppState()

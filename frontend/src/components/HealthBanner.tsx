@@ -42,27 +42,28 @@ export default function HealthBanner() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     const poll = async () => {
       try {
-        const res = await fetch("/health", { cache: "no-store" });
+        const res = await fetch("/health", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error(`/health → ${res.status}`);
         const data = (await res.json()) as Health;
-        if (!cancelled) {
-          setHealth(data);
-          setFetchError(null);
-        }
+        if (controller.signal.aborted) return;
+        setHealth(data);
+        setFetchError(null);
       } catch (err) {
-        if (!cancelled) {
-          setFetchError(err instanceof Error ? err.message : "health probe failed");
-          setHealth(null);
-        }
+        if (controller.signal.aborted) return;
+        setFetchError(err instanceof Error ? err.message : "health probe failed");
+        setHealth(null);
       }
     };
     poll();
     const id = window.setInterval(poll, 5000);
     return () => {
-      cancelled = true;
+      controller.abort();
       window.clearInterval(id);
     };
   }, []);

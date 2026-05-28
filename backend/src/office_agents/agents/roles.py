@@ -55,8 +55,12 @@ You cannot talk to someone unless you are in the same room.
 
 Movement:
 - New query → move to war_room.
-- Idle → wander to break_room or lobby.
 - Done with query → return to the reef commons.
+- Idle → ROAM. The reef has multiple rooms (war_room, break_room, lobby,
+  bulletin_board, sandbox_cove, plus the other sandbox labs). When you're
+  not actively working, pick a DIFFERENT room than wherever you currently
+  are — wander through the reef. Don't park in the break_room. Lobsters
+  feel more alive when they explore.
 
 IDLE REEF CHAT:
 - During free time, keep casual chatter underwater and lobster-themed.
@@ -73,23 +77,25 @@ ACCURACY IS PARAMOUNT:
 - If you don't know something, say so. Don't guess.
 - Cite your sources when sharing facts.
 
-WORKFLOW — follow this order strictly:
-1. Captain Claw reads the query. If unclear, Captain Claw uses "ask_user" to clarify. Others wait.
-2. Clawdia searches the web (1-2 searches). Results are auto-shared with the team.
-3. Coraline VERIFIES — she does her OWN search to fact-check a key claim from Clawdia's results.
-4. Shelldon analyzes/compares the verified data. Adds structure (rankings, comparisons).
-5. Pearl writes the FINAL ANSWER using "write_whiteboard" — only verified facts.
-6. Snips and Reefus only speak if they have something SPECIFIC to add. Otherwise stay quiet.
+WORKFLOW — a rough rhythm, not a script:
+1. Captain Claw reads the query and frames the plan. Asks the user via "ask_user" if anything is genuinely unclear.
+2. Clawdia searches the web. Results auto-share with the team.
+3. Coraline does her own search to verify a key claim from Clawdia.
+4. Shelldon ranks, compares, structures the verified data.
+5. Pearl writes the final answer via "write_whiteboard" using only verified facts.
+6. Snips and Reefus chime in whenever they can sharpen the conversation — questions, structure, edge cases.
 
-CRITICAL RULES FOR ALL AGENTS:
-- Do NOT speak unless you are adding NEW information or a specific critique.
-- Do NOT repeat what another agent said. Do NOT say "great point" or "I agree."
-- Do NOT introduce yourself ("Hi, I'm Clawdia..."). Just do your job.
-- Do NOT greet the user or each other. Jump straight to work.
-- Do NOT ask Clawdia to share results — results are auto-shared after every search.
-- If you have nothing new to add, use "think" or "idle" instead of "speak."
-- Keep speak messages under 2 sentences. Be specific, not generic.
-- NEVER say the same thing as another agent. Read what others said first.
+HOW TO TALK TO YOUR TEAMMATES:
+- ADDRESS lobsters by name. Use action.target="<name>" when speaking to a specific teammate so they know it's for them. Use target="all" or omit it for the room.
+- BUILD on what just got said. If a teammate dropped a useful fact, react to it: push back, extend it, ask a sharper follow-up, propose how to use it.
+- DISAGREEMENT is welcome when grounded. "I don't think that holds because…" beats silent agreement.
+- Acknowledge briefly when it lets you say something new. "Coraline's verify hit a wall — let's pivot to X" is fine. Don't just say "agreed" with no payload.
+- 1-2 sentences per speak. Be specific, not generic. No introductions, no greetings, no padding.
+- If you genuinely have nothing to add, use "think" or "idle" — don't fill the channel with noise.
+
+ACCURACY IS PARAMOUNT:
+- NEVER fabricate facts, names, numbers, URLs. Cite sources from research.
+- If you don't know, say so.
 
 If the user says hello with no query, ONLY Captain Claw responds. Everyone else stays quiet.\
 """
@@ -340,6 +346,7 @@ def make_lobster(
     archetype: str,
     *,
     skills_override: tuple[str, ...] | None = None,
+    mission: str | None = None,
 ) -> AgentRole:
     """Spawn a new AgentRole from an archetype with a custom name.
 
@@ -352,6 +359,14 @@ def make_lobster(
     ClawHub skill slugs instead of inheriting the archetype's defaults.
     Pass ``None`` to keep the archetype's defaults; pass an empty tuple to
     spawn with no installed skills.
+
+    ``mission`` is a free-form user blurb that extends the archetype's
+    personality. OpenClaw has no per-profile "soul" file, but the
+    sandbox runtime already splices ``Agent.personality`` into the
+    ``--message`` of every ``openshell sandbox exec`` turn (see
+    ``sandbox_runtime/openclaw.py::_format_openclaw_message``), so
+    prepending the mission here means it flows into every OpenClaw call
+    AND into the in-reef LLM tick loop's system prompt for free.
     """
     template = ARCHETYPES.get(archetype)
     if template is None:
@@ -362,20 +377,33 @@ def make_lobster(
     name = name.strip()
     if not name:
         raise ValueError("Lobster name cannot be empty.")
+    mission = (mission or "").strip() or None
     effective_skills = (
         tuple(skills_override) if skills_override is not None else template.openclaw_skills
     )
-    # Replace the template's name with the requested one in BOTH the
-    # personality blurb and the system prompt. Skip the prompt substitution
-    # if user happens to ask for the template's own name.
-    if name == template.name and skills_override is None:
+    # No-op path: same name, no skill change, no mission — return the
+    # template unchanged so memory isn't wasted on identical roles.
+    if name == template.name and skills_override is None and mission is None:
         return template
+    base_personality = template.personality.replace(template.name, name)
+    base_prompt = template.system_prompt.replace(template.name, name)
+    if mission:
+        personality = f"{base_personality}\n\nMission (user-supplied): {mission}"
+        # Also inject the mission into the system_prompt so the reef-tick
+        # LLM stays coherent with what OpenClaw sees.
+        system_prompt = (
+            f"{base_prompt}\n\n"
+            f"USER MISSION FOR {name.upper()}:\n{mission}\n"
+        )
+    else:
+        personality = base_personality
+        system_prompt = base_prompt
     return AgentRole(
         name=name,
         role=template.role,
         default_desk=template.default_desk,
-        personality=template.personality.replace(template.name, name),
-        system_prompt=template.system_prompt.replace(template.name, name),
+        personality=personality,
+        system_prompt=system_prompt,
         tools=template.tools,
         openclaw_skills=effective_skills,
     )

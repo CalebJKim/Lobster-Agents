@@ -27,6 +27,42 @@ export type AgentRole =
   | "coder"
   | "lead";
 
+export type LobsterHeadwear = "none" | "cowboy_hat" | "baseball_cap" | "generated";
+export type LobsterEyewear = "none" | "sunglasses";
+export type GeneratedHeadwearKind =
+  | "party_hat"
+  | "wizard_hat"
+  | "top_hat"
+  | "crown"
+  | "beanie";
+export type AccessoryDecorationKind =
+  | "star"
+  | "dot"
+  | "stripe"
+  | "band"
+  | "gem"
+  | "pom";
+
+export interface AccessoryDecoration {
+  type: AccessoryDecorationKind;
+  color: string;
+  count: number;
+}
+
+export interface GeneratedHeadwear {
+  kind: GeneratedHeadwearKind;
+  label: string;
+  primary: string;
+  accent?: string | null;
+  decorations?: AccessoryDecoration[];
+}
+
+export interface LobsterAppearance {
+  headwear: LobsterHeadwear;
+  eyewear: LobsterEyewear;
+  generated_headwear?: GeneratedHeadwear | null;
+}
+
 export interface Position {
   x: number;
   y: number;
@@ -50,6 +86,13 @@ export interface AgentInfo {
    *  via `openclaw skills install <slug> --agent <claw_id>`. These ARE
    *  real, persistent skills the agent can invoke inside the sandbox. */
   openclaw_skills?: string[];
+  /** Optional shell color override (hex like "#ff6f61"). Set when a user
+   *  builds a lobster with the color picker; null/undefined means fall back
+   *  to the name-keyed default palette. */
+  color?: string | null;
+  /** Visual accessory slots. Defaults to none when omitted so starter lobsters
+   *  keep their established silhouettes. */
+  appearance?: LobsterAppearance | null;
 }
 
 export interface ChatMessage {
@@ -207,25 +250,4 @@ export interface OpenClawApprovalsStatus {
   effective_policy?: string;
 }
 
-export type WSEvent =
-  | { type: "agent_moved"; agent: string; x: number; y: number }
-  | {
-      type: "agent_spoke";
-      agent: string;
-      target: string;
-      message: string;
-    }
-  | { type: "agent_thinking"; agent: string; thought: string }
-  | {
-      type: "agent_state_changed";
-      agent: string;
-      state: AgentState;
-      location?: Room;
-      current_task?: string;
-    }
-  | { type: "bulletin_post"; agent: string; content: string }
-  | { type: "whiteboard_update"; agent: string; content: string }
-  | { type: "tool_invoked"; agent: string; tool: string; query: string }
-  | { type: "tool_result"; agent: string; tool: string; result: string }
-  | { type: "query_received"; query: string }
-  | { type: "full_state"; state: OfficeState };
+// WebSocket event union moved to ./ws.ts. Import { WSServerEvent, WSClientMessage } from there.

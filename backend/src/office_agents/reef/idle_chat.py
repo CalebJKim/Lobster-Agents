@@ -48,18 +48,28 @@ The speakers are lobster-shaped OpenClaw profiles. NemoClaw sandboxes are
 shared workspaces connected by kelp gateways and coral paths. No workspace
 belongs to a lobster unless the user explicitly assigns that profile into it.
 
-Return exactly one JSON object:
-{"action":"speak","target":"<listener>","content":"<one cute reef line>","reasoning":"idle reef chat"}
+You are roleplaying ONE lobster in a casual group chat. Every lobster in
+the room can hear every line — most of the time you should be talking TO
+THE ROOM, not at any one lobster. Only address someone by name when you
+genuinely want THAT lobster's reaction (a direct question, a callback,
+calling them out). Otherwise keep target empty.
+
+Return exactly one JSON object. The default shape is:
+{"action":"speak","target":"","content":"<one cute reef line>"}
+
+Use a name in target ONLY when you're really asking that lobster something.
 
 Rules:
-- The content must be 1-2 short casual sentences.
-- Make every line feel underwater, lobster-specific, and tied to NemoClaw
-  sandboxes, OpenClaw agents, gateway policies, coral paths, kelp routes, shell
-  decor, bubbles, tides, reef maintenance, tiny fish gossip, or shared workspaces.
-- If the requested topic is not reef-themed, convert it into a reef/sandbox
-  analogy instead of discussing it literally.
-- Do not mention land-office life, human desk gear, household animals, meals,
-  meetings, calls, or apartment/workplace complaints.
+- Content is 1-2 short casual sentences.
+- Sound underwater and reef-themed: NemoClaw sandboxes, OpenClaw agents,
+  gateway policies, coral paths, kelp routes, shell decor, bubbles, tides,
+  reef maintenance, tiny fish gossip, or shared workspaces.
+- Don't restate what someone just said. Move the thread forward.
+- Don't mention land-office life, human desk gear, household animals,
+  meals, meetings, calls, or apartment/workplace complaints.
+- "target" must be empty/"" for a room-wide line (default), OR a name
+  from the lobsters-in-room list when you really mean to address them.
+  Never invent a name. If unsure, leave it empty.
 """
 
 BANNED_IDLE_TERMS = (
@@ -85,14 +95,17 @@ SAFE_IDLE_LINES = [
     "{speaker} is convinced the bridge workspace has the best bubble acoustics for serious lobster planning.",
 ]
 
-TOPICS_FILE = "/home/nvidia/documents/demo-files/water-cooler-topics.md"
-
-
 def load_topics() -> list[str]:
-    """Read user-defined idle topics, fall back to defaults if the file is missing."""
+    """Read user-defined idle topics, fall back to defaults if the file is missing.
+
+    Path comes from ``settings.water_cooler_topics_path`` so non-Spark hosts can
+    override via the ``OFFICE_AGENTS_WATER_COOLER_TOPICS_PATH`` env var.
+    """
+
+    from office_agents.config import settings
 
     try:
-        with open(TOPICS_FILE, "r") as f:
+        with open(settings.water_cooler_topics_path, "r") as f:
             lines = f.readlines()
         topics = [
             l.strip() for l in lines
@@ -166,6 +179,49 @@ class IdleChat:
         # current LLM outage. Reset to False as soon as we see a non-empty
         # LLM response so the next outage warns again.
         self._llm_outage_announced = False
+        # Consecutive LLM failures since the last successful response. We
+        # re-broadcast the outage warning every _OUTAGE_HEAL_AFTER failures
+        # so the banner never sticks "stale" — without this the user sees
+        # the first warning and then silence forever, even if the model
+        # comes back up days later and then dies again.
+        self._outage_failures = 0
+        self._OUTAGE_HEAL_AFTER = 6
+        # Recent idle-chat lines per group (sandbox name or "_commons" for
+        # the reef commons). Each tuple is (speaker, target_or_None, message)
+        # so the prompt can render "Pearl → Snips: ..." and the model can
+        # see who's been addressed.
+        self._history: dict[str, list[tuple[str, str | None, str]]] = {}
+        # Per-group conversation state — drives turn-based speaker selection.
+        # Shape:
+        #   {
+        #     "topic":           current discussion topic (str)
+        #     "turns":           total turns produced for this thread (int)
+        #     "speakers_log":    list[str] of recent speaker names, oldest first
+        #     "pending_target":  name of lobster who must respond next, or None
+        #   }
+        self._active: dict[str, dict[str, Any]] = {}
+        self._HISTORY_PER_GROUP = 12
+        # Average turns a topic persists before the group stochastically
+        # rolls a fresh one. Longer than the old pair-based default since
+        # we now have richer group dynamics to explore each topic.
+        self._THREAD_LENGTH = 6
+        # How many recent speakers to exclude when picking the next one.
+        # 2 means "the last speaker can't go again, and neither can the one
+        # before them" — forces other lobsters into the conversation.
+        self._RECENT_SPEAKERS_BLOCK = 2
+        # Probability the speaker addresses a specific peer (vs the room).
+        # Kept LOW so the default mode is group chatter and direct callouts
+        # are a punctuation rather than the constant rhythm. When
+        # pending_target is set this is bypassed — they answer the
+        # addresser directly.
+        self._ADDRESS_PEER_PROB = 0.18
+
+    def reset(self) -> None:
+        """Wipe conversation history and active threads. Called from the WS
+        reset handler so the UI reset button starts every group with a clean
+        slate."""
+        self._history.clear()
+        self._active.clear()
 
     async def tick(
         self,
@@ -173,7 +229,14 @@ class IdleChat:
         enabled: bool,
         forced_topic: str | None,
     ) -> None:
-        """Try to produce one reef-chat line. Bails out cheaply when irrelevant."""
+        """Produce one reef-chat line in the active group's rolling thread.
+
+        Group-conversation model: every idle lobster in the group hears every
+        line; we pick ONE speaker per tick. Speaker selection priority:
+          1. pending_target (if set and still idle) — they got asked a direct
+             question last turn and need to respond.
+          2. Random pick from group members minus the last N speakers.
+        """
 
         if self._office_state.current_query:
             return
@@ -189,56 +252,136 @@ class IdleChat:
         if len(idle_agents) < 2:
             return
 
-        topic = forced_topic or random.choice(load_topics())
-
-        pair, sandbox_name, sandbox_members = self._pick_pair(idle_agents)
-        if pair is None:
+        group_key, sandbox_name, sandbox_members = self._pick_group(idle_agents)
+        if group_key is None:
             return
-        agent_a, agent_b = pair
+        members = sandbox_members or [a for a in idle_agents if not a.sandbox_name]
+        if len(members) < 2:
+            return
+
+        history = self._history.setdefault(group_key, [])
+        active = self._active.get(group_key) or {}
+
+        # Topic management: keep the current topic across multiple turns, but
+        # stochastically roll a fresh one once the thread has run its course.
+        # Forced topic from the UI always wins.
+        topic = active.get("topic")
+        turns = int(active.get("turns", 0))
+        if forced_topic and forced_topic != topic:
+            topic = forced_topic
+            turns = 0
+        elif not topic or (turns >= 1 and random.random() < 1 / self._THREAD_LENGTH):
+            topic = forced_topic or random.choice(load_topics())
+            turns = 0
+
+        speakers_log: list[str] = list(active.get("speakers_log") or [])
+        pending_target: str | None = active.get("pending_target")
+
+        speaker = self._pick_speaker(
+            members=members,
+            speakers_log=speakers_log,
+            pending_target=pending_target,
+        )
+        if speaker is None:
+            return
+
+        # If this speaker was the pending_target, consume it. Otherwise the
+        # previous addressee just got skipped (probably went offline) and we
+        # should clear the slot anyway so it doesn't haunt later turns.
+        responding_to: str | None = None
+        if pending_target == speaker.name and speakers_log:
+            responding_to = speakers_log[-1]
+        pending_target = None
+
+        # Suggest a target for the speaker. We bias toward addressing peers
+        # so direct questions land — the model is still free to override via
+        # its JSON "target" field, which is what actually drives the next
+        # turn's pending_target.
+        suggested_target: str | None = None
+        peer_candidates = [a for a in members if a.name != speaker.name]
+        if peer_candidates and random.random() < self._ADDRESS_PEER_PROB:
+            # Prefer addressing someone other than whoever spoke last so we
+            # don't just bounce ping-pong between two lobsters.
+            non_recent = [a for a in peer_candidates if a.name not in speakers_log[-1:]]
+            pool = non_recent or peer_candidates
+            suggested_target = random.choice(pool).name
 
         sandbox_label = short_sandbox_name(sandbox_name) if sandbox_name else "reef commons"
-        team_label = ", ".join(a.name for a in sandbox_members) or "mixed reef visitors"
-
-        user_prompt = (
-            f"Speaker: {agent_a.name} ({agent_a.role})\n"
-            f"Listener: {agent_b.name} ({agent_b.role})\n"
-            f"Scene: {sandbox_label} NemoClaw workspace.\n"
-            f"Sandbox team in this workspace: {team_label}\n"
-            f"User-selected or random idle topic: {topic}\n\n"
-            f"Write one cute line from {agent_a.name} to {agent_b.name} in this reef scene. "
-            f"Keep the user's topic if one was provided, but reef-translate it through "
-            f"NemoClaw sandboxes, OpenClaw lobster profiles, gateway policies, shared workspaces, "
-            f"coral, kelp, bubbles, tides, or shell decor."
+        user_prompt = self._build_prompt(
+            sandbox_label=sandbox_label,
+            topic=topic,
+            members=members,
+            history=history,
+            speaker=speaker,
+            responding_to=responding_to,
+            suggested_target=suggested_target,
         )
 
-        raw, llm_error = await self._call_llm_with_abort(agent_a, user_prompt, agent_b.name)
+        raw, llm_error = await self._call_llm_with_abort(speaker, user_prompt, suggested_target)
         if raw is None and llm_error is None:
             return  # query arrived mid-chat — bail cleanly
 
         if llm_error is not None:
-            # Emit ONE visible warning on the first failure of this outage and
-            # then go quiet. We used to broadcast templated narration as if it
-            # were the LLM speaking; that made a dead model look like a working
-            # demo. Silence is the honest signal.
-            if not self._llm_outage_announced:
+            from office_agents.config import settings as _settings
+
+            self._outage_failures += 1
+
+            should_warn = (
+                not self._llm_outage_announced
+                or self._outage_failures % self._OUTAGE_HEAL_AFTER == 0
+            )
+            if should_warn:
                 self._llm_outage_announced = True
                 await self._broadcast({
                     "type": "system_warning",
                     "source": "llm",
                     "severity": "warning",
-                    "message": f"LLM is unreachable ({llm_error}). The reef stays quiet until the model is back.",
+                    "message": f"LLM is unreachable ({llm_error}). Reef chat is running on fallback narration.",
                     "timestamp": datetime.now().isoformat(),
                 })
+
+            if _settings.reef_fallback_on_outage:
+                # For the templated fallback, address the suggested target if
+                # we picked one, otherwise pick any peer so the narration
+                # reads naturally.
+                fb_target_name = suggested_target or random.choice(peer_candidates).name
+                fb_target = next(a for a in members if a.name == fb_target_name)
+                line = fallback_line(speaker=speaker, listener=fb_target, topic=topic)
+                await self._broadcast_line(speaker, fb_target.name, line, source="fallback")
+                self._record_turn(
+                    group_key=group_key,
+                    history=history,
+                    speakers_log=speakers_log,
+                    speaker=speaker.name,
+                    target=fb_target.name,
+                    message=line,
+                    topic=topic,
+                    turns=turns,
+                    pending_target=None,
+                )
             return
 
-        message, llm_produced = self._extract_message(raw or "", agent_a, agent_b, topic)
+        message, parsed_target, llm_produced = self._extract_message(
+            raw or "",
+            speaker=speaker,
+            members=members,
+            suggested_target=suggested_target,
+            topic=topic,
+        )
         if not llm_produced:
-            # LLM responded but with nothing usable. Don't broadcast garbage.
             return
+
+        # Hard cap: when the scheduler picked room mode (no suggested_target
+        # AND speaker isn't answering anyone), force the target to None
+        # regardless of what the LLM put in the JSON. The model otherwise
+        # keeps writing a name into target on basically every turn, which
+        # produced the "every line is to X" behavior the user flagged.
+        if suggested_target is None and responding_to is None:
+            parsed_target = None
 
         if self._llm_outage_announced:
-            # Recovery — emit a clear signal so the user knows it's back.
             self._llm_outage_announced = False
+            self._outage_failures = 0
             await self._broadcast({
                 "type": "system_warning",
                 "source": "llm",
@@ -246,27 +389,52 @@ class IdleChat:
                 "message": "LLM is responding again — reef chat is live.",
                 "timestamp": datetime.now().isoformat(),
             })
+        else:
+            self._outage_failures = 0
 
-        await self._broadcast_line(agent_a, agent_b, message)
+        await self._broadcast_line(speaker, parsed_target, message)
+
+        # If the speaker addressed a specific peer, that peer becomes the
+        # priority responder next tick. Room-wide lines (target=None) leave
+        # pending_target unset so the random selector takes over.
+        #
+        # Anti-pingpong: if the speaker was answering a direct address AND
+        # their reply names the same person back, DROP the pending_target.
+        # Without this guard, "X → Y, Y → X, X → Y, …" loops two lobsters
+        # into a private chat that excludes the rest of the room.
+        if parsed_target and parsed_target != speaker.name and parsed_target != responding_to:
+            next_pending = parsed_target
+        else:
+            next_pending = None
+        self._record_turn(
+            group_key=group_key,
+            history=history,
+            speakers_log=speakers_log,
+            speaker=speaker.name,
+            target=parsed_target,
+            message=message,
+            topic=topic,
+            turns=turns,
+            pending_target=next_pending,
+        )
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    def _pick_pair(
+    def _pick_group(
         self,
         idle_agents: list[Agent],
-    ) -> tuple[tuple[Agent, Agent] | None, str | None, list[Agent]]:
-        """Pick a speaker/listener pair from any active chat group.
+    ) -> tuple[str | None, str | None, list[Agent]]:
+        """Pick a chat group: a sandbox team or the free-reef commons.
 
-        A "group" with ≥2 idle members is a candidate: each sandbox team is
-        one group; the free-reef pool of unassigned lobsters is another.
-        We roll uniformly across all candidate groups so a sandbox having
-        chatter doesn't silence the wandering lobsters outside.
+        Returns ``(group_key, sandbox_name, members)``. ``group_key`` is the
+        sandbox name when the group lives inside a sandbox, or ``"_commons"``
+        for the reef commons — kept stable so per-group history keys don't
+        collide. ``sandbox_name`` is ``None`` for the commons group.
         """
 
         idle_by_name = {a.name: a for a in idle_agents}
-        # Each entry: (sandbox_name or None, members)
         groups: list[tuple[str | None, list[Agent]]] = []
         for sandbox_name, assigned in self._sandbox_assignments.items():
             members = [idle_by_name[n] for n in assigned if n in idle_by_name]
@@ -281,20 +449,147 @@ class IdleChat:
             return None, None, []
 
         sandbox_name, members = random.choice(groups)
-        pair = random.sample(members, 2)
+        group_key = sandbox_name if sandbox_name else "_commons"
         # Sandbox label/team data only flows to the prompt when this turn is
-        # from a sandbox group; reef-commons turns leave them empty.
+        # from a sandbox group; reef-commons turns leave members empty so the
+        # prompt block stays compact.
+        return group_key, sandbox_name, members if sandbox_name else []
+
+    def _pick_speaker(
+        self,
+        *,
+        members: list[Agent],
+        speakers_log: list[str],
+        pending_target: str | None,
+    ) -> Agent | None:
+        """Choose who speaks next in the group.
+
+        1. If pending_target is set AND that lobster is in the current idle
+           group, they speak (answering a direct address from last turn).
+        2. Otherwise pick uniformly at random from members minus the last
+           `_RECENT_SPEAKERS_BLOCK` speakers. If that pool is empty (small
+           group), fall back to "anyone but the immediate last speaker".
+        """
+
+        names = {a.name for a in members}
+        if pending_target and pending_target in names:
+            return next(a for a in members if a.name == pending_target)
+
+        recent = set(speakers_log[-self._RECENT_SPEAKERS_BLOCK:])
+        pool = [a for a in members if a.name not in recent]
+        if not pool:
+            last = speakers_log[-1] if speakers_log else None
+            pool = [a for a in members if a.name != last]
+        if not pool:
+            return None
+        return random.choice(pool)
+
+    def _build_prompt(
+        self,
+        *,
+        sandbox_label: str,
+        topic: str,
+        members: list[Agent],
+        history: list[tuple[str, str | None, str]],
+        speaker: Agent,
+        responding_to: str | None,
+        suggested_target: str | None,
+    ) -> str:
+        """Build the per-turn user prompt with full group context."""
+
+        roster = ", ".join(a.name for a in members)
+
+        history_block = ""
+        last_line_callout = ""
+        if history:
+            # Last 6 turns is enough to see the discussion's arc without
+            # blowing past Spark's prompt-size sweet spot.
+            recent = history[-6:]
+            rendered = []
+            for spk, tgt, msg in recent:
+                tag = tgt if tgt else "room"
+                rendered.append(f"  {spk} → {tag}: {msg}")
+            history_block = "Recent chatter (everyone heard this):\n" + "\n".join(rendered) + "\n\n"
+            # Quote the most recent line directly in the prompt so the
+            # model can't miss what NOT to repeat. The 35B Qwen has a
+            # habit of echoing the previous turn verbatim if we just say
+            # "don't repeat anything above" — calling the line out by
+            # itself is dramatically more effective.
+            last_spk, _, last_msg = recent[-1]
+            last_line_callout = (
+                f'The most recent line in the chat was {last_spk}: "{last_msg}"\n'
+                "Your next line MUST NOT repeat or paraphrase that line. "
+                "Take the conversation somewhere new — a different angle, "
+                "a question, a counterpoint, or a fresh topic if this one "
+                "is exhausted.\n"
+            )
+
+        direction = ""
+        if responding_to:
+            # Answer the addresser, but DON'T necessarily address them back
+            # by name — that's what was creating the ping-pong loops. Reply
+            # to the room with the answer; if they need a follow-up THEY'll
+            # call you out again.
+            direction = (
+                f"{responding_to} just asked you something — answer it, "
+                "but speak to the whole room (leave target empty). Don't "
+                "bounce it back at them by name unless you have a real "
+                "follow-up question for them.\n"
+            )
+        elif suggested_target:
+            direction = (
+                f"Aim this line at {suggested_target} by name — ask them "
+                "something, react to them, or call them in.\n"
+            )
+        else:
+            direction = (
+                "Speak to the whole room this turn. Leave target empty. "
+                "Address the group, not any one lobster.\n"
+            )
+
         return (
-            (pair[0], pair[1]),
-            sandbox_name,
-            members if sandbox_name else [],
+            f"Scene: {sandbox_label}. Topic: {topic}.\n"
+            f"Lobsters in this chat right now: {roster}.\n"
+            f"You are {speaker.name}.\n"
+            f"{history_block}"
+            f"{last_line_callout}"
+            f"{direction}"
+            "Write your next line. 1-2 short sentences. Different vocabulary "
+            "and a different angle from anything above."
         )
+
+    def _record_turn(
+        self,
+        *,
+        group_key: str,
+        history: list[tuple[str, str | None, str]],
+        speakers_log: list[str],
+        speaker: str,
+        target: str | None,
+        message: str,
+        topic: str,
+        turns: int,
+        pending_target: str | None,
+    ) -> None:
+        history.append((speaker, target, message))
+        if len(history) > self._HISTORY_PER_GROUP * 2:
+            del history[: len(history) - self._HISTORY_PER_GROUP]
+        speakers_log.append(speaker)
+        # Cap speakers_log so it doesn't grow unbounded over a long session.
+        if len(speakers_log) > 16:
+            del speakers_log[: len(speakers_log) - 16]
+        self._active[group_key] = {
+            "topic": topic,
+            "turns": turns + 1,
+            "speakers_log": speakers_log,
+            "pending_target": pending_target,
+        }
 
     async def _call_llm_with_abort(
         self,
         speaker: Agent,
         user_prompt: str,
-        listener_name: str,
+        listener_name: str | None,
     ) -> tuple[str | None, LLMError | None]:
         """Race the LLM call against the query event.
 
@@ -304,11 +599,21 @@ class IdleChat:
             (None, LLMError)         — LLM call failed; caller should warn the user
         """
 
+        from office_agents.config import settings as _settings  # local import keeps module-load order simple
+
+        # The "<listener>" placeholder in the system prompt is legacy from
+        # the pair-based design; in group mode we leave it as-is when no
+        # specific listener is set — the model is told to leave target empty
+        # in that case.
+        system_prompt = IDLE_SYSTEM_PROMPT.replace(
+            "<listener>", listener_name or "(any lobster in the room or empty)"
+        )
         llm_task = asyncio.create_task(speaker.llm.chat(
-            system_prompt=IDLE_SYSTEM_PROMPT.replace("<listener>", listener_name),
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.9,
             max_tokens=300,
+            timeout=_settings.reef_chat_timeout,
         ))
         query_wait = asyncio.create_task(self._query_event.wait())
 
@@ -333,51 +638,107 @@ class IdleChat:
     def _extract_message(
         self,
         raw: str,
+        *,
         speaker: Agent,
-        listener: Agent,
+        members: list[Agent],
+        suggested_target: str | None,
         topic: str,
-    ) -> tuple[str, bool]:
-        """Return (message, llm_produced_usable_content)."""
+    ) -> tuple[str, str | None, bool]:
+        """Return (message, parsed_target, llm_produced_usable_content).
+
+        parsed_target is the lobster the speaker addressed (or None for a
+        room-wide line). We accept the LLM's target only if it names a real
+        member of the current group; otherwise we drop it and treat the
+        line as room-wide.
+        """
+
+        valid_names = {a.name for a in members if a.name != speaker.name}
+
+        def _normalize_target(t: Any) -> str | None:
+            if not t:
+                return None
+            t_str = str(t).strip().strip('"').strip("'")
+            if not t_str or t_str.lower() in ("room", "all", "everyone", "(room)"):
+                return None
+            # Case-insensitive match against the roster.
+            for name in valid_names:
+                if name.lower() == t_str.lower():
+                    return name
+            return None
+
+        # Pick a "listener" Agent for fallback narration purposes only. Falls
+        # back to the suggested target if we have one, else any other member.
+        any_listener = next(
+            (a for a in members if a.name == suggested_target),
+            next((a for a in members if a.name != speaker.name), speaker),
+        )
 
         if len(raw.strip()) <= 5:
-            return fallback_line(speaker=speaker, listener=listener, topic=topic), False
+            return fallback_line(speaker=speaker, listener=any_listener, topic=topic), None, False
 
-        # 1. Try to parse a JSON object out of the LLM response.
+        # 1. JSON object — the canonical path. Pull both content and target.
         try:
             match = re.search(r"\{[^{}]+\}", raw, re.DOTALL)
             if match:
                 data = _json.loads(match.group())
                 content = data.get("content", "") or data.get("line1", "")
                 if content:
-                    return clean_message(content, speaker=speaker, listener=listener, topic=topic), True
+                    target = _normalize_target(data.get("target"))
+                    listener_for_clean = (
+                        next((a for a in members if a.name == target), any_listener)
+                    )
+                    return (
+                        clean_message(content, speaker=speaker, listener=listener_for_clean, topic=topic),
+                        target,
+                        True,
+                    )
         except _json.JSONDecodeError:
             pass
 
-        # 2. Try a "Name: text" line.
+        # 2. "Name: text" line. No target in this branch — treat as room.
         for line in raw.strip().split("\n"):
             line = line.strip().strip('"')
             prefix = f"{speaker.name}:"
             if line.startswith(prefix):
                 msg = line[len(prefix):].strip().strip('"')
                 if msg:
-                    return clean_message(msg, speaker=speaker, listener=listener, topic=topic), True
+                    return (
+                        clean_message(msg, speaker=speaker, listener=any_listener, topic=topic),
+                        None,
+                        True,
+                    )
 
-        # 3. Free text fallback (don't accept JSON-looking junk).
+        # 3. Free text fallback — also room-wide.
         stripped = raw.strip()
         if len(stripped) > 10 and not stripped.startswith("{"):
-            return clean_message(stripped[:220], speaker=speaker, listener=listener, topic=topic), True
+            return (
+                clean_message(stripped[:220], speaker=speaker, listener=any_listener, topic=topic),
+                None,
+                True,
+            )
 
-        return fallback_line(speaker=speaker, listener=listener, topic=topic), False
+        return fallback_line(speaker=speaker, listener=any_listener, topic=topic), None, False
 
-    async def _broadcast_line(self, speaker: Agent, listener: Agent, message: str) -> None:
+    async def _broadcast_line(
+        self,
+        speaker: Agent,
+        target: str | None,
+        message: str,
+        *,
+        source: str = "llm",
+    ) -> None:
+        """Broadcast a speak event from speaker to a named target (or room)."""
+
         await self._broadcast({
             "type": "agent_action",
             "agent": speaker.name,
             "role": speaker.role,
             "action": "speak",
             "content": message,
-            "target": listener.name,
-            "reasoning": "Idle reef chat",
+            # Frontend treats empty string / null as "no target" (room-wide).
+            "target": target or None,
+            "reasoning": "Idle reef chat" if source == "llm" else "Idle reef chat (fallback narration)",
+            "source": source,
             "state": speaker.state.value,
             "location": speaker.location,
             "position": {"x": speaker.position[0], "y": speaker.position[1]},
@@ -388,7 +749,7 @@ class IdleChat:
         event = OfficeEvent(
             type="speak",
             agent=speaker.name,
-            data={"message": message, "target": listener.name, "sandbox_name": speaker.sandbox_name},
+            data={"message": message, "target": target, "sandbox_name": speaker.sandbox_name},
             timestamp=datetime.now(),
         )
         for a in self._agents:

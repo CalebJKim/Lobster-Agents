@@ -53,7 +53,11 @@ async def health() -> dict[str, Any]:
     if _llm_client is None:
         llm = {"reachable": False, "error": "LLM client not initialized"}
     else:
-        llm = dict(await _llm_client.ping())
+        # 6s gives vLLM enough headroom to answer /v1/models even when it's
+        # mid-batch on parallel agent calls. The default 2s was tight under
+        # load and produced flickers of "LLM unreachable" in the UI banner
+        # despite chat itself working fine.
+        llm = dict(await _llm_client.ping(timeout_seconds=6.0))
 
     openshell = _check_cli("openshell")
     nemoclaw = _check_cli("nemoclaw")

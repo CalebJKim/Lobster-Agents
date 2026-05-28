@@ -21,6 +21,22 @@ from office_agents.sandbox_runtime.manager import SandboxManager, short_sandbox_
 logger = logging.getLogger(__name__)
 
 
+# Query-mode convergence schedule. The orchestrator drives lobsters from
+# "discuss the question" toward "write a final answer" by escalating these
+# nudges as the query_tick counter ticks up. These used to be magic numbers
+# scattered across _push_convergence and _select_active_lobsters; pulling
+# them up here makes the cadence tunable in one place.
+#
+# Tuning history:
+# - Old values (3/5/2) were too aggressive — lobsters were getting hard-
+#   nudged to write before they'd actually built consensus. The user wanted
+#   the conversation to breathe, so we pushed each threshold out.
+NARROW_ROSTER_TICK = 4   # was 2 — narrow to the "essential five" after this many ticks
+WRITER_DIRECT_TICK = 3   # was 2 — lead is asked to direct the writer
+WRITER_NUDGE_TICK = 5    # was 3 — hard nudge "STOP TALKING, write now"
+QUERY_TIMEOUT_TICK = 8   # was 5 — give up entirely and clear the query
+
+
 class Orchestrator:
     """Runs the agent simulation in a continuous tick loop."""
 
@@ -135,6 +151,8 @@ class Orchestrator:
             location=agent.location,
             position=agent.position,
             metadata=get_claw_metadata(agent.name),
+            color=agent.color,
+            appearance=agent.appearance,
         )
         await self.broadcast({
             "type": "lobster_added",
@@ -215,6 +233,9 @@ class Orchestrator:
     def clear_sandbox_run_statuses(self) -> None:
         self.sandboxes.clear_run_statuses()
 
+    def clear_sandbox_run_status(self, sandbox_name: str) -> None:
+        self.sandboxes.clear_sandbox_run_status(sandbox_name)
+
     async def assign_sandbox_team(
         self,
         sandbox_name: str,
@@ -272,203 +293,224 @@ class Orchestrator:
     # Internal tick logic
     # ------------------------------------------------------------------
 
+    # Batch order. Captain runs alone first (sets direction); researchers in
+    # parallel; analysts/supporters in parallel; writer last (synthesizes).
+    # Lobsters not in this dict fall into batch 2 (the silent default).
+    _BATCH_ORDER = {
+        "Captain Claw": 0,
+        "Clawdia": 1,
+        "Coraline": 1,
+        "Shelldon": 2,
+        "Reefus": 2,
+        "Snips": 2,
+        "Pearl": 3,
+    }
+
+    async def _emit_full_state_if_due(self) -> None:
+        if self._tick_count % 5 == 0:
+            await self._broadcast_full_state()
+
+    def _select_active_lobsters(self) -> list[Agent]:
+        """Lobsters eligible to think this tick.
+
+        Excludes any reserved by an active sandbox run or sitting assigned to
+        a sandbox. After query_tick >= 2 the team is further narrowed to the
+        "essential five" so convergence pressure can land cleanly.
+        """
+        reserved = self._active_sandbox_agent_names() | self._assigned_sandbox_agent_names()
+        active = [a for a in self.agents if a.name not in reserved]
+        if self._query_tick >= NARROW_ROSTER_TICK:
+            essential = {"Clawdia", "Shelldon", "Coraline", "Pearl", "Captain Claw"}
+            active = [a for a in self.agents if a.name in essential and a.name not in reserved]
+        return active
+
+    def _group_into_batches(self, agents: list[Agent]) -> list[list[Agent]]:
+        """Group lobsters by ``_BATCH_ORDER`` so independent ones run in parallel."""
+        batches: dict[int, list[Agent]] = {}
+        for agent in agents:
+            batches.setdefault(self._BATCH_ORDER.get(agent.name, 2), []).append(agent)
+        return [batches[idx] for idx in sorted(batches.keys())]
+
+    async def _run_batch(
+        self,
+        batch: list[Agent],
+        state_snapshot: dict[str, Any],
+    ) -> list[tuple[Agent, Action, dict] | None]:
+        """Run one batch of lobsters concurrently. Errors are caught and logged
+        per-lobster so one bad turn cannot poison the rest of the batch."""
+
+        async def _run_one(agent: Agent) -> tuple[Agent, Action, dict] | None:
+            try:
+                action = await agent.think(state_snapshot)
+                result = await agent.execute(action)
+                return (agent, action, result)
+            except Exception:
+                logger.exception(
+                    "Error processing agent %s on tick %d", agent.name, self._tick_count
+                )
+                return None
+
+        if len(batch) > 1:
+            return list(await asyncio.gather(*[_run_one(a) for a in batch]))
+        return [await _run_one(batch[0])]
+
+    async def _process_batch_outcomes(
+        self,
+        outcomes: list[tuple[Agent, Action, dict] | None],
+        participant_names: set[str],
+    ) -> bool:
+        """Apply each outcome: observe → broadcast → record state.
+
+        Returns ``True`` when one of the outcomes was the writer's
+        ``write_whiteboard`` and the active query has been finalised — the
+        caller stops processing remaining outcomes in the batch in that case.
+        """
+        for outcome in outcomes:
+            if outcome is None:
+                continue
+            agent, action, result = outcome
+
+            event = self._action_to_event(agent, action, result)
+            for other in self.agents:
+                if other.name != agent.name and other.name in participant_names:
+                    other.observe(event)
+
+            await self._broadcast_action(agent, action, result)
+
+            if "auto_share" in result:
+                share_event = OfficeEvent(
+                    type="speak",
+                    agent=agent.name,
+                    data={"message": result["auto_share"], "target": "all"},
+                    timestamp=datetime.now(),
+                )
+                for other in self.agents:
+                    if other.name != agent.name and other.name in participant_names:
+                        other.observe(share_event)
+                await self.broadcast(
+                    self._agent_action_payload(
+                        agent,
+                        "speak",
+                        result["auto_share"],
+                        target="all",
+                        reasoning="Sharing research findings",
+                    )
+                )
+
+            self.office_state.update_from_action(
+                agent.name,
+                action,
+                new_location=agent.location,
+                new_position=agent.position,
+            )
+
+            if action.type == ActionType.write_whiteboard and self.office_state.current_query:
+                await self._finalize_query()
+                return True
+        return False
+
+    async def _finalize_query(self) -> None:
+        """Announce + tear down a completed general query.
+
+        Broadcasts the Captain Claw closing announcement, the
+        ``query_completed`` event, an empty ``query_received`` (resets the
+        frontend banner), then a fresh full-state snapshot.
+        """
+        query_text = self.office_state.current_query or ""
+        self._finish_general_query_state()
+
+        await self.broadcast({
+            "type": "agent_action",
+            "agent": "Captain Claw",
+            "role": "lead",
+            "action": "speak",
+            "content": f"The answer is on the whiteboard. Check the Whiteboard tab for our findings on: {query_text}",
+            "target": "all",
+            "reasoning": "Query complete",
+            "state": "presenting",
+            "location": "war_room",
+            "position": {"x": 168, "y": 376},
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self.broadcast({
+            "type": "query_completed",
+            "query": query_text,
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self.broadcast({
+            "type": "query_received",
+            "query": "",
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self._broadcast_full_state()
+        logger.info("Query completed: %s", query_text[:60])
+
+    def _state_snapshot_for_batch(
+        self,
+        participant_names: set[str],
+        general_lead: str,
+        general_writer: str,
+    ) -> dict[str, Any]:
+        state = self.office_state.to_dict()
+        state["query_tick"] = self._query_tick
+        state["general_query_lead"] = general_lead
+        state["general_query_writer"] = general_writer
+        state["agents"] = {
+            name: info
+            for name, info in state.get("agents", {}).items()
+            if name in participant_names
+        }
+        return state
+
     async def _tick(self) -> None:
         self._tick_count += 1
-
-        # Track query duration
         if self.office_state.current_query:
             self._query_tick += 1
         else:
             self._query_tick = 0
 
-        # 1. Drain any pending user queries
+        # Prelude: drain queries, run idle behaviour, re-drain (the idle LLM
+        # call may have raced with a new query), then apply convergence.
         await self._process_query_queue()
-
-        # 1b. Inject idle behaviour nudges when no active query
         await self._inject_idle_behavior()
-
-        # 1c. Check again — a query may have arrived during the idle LLM call
         if not self.query_queue.empty():
             await self._process_query_queue()
-
-        # 1d. If query has been active too long, push convergence
         await self._inject_convergence_pressure()
 
-        # 2. Run agent think-act cycles
-        #    During active queries, skip agents who won't contribute (Snips, Reefus)
-        #    to reduce tick time. Run independent agents in PARALLEL for speed.
-        #    During IDLE with reef chat: skip agent LLM calls entirely.
-        #    The reef chat function already generates chatter.
+        # Idle path — reef chat handles everything, no per-agent LLM calls.
         if not self.office_state.current_query:
-            # Idle — reef chat handles everything, no agent LLM calls needed.
-            if self._tick_count % 5 == 0:
-                await self._broadcast_full_state()
+            await self._emit_full_state_if_due()
             return
 
-        active_sandbox_agents = self._active_sandbox_agent_names()
-        assigned_sandbox_agents = self._assigned_sandbox_agent_names()
-        reserved_sandbox_agents = active_sandbox_agents | assigned_sandbox_agents
-        active_agents = [
-            agent for agent in self.agents
-            if agent.name not in reserved_sandbox_agents
-        ]
+        active_agents = self._select_active_lobsters()
         if not active_agents:
-            if self._tick_count % 5 == 0:
-                await self._broadcast_full_state()
+            await self._emit_full_state_if_due()
             return
-
-        if self._query_tick >= 2:
-            essential = {"Clawdia", "Shelldon", "Coraline", "Pearl", "Captain Claw"}
-            active_agents = [a for a in self.agents if a.name in essential]
-            active_agents = [a for a in active_agents if a.name not in reserved_sandbox_agents]
-            if not active_agents:
-                if self._tick_count % 5 == 0:
-                    await self._broadcast_full_state()
-                return
 
         participant_names = {agent.name for agent in active_agents}
         general_lead, general_writer = self._general_query_role_names(active_agents)
 
-        # Group agents into parallel batches:
-        # Batch 1: Captain Claw (coordinator) — runs first to set direction
-        # Batch 2: Clawdia, Coraline (researchers) — can run in parallel
-        # Batch 3: Shelldon, Reefus, Snips (analyzers/supporters) — can run in parallel
-        # Batch 4: Pearl (writer) — runs last to synthesize
-        _BATCH_ORDER = {"Captain Claw": 0, "Clawdia": 1, "Coraline": 1, "Shelldon": 2, "Reefus": 2, "Snips": 2, "Pearl": 3}
-
-        batches: dict[int, list[Agent]] = {}
-        for agent in active_agents:
-            batch = _BATCH_ORDER.get(agent.name, 2)
-            batches.setdefault(batch, []).append(agent)
-
-        for batch_idx in sorted(batches.keys()):
-            batch_agents = batches[batch_idx]
-
-            # If a query just arrived while we're processing idle agents,
-            # bail out early so the next tick can start the query immediately
+        for batch in self._group_into_batches(active_agents):
+            # If a query is no longer active but another is queued, bail so the
+            # next tick can start it immediately.
             if not self.office_state.current_query and not self.query_queue.empty():
                 logger.info("Query waiting — aborting idle tick early")
                 break
 
-            # Broadcast "thinking" status so the frontend knows who's processing
             if self.office_state.current_query:
-                names = [a.name for a in batch_agents]
                 await self.broadcast({
                     "type": "agents_thinking",
-                    "agents": names,
+                    "agents": [a.name for a in batch],
                     "timestamp": datetime.now().isoformat(),
                 })
 
-            # Build shared state snapshot once per batch
-            state = self.office_state.to_dict()
-            state["query_tick"] = self._query_tick
-            state["general_query_lead"] = general_lead
-            state["general_query_writer"] = general_writer
-            state["agents"] = {
-                name: info
-                for name, info in state.get("agents", {}).items()
-                if name in participant_names
-            }
+            state_snapshot = self._state_snapshot_for_batch(
+                participant_names, general_lead, general_writer
+            )
+            outcomes = await self._run_batch(batch, state_snapshot)
+            await self._process_batch_outcomes(outcomes, participant_names)
 
-            async def _run_agent(agent: Agent) -> tuple[Agent, Action, dict] | None:
-                try:
-                    action = await agent.think(state)
-                    result = await agent.execute(action)
-                    return (agent, action, result)
-                except Exception:
-                    logger.exception(
-                        "Error processing agent %s on tick %d",
-                        agent.name, self._tick_count,
-                    )
-                    return None
-
-            # Run batch agents concurrently
-            if len(batch_agents) > 1:
-                outcomes = await asyncio.gather(*[_run_agent(a) for a in batch_agents])
-            else:
-                outcomes = [await _run_agent(batch_agents[0])]
-
-            # Process results sequentially (event broadcasting must be ordered)
-            for outcome in outcomes:
-                if outcome is None:
-                    continue
-                agent, action, result = outcome
-
-                event = self._action_to_event(agent, action, result)
-                for other in self.agents:
-                    if other.name != agent.name and other.name in participant_names:
-                        other.observe(event)
-
-                await self._broadcast_action(agent, action, result)
-
-                if "auto_share" in result:
-                    share_event = OfficeEvent(
-                        type="speak",
-                        agent=agent.name,
-                        data={"message": result["auto_share"], "target": "all"},
-                        timestamp=datetime.now(),
-                    )
-                    for other in self.agents:
-                        if other.name != agent.name and other.name in participant_names:
-                            other.observe(share_event)
-                    await self.broadcast({
-                        "type": "agent_action",
-                        "agent": agent.name,
-                        "role": agent.role,
-                        "action": "speak",
-                        "content": result["auto_share"],
-                        "target": "all",
-                        "reasoning": "Sharing research findings",
-                        "state": agent.state.value,
-                        "location": agent.location,
-                        "position": {"x": agent.position[0], "y": agent.position[1]},
-                        "timestamp": datetime.now().isoformat(),
-                    })
-
-                self.office_state.update_from_action(
-                    agent.name,
-                    action,
-                    new_location=agent.location,
-                    new_position=agent.position,
-                )
-
-                if action.type == ActionType.write_whiteboard and self.office_state.current_query:
-                    query_text = self.office_state.current_query
-                    self._finish_general_query_state()
-
-                    await self.broadcast({
-                        "type": "agent_action",
-                        "agent": "Captain Claw",
-                        "role": "lead",
-                        "action": "speak",
-                        "content": f"The answer is on the whiteboard. Check the Whiteboard tab for our findings on: {query_text}",
-                        "target": "all",
-                        "reasoning": "Query complete",
-                        "state": "presenting",
-                        "location": "war_room",
-                        "position": {"x": 168, "y": 376},
-                        "timestamp": datetime.now().isoformat(),
-                    })
-
-                    await self.broadcast({
-                        "type": "query_completed",
-                        "query": query_text,
-                        "timestamp": datetime.now().isoformat(),
-                    })
-
-                    await self.broadcast({
-                        "type": "query_received",
-                        "query": "",
-                        "timestamp": datetime.now().isoformat(),
-                    })
-                    await self._broadcast_full_state()
-
-                    logger.info("Query completed: %s", query_text[:60])
-                    break  # Stop processing remaining agents in this batch
-
-        # 3. Send periodic full-state snapshot every 5 ticks
-        if self._tick_count % 5 == 0:
-            await self._broadcast_full_state()
+        await self._emit_full_state_if_due()
 
     # ------------------------------------------------------------------
     # Convergence pressure — push agents to deliver
@@ -494,8 +536,8 @@ class Orchestrator:
                 timestamp=datetime.now(),
             ))
 
-        # After 2 ticks: Captain Claw should tell Pearl to write
-        if self._query_tick == 2 and lead:
+        # Captain Claw should direct the writer.
+        if self._query_tick == WRITER_DIRECT_TICK and lead:
             lead.observe(OfficeEvent(
                 type="system_nudge",
                 agent="system",
@@ -503,8 +545,8 @@ class Orchestrator:
                 timestamp=datetime.now(),
             ))
 
-        # After 3 ticks: nudge the available writer HARD
-        if self._query_tick >= 3 and writer:
+        # Hard nudge the writer.
+        if self._query_tick >= WRITER_NUDGE_TICK and writer:
             writer.observe(OfficeEvent(
                 type="system_nudge",
                 agent="system",
@@ -512,8 +554,8 @@ class Orchestrator:
                 timestamp=datetime.now(),
             ))
 
-        # After 5 ticks: force clear the query
-        if self._query_tick >= 5:
+        # Force-clear the query.
+        if self._query_tick >= QUERY_TIMEOUT_TICK:
             logger.info("Query timed out after %d ticks, clearing", self._query_tick)
             query_text = self.office_state.current_query
             self._finish_general_query_state()
@@ -551,14 +593,25 @@ class Orchestrator:
     def _action_to_event(
         agent: Agent, action: Action, result: dict[str, Any]
     ) -> OfficeEvent:
-        """Convert an agent action + result into an OfficeEvent for others."""
+        """Convert an agent action + result into an OfficeEvent for others.
+
+        ``action.reasoning`` is propagated into the event data for speak,
+        announce, and think actions so peer agents can react to *why* a
+        teammate said something — not just the surface utterance. Without
+        this, conversations were drifting because each lobster only saw
+        each other's polished one-liners, never the intent behind them.
+        """
         data: dict[str, Any] = {"content": action.content}
 
         if action.type == ActionType.speak:
             data["message"] = action.content
             data["target"] = action.target
+            if action.reasoning:
+                data["reasoning"] = action.reasoning
         elif action.type == ActionType.announce:
             data["message"] = action.content
+            if action.reasoning:
+                data["reasoning"] = action.reasoning
         elif action.type == ActionType.research:
             data["search_results"] = result.get("search_results", [])
         elif action.type == ActionType.post_bulletin:
@@ -567,6 +620,8 @@ class Orchestrator:
             data["whiteboard_content"] = action.content
         elif action.type == ActionType.think:
             data["thought"] = action.content
+            if action.reasoning:
+                data["reasoning"] = action.reasoning
         elif action.type == ActionType.code:
             code_res = result.get("code_result", {})
             data["code_success"] = code_res.get("success", False)
@@ -585,21 +640,32 @@ class Orchestrator:
     # WebSocket broadcasting
     # ------------------------------------------------------------------
 
-    async def _broadcast_action(
-        self,
+    @staticmethod
+    def _agent_action_payload(
         agent: Agent,
-        action: Action,
-        result: dict[str, Any],
-    ) -> None:
-        """Send a single action event to all connected frontend clients."""
-        payload: dict[str, Any] = {
+        action_type: str,
+        content: str,
+        *,
+        target: str | None = None,
+        reasoning: str = "",
+    ) -> dict[str, Any]:
+        """Build the canonical ``agent_action`` WS payload for one lobster.
+
+        Used by :meth:`_broadcast_action` for real actions and by the
+        auto-share branch in :meth:`_tick` when a research-finisher wants to
+        synthesize an extra ``speak`` event so teammates can see the summary.
+        Keeping the field list in one place prevents drift between the two
+        emission sites — the frontend's discriminated union depends on every
+        ``agent_action`` having the same shape.
+        """
+        return {
             "type": "agent_action",
             "agent": agent.name,
             "role": agent.role,
-            "action": action.type.value,
-            "content": action.content,
-            "target": action.target,
-            "reasoning": action.reasoning,
+            "action": action_type,
+            "content": content,
+            "target": target,
+            "reasoning": reasoning,
             "state": agent.state.value,
             "location": agent.location,
             "position": {"x": agent.position[0], "y": agent.position[1]},
@@ -608,6 +674,21 @@ class Orchestrator:
             "connect_command": agent.connect_command,
             "timestamp": datetime.now().isoformat(),
         }
+
+    async def _broadcast_action(
+        self,
+        agent: Agent,
+        action: Action,
+        result: dict[str, Any],
+    ) -> None:
+        """Send a single action event to all connected frontend clients."""
+        payload = self._agent_action_payload(
+            agent,
+            action.type.value,
+            action.content,
+            target=action.target,
+            reasoning=action.reasoning,
+        )
 
         # Attach notable result details
         if "search_results" in result:

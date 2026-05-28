@@ -82,25 +82,38 @@ export default function HistoryPanel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/history")
+    const controller = new AbortController();
+    fetch("/history", { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
+        if (controller.signal.aborted) return;
         setDeliverables((data.deliverables ?? []).reverse());
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setLoading(false);
+      });
+    return () => controller.abort();
   }, []);
 
   // Refresh when tab is focused
   useEffect(() => {
+    const controller = new AbortController();
     const refresh = () => {
-      fetch("/history")
+      fetch("/history", { signal: controller.signal })
         .then((r) => r.json())
-        .then((data) => setDeliverables((data.deliverables ?? []).reverse()))
+        .then((data) => {
+          if (controller.signal.aborted) return;
+          setDeliverables((data.deliverables ?? []).reverse());
+        })
         .catch(() => {});
     };
     const iv = setInterval(refresh, 10000);
-    return () => clearInterval(iv);
+    return () => {
+      controller.abort();
+      clearInterval(iv);
+    };
   }, []);
 
   return (

@@ -16,6 +16,8 @@ export default function WaterCoolerControls({ onSetWaterCooler }: WaterCoolerCon
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [customTopic, setCustomTopic] = useState("");
+  const [activeTopic, setActiveTopic] = useState<string | null | undefined>(undefined);
+  const [confirm, setConfirm] = useState<string | null>(null);
 
   const toggle = useCallback(() => {
     const next = !enabled;
@@ -23,21 +25,30 @@ export default function WaterCoolerControls({ onSetWaterCooler }: WaterCoolerCon
     onSetWaterCooler({ enabled: next });
   }, [enabled, onSetWaterCooler]);
 
+  const flashConfirm = useCallback((label: string) => {
+    setConfirm(label);
+    window.setTimeout(() => setConfirm((c) => (c === label ? null : c)), 1800);
+  }, []);
+
   const setTopic = useCallback(
-    (topic: string | null) => {
+    (topic: string | null, label: string) => {
       onSetWaterCooler({ topic });
+      setActiveTopic(topic);
       setCustomTopic("");
+      flashConfirm(label);
     },
-    [onSetWaterCooler]
+    [flashConfirm, onSetWaterCooler]
   );
 
   const submitCustom = useCallback(() => {
     const trimmed = customTopic.trim();
     if (trimmed) {
       onSetWaterCooler({ topic: trimmed });
+      setActiveTopic(trimmed);
       setCustomTopic("");
+      flashConfirm(trimmed.length > 28 ? trimmed.slice(0, 25) + "..." : trimmed);
     }
-  }, [customTopic, onSetWaterCooler]);
+  }, [customTopic, flashConfirm, onSetWaterCooler]);
 
   if (!open) {
     return (
@@ -84,16 +95,30 @@ export default function WaterCoolerControls({ onSetWaterCooler }: WaterCoolerCon
 
       {/* Quick topic buttons */}
       <div className="flex flex-wrap gap-1 mb-2">
-        {QUICK_TOPICS.map((t) => (
-          <button
-            key={t.label}
-            onClick={() => setTopic(t.topic)}
-            className="rounded-md bg-white/65 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-white"
-          >
-            {t.label}
-          </button>
-        ))}
+        {QUICK_TOPICS.map((t) => {
+          const isActive = activeTopic === t.topic;
+          return (
+            <button
+              key={t.label}
+              type="button"
+              onClick={() => setTopic(t.topic, t.label)}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                isActive
+                  ? "bg-cyan-500 text-white"
+                  : "bg-white/65 text-slate-600 hover:bg-white"
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
       </div>
+
+      {confirm && (
+        <div className="mb-2 rounded-md bg-cyan-100/80 px-2.5 py-1 text-[11px] font-semibold text-cyan-800">
+          Topic set: {confirm}
+        </div>
+      )}
 
       {/* Custom topic */}
       <div className="flex gap-1">
@@ -106,6 +131,7 @@ export default function WaterCoolerControls({ onSetWaterCooler }: WaterCoolerCon
           className="flex-1 rounded-lg border border-white/70 bg-white/70 px-3 py-2 text-xs focus:border-cyan-500/50 focus:outline-none"
         />
         <button
+          type="button"
           onClick={submitCustom}
           disabled={!customTopic.trim()}
           className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white disabled:opacity-30"

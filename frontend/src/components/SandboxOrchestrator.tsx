@@ -8,9 +8,12 @@ import type {
   NemoClawStatus,
   OpenClawApprovalsStatus,
 } from "../types";
-import { SANDBOX_WORKSPACES, SQUADS, type Squad } from "../utils/claws";
+import { SQUADS, type Squad } from "../utils/claws";
+import { SANDBOX_API_TIMEOUT_MS, SANDBOX_POLL_INTERVAL_MS } from "../utils/config";
 import { AGENT_COLORS, ROLE_LABELS } from "../utils/sprites";
-import LobsterBuilder from "./LobsterBuilder";
+import AgentChip from "./sandbox/AgentChip";
+import SandboxCard from "./sandbox/SandboxCard";
+import { policySummary, sandboxLabel, sandboxNameLabel } from "./sandbox/labels";
 
 interface SandboxOrchestratorProps {
   agents: AgentInfo[];
@@ -22,12 +25,15 @@ interface SandboxOrchestratorProps {
   onOpenMonitor?: (sandboxName: string) => void;
   /** Lift the joined sandboxes list up so the floating monitor can read it. */
   onSandboxesChange?: (sandboxes: NemoClawSandbox[]) => void;
+  /** Open the "Build a Claw" modal — modal state lives in App.tsx now so a
+   *  top-level button (outside this dock) can also open it. */
+  onOpenLobsterBuilder?: () => void;
 }
 
 const DEFAULT_TASK =
   "Work as a tiny NemoClaw sandbox team. Inspect your sandbox, propose one useful improvement for the reef demo, and return a concise implementation plan.";
 
-const API_TIMEOUT_MS = 8000;
+const API_TIMEOUT_MS = SANDBOX_API_TIMEOUT_MS;
 const SPARK_BACKEND_HOST = "10.110.23.141";
 type RunUiStatus = "running" | "stopping" | "cancelled" | "finished" | "error";
 
@@ -42,27 +48,7 @@ type SandboxRunStatus = {
   errors?: Record<string, string>;
 };
 
-function shortName(name: string): string {
-  return name.replace(/^nemoclaw-/, "").replace(/-/g, " ");
-}
-
-function sandboxLabel(sandbox: Pick<NemoClawSandbox, "name" | "display_name">): string {
-  return sandbox.display_name || shortName(sandbox.name);
-}
-
-const SANDBOX_LABELS = Object.fromEntries(
-  SANDBOX_WORKSPACES.map((workspace) => [workspace.name, workspace.displayName])
-) as Record<string, string>;
-
-function sandboxNameLabel(sandboxName: string): string {
-  return SANDBOX_LABELS[sandboxName] ?? shortName(sandboxName);
-}
-
-function policySummary(policies?: string[]): string {
-  if (!policies || policies.length === 0) return "No policy presets";
-  if (policies.length <= 3) return policies.join(", ");
-  return `${policies.slice(0, 3).join(", ")} +${policies.length - 3}`;
-}
+// label/policy helpers moved to ./sandbox/labels.ts
 
 function assignmentsFromSandboxes(sandboxes: NemoClawSandbox[]): Record<string, string[]> {
   const assignments: Record<string, string[]> = {};
@@ -247,266 +233,6 @@ async function fetchApprovals(sandboxName: string | null): Promise<OpenClawAppro
   return fetchJson<OpenClawApprovalsStatus>(`/approvals${suffix}`);
 }
 
-function AgentChip({
-  agent,
-  assignedTo,
-  picked,
-  onPick,
-  onRemove,
-}: {
-  agent: AgentInfo;
-  assignedTo?: string;
-  picked: boolean;
-  onPick: (agentName: string) => void;
-  onRemove?: (agentName: string) => void;
-}) {
-  const color = AGENT_COLORS[agent.name] ?? "#94a3b8";
-
-  return (
-    <div
-      className={`group relative flex min-w-0 items-center gap-2 rounded-md border px-2 py-2 text-left transition ${
-        picked
-          ? "border-cyan-200/55 bg-cyan-200/[0.16] shadow-[0_0_0_1px_rgba(165,243,252,0.12)]"
-          : "border-white/10 bg-white/[0.075] hover:bg-white/[0.12]"
-      }`}
-    >
-    <button
-      type="button"
-      draggable
-      onClick={() => onPick(agent.name)}
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", agent.name);
-        onPick(agent.name);
-      }}
-      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-      title={`Click or drag ${agent.name} into a sandbox`}
-    >
-      <span
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[11px] font-bold text-slate-950"
-        style={{ backgroundColor: color }}
-      >
-        {agent.name.slice(0, 1)}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-semibold leading-4 text-white/86">
-          {agent.name}
-        </span>
-        <span className="block truncate text-[10px] font-medium leading-4 text-white/38">
-          {assignedTo ? `In ${sandboxNameLabel(assignedTo)}` : ROLE_LABELS[agent.role]}
-        </span>
-        {(agent.openclaw_skills && agent.openclaw_skills.length > 0) && (
-          <span className="mt-0.5 flex flex-wrap gap-0.5">
-            {agent.openclaw_skills.slice(0, 3).map((slug) => (
-              <span
-                key={`s-${slug}`}
-                title={`OpenClaw skill: ${slug}`}
-                className="rounded bg-emerald-300/16 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-emerald-100"
-              >
-                {slug}
-              </span>
-            ))}
-          </span>
-        )}
-        {agent.tools && agent.tools.length > 0 && (
-          <span className="mt-0.5 flex flex-wrap gap-0.5">
-            {agent.tools.slice(0, 3).map((tool) => (
-              <span
-                key={`t-${tool}`}
-                title={`Trait: ${tool}`}
-                className="rounded bg-white/[0.08] px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/55"
-              >
-                {tool.replace(/_/g, " ")}
-              </span>
-            ))}
-          </span>
-        )}
-      </span>
-    </button>
-    {onRemove && (
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          if (confirm(`Remove ${agent.name}? They'll be unassigned from any sandbox.`)) {
-            onRemove(agent.name);
-          }
-        }}
-        title={`Remove ${agent.name}`}
-        className="grid h-6 w-6 shrink-0 place-items-center rounded bg-white/[0.04] text-[12px] font-bold text-white/30 opacity-0 transition hover:bg-rose-500/30 hover:text-rose-100 group-hover:opacity-100"
-        aria-label={`Remove ${agent.name}`}
-      >
-        ✕
-      </button>
-    )}
-    </div>
-  );
-}
-
-function SandboxCard({
-  sandbox,
-  active,
-  carriedAgent,
-  onSelect,
-  onDropAgent,
-  onRemoveAgent,
-  onCarryAgent,
-  onOpenMonitor,
-}: {
-  sandbox: NemoClawSandbox;
-  active: boolean;
-  carriedAgent: string | null;
-  onSelect: () => void;
-  onDropAgent: (sandboxName: string, agentName?: string) => void;
-  onRemoveAgent: (sandboxName: string, agentName: string) => void;
-  onCarryAgent: (agentName: string | null) => void;
-  onOpenMonitor?: (sandboxName: string) => void;
-}) {
-  const team = sandbox.assigned_agent_details ?? [];
-  const canDrop = Boolean(carriedAgent);
-  const run = sandbox.run_status;
-  const stateLabel = !sandbox.live
-    ? "Not live"
-    : run?.running
-    ? "Running"
-    : team.length > 0
-    ? `${team.length} claw${team.length === 1 ? "" : "s"}`
-    : "Empty";
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => {
-        if (canDrop) onDropAgent(sandbox.name);
-        else onSelect();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          if (canDrop) onDropAgent(sandbox.name);
-          else onSelect();
-        }
-      }}
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        const transferredAgent = event.dataTransfer.getData("text/plain") || undefined;
-        onDropAgent(sandbox.name, transferredAgent);
-      }}
-      className={`w-full rounded-md border p-3 text-left transition ${
-        canDrop
-          ? "cursor-copy border-cyan-100/55 bg-cyan-100/[0.12] hover:bg-cyan-100/[0.18]"
-          : active
-          ? "cursor-pointer border-cyan-200/45 bg-cyan-200/[0.10]"
-          : "cursor-pointer border-white/10 bg-white/[0.055] hover:border-white/18 hover:bg-white/[0.085]"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-[12px] font-semibold leading-4 text-white/88">
-            {sandboxLabel(sandbox)}
-          </div>
-          <div className="mt-0.5 truncate text-[10px] font-medium leading-4 text-white/40">
-            {sandbox.model ?? "model unknown"} {sandbox.isDefault ? "/ default" : ""}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className="rounded bg-emerald-300/12 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-4 text-emerald-100/80">
-            {stateLabel}
-          </span>
-          {onOpenMonitor && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenMonitor(sandbox.name);
-              }}
-              className="rounded bg-white/[0.08] px-1.5 py-0.5 text-[9px] font-bold uppercase leading-4 text-white/72 hover:bg-white/[0.16] hover:text-white"
-              title="Open the floating Task Monitor for this sandbox"
-            >
-              Monitor
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-2 text-[10px] font-medium leading-4 text-white/42">
-        {canDrop
-          ? `Release or click to put ${carriedAgent} here`
-          : run?.last_message ?? policySummary(sandbox.policies)}
-      </div>
-
-      {run?.running && run.mode === "sequential" && (
-        <div className="mt-1 text-[10px] font-semibold leading-4 text-amber-200/85">
-          Running sequentially — each lobster takes its own turn in this sandbox; they do not converse inside it.
-        </div>
-      )}
-
-      {run?.running && run.policies && run.policies.length > 0 && (
-        <div className="mt-1 truncate text-[10px] font-semibold leading-4 text-cyan-200/85">
-          Policies in effect: {run.policies.join(", ")}
-        </div>
-      )}
-
-      <div className="mt-2 flex min-h-8 flex-wrap gap-1">
-        {team.length > 0 ? (
-          team.map((agent) => (
-            <span
-              key={agent.name}
-              draggable
-              onClick={(event) => event.stopPropagation()}
-              onDragStart={(event) => {
-                event.stopPropagation();
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", agent.name);
-                onCarryAgent(agent.name);
-              }}
-              onDragEnd={() => onCarryAgent(null)}
-              className="inline-flex max-w-full cursor-grab items-center gap-1 rounded bg-white/[0.09] px-1.5 py-1 text-[10px] font-semibold leading-3 text-white/76 active:cursor-grabbing"
-              title={`Drag ${agent.name} to another sandbox`}
-            >
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: AGENT_COLORS[agent.name] ?? "#94a3b8" }}
-              />
-              <span className="truncate">{agent.name}</span>
-              <button
-                type="button"
-                draggable={false}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRemoveAgent(sandbox.name, agent.name);
-                }}
-                onPointerDown={(event) => event.stopPropagation()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onRemoveAgent(sandbox.name, agent.name);
-                  }
-                }}
-                className="ml-0.5 rounded px-1 text-[9px] font-bold uppercase tracking-normal text-white/42 hover:bg-white/10 hover:text-white"
-                title={`Remove ${agent.name}`}
-                aria-label={`Remove ${agent.name} from ${sandboxLabel(sandbox)}`}
-              >
-                Remove
-              </button>
-            </span>
-          ))
-        ) : (
-          <span className="text-[10px] font-medium leading-8 text-white/28">
-            Drop lobsters here
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 
 export default function SandboxOrchestrator({
   agents,
@@ -516,6 +242,7 @@ export default function SandboxOrchestrator({
   onSandboxAssignments,
   onOpenMonitor,
   onSandboxesChange,
+  onOpenLobsterBuilder,
 }: SandboxOrchestratorProps) {
   const [status, setStatus] = useState<NemoClawStatus | null>(null);
   const [policies, setPolicies] = useState<NemoClawPolicyStatus | null>(null);
@@ -528,9 +255,6 @@ export default function SandboxOrchestrator({
   const [assignmentSnapshot, setAssignmentSnapshot] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  // The full LobsterBuilder modal replaces the old inline + form. We just
-  // track open/closed here; the modal owns its own form state.
-  const [builderOpen, setBuilderOpen] = useState(false);
   const [popError, setPopError] = useState<string | null>(null);
   // Policy preview — Run Team first opens a confirmation modal so the user
   // sees the cage (enabled policies, deny-by-default everywhere else)
@@ -590,7 +314,13 @@ export default function SandboxOrchestrator({
 
   useEffect(() => {
     load();
-    const id = window.setInterval(load, 12000);
+    // Long-fallback poll. The WS pushes sandbox_task_* events but those don't
+    // carry the full run_status payload (per-agent outputs/errors, current
+    // agent, finished_at). The dock card reads run_status from /sandboxes, so
+    // we still need a periodic refresh until the run_status fields move into
+    // the WS contract. Manual refreshes after team mutations short-circuit
+    // via onStateRefresh. Interval tunable in utils/config.ts.
+    const id = window.setInterval(load, SANDBOX_POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [load]);
 
@@ -1051,11 +781,6 @@ export default function SandboxOrchestrator({
 
   return (
     <>
-    <LobsterBuilder
-      open={builderOpen}
-      onClose={() => setBuilderOpen(false)}
-      onSpawned={onStateRefresh}
-    />
     {renderPolicyPreview()}
     <aside className="pointer-events-auto flex h-full w-full flex-col overflow-hidden rounded-lg border border-white/18 bg-slate-950/48 p-4 text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-md">
       <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
@@ -1126,10 +851,10 @@ export default function SandboxOrchestrator({
             </span>
             <button
               type="button"
-              onClick={() => setBuilderOpen(true)}
-              title="Open the Lobster Builder"
+              onClick={() => onOpenLobsterBuilder?.()}
+              title="Build a Claw"
               className="rounded bg-cyan-300/14 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-100 hover:bg-cyan-300/26"
-              aria-label="Open lobster builder"
+              aria-label="Build a Claw"
             >
               + New
             </button>

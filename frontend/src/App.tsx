@@ -8,11 +8,14 @@ import ActivityPanel from "./components/ActivityPanel";
 import BulletinBoard from "./components/BulletinBoard";
 import Whiteboard from "./components/Whiteboard";
 import QueryInput from "./components/QueryInput";
-import AgentDetail from "./components/AgentDetail";
+import LobsterDetailModal from "./components/LobsterDetailModal";
+import LobsterBuilder from "./components/LobsterBuilder";
+import ModelSelector from "./components/ModelSelector";
 import WaterCoolerControls from "./components/WaterCoolerControls";
 import HistoryPanel from "./components/HistoryPanel";
 import SandboxOrchestrator from "./components/SandboxOrchestrator";
 import SandboxRunPanel from "./components/SandboxRunPanel";
+import ErrorBoundary from "./components/ErrorBoundary";
 import type { ChatMessage, NemoClawSandbox } from "./types";
 import { withoutLandOfficeIdleMessages } from "./utils/messageFilters";
 
@@ -121,6 +124,9 @@ function HeaderCluster({
   onTogglePresentation,
   presentationMode,
   onReset,
+  onOpenLobsterBuilder,
+  onOpenModelMenu,
+  activeModel,
 }: {
   connected: boolean;
   workflowPhase: string;
@@ -129,6 +135,9 @@ function HeaderCluster({
   onTogglePresentation: () => void;
   presentationMode: boolean;
   onReset: () => void;
+  onOpenLobsterBuilder: () => void;
+  onOpenModelMenu: () => void;
+  activeModel: { label: string; kind: string } | null;
 }) {
   return (
     <div className="pointer-events-auto flex max-w-[min(720px,calc(100vw-260px))] shrink flex-wrap items-start justify-end gap-1.5 max-md:max-w-[calc(100vw-1.5rem)]">
@@ -138,6 +147,22 @@ function HeaderCluster({
       <div className="relative hidden shrink-0 sm:block">
         <WaterCoolerControls onSetWaterCooler={onSetWaterCooler} />
       </div>
+      <button
+        type="button"
+        onClick={onOpenModelMenu}
+        className="hidden h-8 shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-slate-950/52 px-2.5 text-[11px] font-semibold text-white/82 ring-1 ring-white/10 backdrop-blur-xl hover:bg-slate-950/72 hover:text-white sm:flex"
+        title="Switch the LLM backend that drives the agents"
+      >
+        <span className="text-[10px] uppercase tracking-wider text-white/45">Model</span>
+        <span className="max-w-[180px] truncate">{activeModel?.label ?? "—"}</span>
+      </button>
+      <HeaderButton
+        onClick={onOpenLobsterBuilder}
+        title="Build a Claw — spawn a new OpenClaw lobster profile"
+        className="border-cyan-300/40 bg-cyan-300/14 text-cyan-50 hover:bg-cyan-300/26"
+      >
+        🦞 Build a Claw
+      </HeaderButton>
       <HeaderButton
         onClick={onTogglePresentation}
         title={presentationMode ? "Exit presentation mode" : "Enter presentation mode"}
@@ -184,8 +209,32 @@ export default function App() {
   } = useOfficeState(officeState);
 
   const [presentationMode, setPresentationMode] = useState(false);
-  const [commsDockOpen, setCommsDockOpen] = useState(true);
-  const [sandboxDockOpen, setSandboxDockOpen] = useState(true);
+  const [commsDockOpen, setCommsDockOpen] = useState(false);
+  const [sandboxDockOpen, setSandboxDockOpen] = useState(false);
+  // "Build a Claw" modal — state lifted to App level so it can be opened from
+  // both the sandbox dock's "+ New" button and the top-level header button.
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  // Active model name surfaced in the header pill so the user knows what's
+  // driving the agents without opening the modal.
+  const [activeModel, setActiveModel] = useState<{ label: string; kind: string } | null>(null);
+  const refreshActiveModel = useCallback(async () => {
+    try {
+      const r = await fetch("/models", { cache: "no-store" });
+      if (!r.ok) return;
+      const j = (await r.json()) as {
+        active_id: string;
+        profiles: { id: string; label: string; kind: string }[];
+      };
+      const p = j.profiles.find((x) => x.id === j.active_id);
+      if (p) setActiveModel({ label: p.label, kind: p.kind });
+    } catch {
+      // best-effort — leave previous label up if /models fails momentarily
+    }
+  }, []);
+  useEffect(() => {
+    refreshActiveModel();
+  }, [refreshActiveModel]);
   const [sandboxNotice, setSandboxNotice] = useState<string | null>(null);
   // Which sandbox is open in the floating Task Monitor (null = closed).
   const [openSandboxName, setOpenSandboxName] = useState<string | null>(null);
@@ -268,15 +317,17 @@ export default function App() {
   return (
     <div className={`h-screen overflow-hidden bg-[#07333c] text-slate-900 ${presentationMode ? "presentation-mode" : ""}`}>
       <div className="absolute inset-0">
-        <ThreeUnderwaterMap
-          agents={officeState.agents}
-          selectedAgent={selectedAgent}
-          onSelectAgent={selectAgent}
-          onAssignAgentToSandbox={assignAgentToSandbox}
-          onOpenSandbox={setOpenSandboxName}
-          messages={recentSpeakMessages}
-          hasActiveQuery={!!officeState.current_query}
-        />
+        <ErrorBoundary label="Scene">
+          <ThreeUnderwaterMap
+            agents={officeState.agents}
+            selectedAgent={selectedAgent}
+            onSelectAgent={selectAgent}
+            onAssignAgentToSandbox={assignAgentToSandbox}
+            onOpenSandbox={setOpenSandboxName}
+            messages={recentSpeakMessages}
+            hasActiveQuery={!!officeState.current_query}
+          />
+        </ErrorBoundary>
       </div>
 
       <header className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3 max-md:left-3 max-md:right-3 max-md:top-3">
@@ -296,6 +347,9 @@ export default function App() {
           onTogglePresentation={togglePresentation}
           presentationMode={presentationMode}
           onReset={resetOffice}
+          onOpenLobsterBuilder={() => setBuilderOpen(true)}
+          onOpenModelMenu={() => setModelMenuOpen(true)}
+          activeModel={activeModel}
         />
       </header>
 
@@ -339,26 +393,6 @@ export default function App() {
           </button>
         ) : (
           <>
-          {selectedAgentInfo && (
-            <button
-              type="button"
-              onClick={() => setCommsDockOpen(false)}
-              className="absolute right-3 top-3 z-10 grid h-7 w-7 place-items-center rounded-md bg-white/[0.08] text-base font-semibold leading-none text-white/62 transition hover:bg-white/[0.13] hover:text-white"
-              title="Collapse comms"
-              aria-label="Collapse comms"
-            >
-              -
-            </button>
-          )}
-          {/* Tab switcher / Agent detail header */}
-          {selectedAgentInfo ? (
-            <AgentDetail
-              agent={selectedAgentInfo}
-              thoughts={selectedAgentThoughts}
-              recentMessages={selectedAgentMessages}
-              onClose={() => selectAgent(null)}
-            />
-          ) : (
             <div className="flex min-h-0 flex-1">
               <nav className="flex w-[108px] shrink-0 flex-col border-r border-white/10 bg-slate-950/18 pr-2">
                 <div className="mb-1 flex items-center justify-between gap-2 px-2 pt-1.5 text-[10px] font-bold uppercase leading-5 text-white/35">
@@ -436,7 +470,6 @@ export default function App() {
                 )}
               </div>
             </div>
-          )}
           </>
         )}
       </section>
@@ -449,15 +482,18 @@ export default function App() {
         }`}
       >
         {sandboxDockOpen ? (
-          <SandboxOrchestrator
-            agents={officeState.agents}
-            messages={officeState.messages}
-            onCollapse={() => setSandboxDockOpen(false)}
-            onStateRefresh={refreshOfficeState}
-            onSandboxAssignments={applySandboxAssignments}
-            onOpenMonitor={setOpenSandboxName}
-            onSandboxesChange={setSandboxesIndex}
-          />
+          <ErrorBoundary label="Sandbox Dock">
+            <SandboxOrchestrator
+              agents={officeState.agents}
+              messages={officeState.messages}
+              onCollapse={() => setSandboxDockOpen(false)}
+              onStateRefresh={refreshOfficeState}
+              onSandboxAssignments={applySandboxAssignments}
+              onOpenMonitor={setOpenSandboxName}
+              onSandboxesChange={setSandboxesIndex}
+              onOpenLobsterBuilder={() => setBuilderOpen(true)}
+            />
+          </ErrorBoundary>
         ) : (
           <button
             type="button"
@@ -498,22 +534,51 @@ export default function App() {
         );
         const consoleLines = officeState.sandbox_consoles[openSandboxName] ?? [];
         return (
-          <SandboxRunPanel
-            sandbox={sandbox}
-            messages={messages}
-            consoleLines={consoleLines}
-            onClose={() => setOpenSandboxName(null)}
-            onAfterChange={refreshOfficeState}
-            onLocalRename={(name, displayName) =>
-              setSandboxesIndex((prev) =>
-                prev.map((s) =>
-                  s.name === name ? { ...s, display_name: displayName } : s
+          <ErrorBoundary label="Task Monitor">
+            <SandboxRunPanel
+              sandbox={sandbox}
+              messages={messages}
+              consoleLines={consoleLines}
+              onClose={() => setOpenSandboxName(null)}
+              onAfterChange={refreshOfficeState}
+              onLocalRename={(name, displayName) =>
+                setSandboxesIndex((prev) =>
+                  prev.map((s) =>
+                    s.name === name ? { ...s, display_name: displayName } : s
+                  )
                 )
-              )
-            }
-          />
+              }
+            />
+          </ErrorBoundary>
         );
       })()}
+
+      {selectedAgentInfo && (
+        <ErrorBoundary label="Lobster Detail">
+          <LobsterDetailModal
+            agent={selectedAgentInfo}
+            thoughts={selectedAgentThoughts}
+            recentMessages={selectedAgentMessages}
+            onClose={() => selectAgent(null)}
+          />
+        </ErrorBoundary>
+      )}
+
+      <ErrorBoundary label="Lobster Builder">
+        <LobsterBuilder
+          open={builderOpen}
+          onClose={() => setBuilderOpen(false)}
+          onSpawned={refreshOfficeState}
+        />
+      </ErrorBoundary>
+
+      <ErrorBoundary label="Model Selector">
+        <ModelSelector
+          open={modelMenuOpen}
+          onClose={() => setModelMenuOpen(false)}
+          onActiveChanged={refreshActiveModel}
+        />
+      </ErrorBoundary>
     </div>
   );
 }

@@ -112,7 +112,17 @@ def _sandbox_spots(room: str) -> list[tuple[int, int]]:
     ]
 
 
-# Track seat assignments per room
+# Track seat assignments per room.
+#
+# Concurrency note: this module-level dict is intentionally lock-free.
+# ``get_room_position`` and ``release_room_seat`` are synchronous functions
+# with no ``await`` inside. In single-threaded asyncio (which this backend
+# uses), synchronous code runs atomically — another task can only yield in
+# at ``await`` boundaries, not mid-function. The earlier audit flagged a
+# "race between two concurrent requests" but that race cannot fire as long
+# as these functions stay sync. If any future change introduces an ``await``
+# in either function, this invariant breaks and a lock or deterministic
+# allocation will be required.
 _room_assignments: dict[str, dict[str, int]] = {
     "war_room": {},
     "break_room": {},
@@ -133,18 +143,33 @@ for _room in SANDBOX_ROOMS:
 
 
 def get_room_position(room: str, agent_name: str) -> tuple[int, int]:
-    """Get a unique position within a room for an agent (avoids overlap)."""
+    """Get a unique position within a room for an agent (avoids overlap).
+
+    Must remain synchronous — see the concurrency note above.
+
+    When the room is full, evict the oldest assignment (FIFO) so the new
+    lobster still gets a seat instead of falling back to the room center
+    silently. Previously, the unassigned lobster kept retrying the full scan
+    on every call, leaving an inconsistent state where multiple lobsters
+    looked like they were sharing the same spot.
+    """
     spots = _ROOM_SPOTS.get(room)
     if spots:
         assignments = _room_assignments.setdefault(room, {})
         if agent_name not in assignments:
             taken = set(assignments.values())
+            chosen: int | None = None
             for i in range(len(spots)):
                 if i not in taken:
-                    assignments[agent_name] = i
+                    chosen = i
                     break
-            else:
-                return ROOM_POSITIONS.get(room, (320, 240))
+            if chosen is None:
+                # Room is full — evict the oldest assigned lobster so the new
+                # one can take their seat. The displaced lobster will get a
+                # fresh assignment the next time they enter this room.
+                oldest_agent = next(iter(assignments))
+                chosen = assignments.pop(oldest_agent)
+            assignments[agent_name] = chosen
         return spots[assignments[agent_name]]
 
     # For desks and other rooms, use the center
@@ -152,7 +177,10 @@ def get_room_position(room: str, agent_name: str) -> tuple[int, int]:
 
 
 def release_room_seat(room: str, agent_name: str) -> None:
-    """Free up an agent's seat when they leave a room."""
+    """Free up an agent's seat when they leave a room.
+
+    Must remain synchronous — see the concurrency note above.
+    """
     if room in _room_assignments:
         _room_assignments[room].pop(agent_name, None)
 

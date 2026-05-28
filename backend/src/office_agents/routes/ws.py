@@ -117,6 +117,9 @@ async def _reset_simulation(orch, office, broadcaster) -> None:
 
     await orch.cancel_all_sandbox_runs(reason="reset")
     orch.clear_sandbox_run_statuses()
+    # Drop idle-chat conversation threads so the reef starts a fresh discussion
+    # after reset rather than continuing whatever happened before.
+    orch._idle_chat.reset()
     office.current_query = None
     office.current_files = []
     office.whiteboard.clear()

@@ -1,7 +1,16 @@
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
-import type { AgentInfo } from "../types";
+import { SVGLoader } from "three/examples/jsm/loaders/SVGLoader.js";
+import type {
+  AccessoryDecoration,
+  AgentInfo,
+  GeneratedHeadwear,
+  LobsterAppearance,
+  LobsterEyewear,
+  LobsterHeadwear,
+} from "../types";
 import { SANDBOX_WORKSPACES } from "../utils/claws";
+import { SPEECH_BUBBLE_TTL_MS } from "../utils/config";
 import { AGENT_COLORS, AGENT_COLORS_HEX, ROOMS, type RoomDef } from "../utils/sprites";
 
 const MAP_W = 640;
@@ -37,6 +46,7 @@ interface AgentActor {
   nextRoamAt: number;
   anchorKey: string;
   sandboxSettled: boolean;
+  visualKey: string;
 }
 
 interface Runtime {
@@ -568,18 +578,173 @@ function makeShellPath(scene: THREE.Scene, from: THREE.Vector3, to: THREE.Vector
   }
 }
 
-function makeShellRing(scene: THREE.Scene, center: THREE.Vector3, rx: number, rz: number, count: number) {
-  const matA = new THREE.MeshStandardMaterial({ color: 0xf7df9a, roughness: 0.5 });
-  const matB = new THREE.MeshStandardMaterial({ color: 0x7fe2d7, roughness: 0.5 });
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), i % 2 ? matA : matB);
-    shell.position.set(center.x + Math.cos(angle) * rx, 0.18, center.z + Math.sin(angle) * rz);
-    shell.scale.set(1.55, 0.3, 0.85);
-    shell.rotation.y = -angle;
-    shell.castShadow = true;
-    scene.add(shell);
-  }
+// Real NVIDIA eye-mark SVG path (path #2 from the official Wikimedia
+// commons NVIDIA_logo.svg). This is the asymmetric curl-into-a-stylized-eye
+// shape; we feed it to SVGLoader and let it produce real THREE.Shape
+// objects (with even-odd holes) which we then extrude into 3D.
+const NVIDIA_EYE_SVG_PATH =
+  "M82.211 102.414s22.504-33.203 67.437-36.638V53.73c-49.769 3.997-92.867 46.149-92.867 46.149s24.41 70.564 92.867 77.026v-12.804c-50.237-6.32-67.437-61.687-67.437-61.687zm67.437 36.223v11.727c-37.968-6.77-48.507-46.237-48.507-46.237s18.23-20.195 48.507-23.47v12.867c-.023 0-.039-.007-.058-.007-15.891-1.907-28.305 12.938-28.305 12.938s6.958 24.99 28.363 32.182m0-107.125V53.73c1.461-.112 2.922-.207 4.391-.257 56.582-1.907 93.449 46.406 93.449 46.406s-42.343 51.488-86.457 51.488c-4.043 0-7.828-.375-11.383-1.005v13.739a75.04 75.04 0 0 0 9.481.612c41.051 0 70.738-20.965 99.484-45.778 4.766 3.817 24.278 13.103 28.289 17.167-27.332 22.884-91.031 41.33-127.144 41.33-3.481 0-6.824-.211-10.11-.528v19.306H305.68V31.512H149.648zm0 49.144V65.777c1.446-.101 2.903-.179 4.391-.226 40.688-1.278 67.382 34.965 67.382 34.965s-28.832 40.042-59.746 40.042c-4.449 0-8.438-.715-12.028-1.922V93.523c15.84 1.914 19.028 8.911 28.551 24.786l21.181-17.859s-15.461-20.277-41.524-20.277c-2.834-.001-5.545.198-8.207.483";
+
+function makeNvidiaEyeMark(): THREE.Group {
+  // 3D NVIDIA eye-mark, built from the actual NVIDIA logo SVG path. Three.js's
+  // SVGLoader parses the path string into THREE.Shape objects honoring the
+  // even-odd fill rule, so the inner reveals and outer outline come out as
+  // a single solid with holes — not a wonky donut.
+  const root = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x76b900,
+    emissive: 0x4d8400,
+    emissiveIntensity: 0.55,
+    roughness: 0.3,
+    metalness: 0.2,
+  });
+
+  const svgString = `<svg xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="${NVIDIA_EYE_SVG_PATH}"/></svg>`;
+  const svgData = new SVGLoader().parse(svgString);
+
+  const meshGroup = new THREE.Group();
+  svgData.paths.forEach((path) => {
+    const shapes = SVGLoader.createShapes(path);
+    shapes.forEach((shape) => {
+      const geom = new THREE.ExtrudeGeometry(shape, {
+        depth: 12,
+        bevelEnabled: true,
+        bevelThickness: 1.4,
+        bevelSize: 1.2,
+        bevelSegments: 4,
+        curveSegments: 24,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      meshGroup.add(mesh);
+    });
+  });
+
+  // Center on the SVG bbox so subsequent scale/rotate happens around its
+  // visual midpoint.
+  const bbox = new THREE.Box3().setFromObject(meshGroup);
+  const center = bbox.getCenter(new THREE.Vector3());
+  meshGroup.position.set(-center.x, -center.y, -center.z);
+
+  const size = bbox.getSize(new THREE.Vector3());
+  const wrapper = new THREE.Group();
+  wrapper.add(meshGroup);
+
+  // Fit a 2.4-unit-wide footprint on the 1.7-radius platform.
+  const targetWidth = 2.4;
+  const s = targetWidth / size.x;
+  wrapper.scale.set(s, s, s);
+
+  // rotation.x = +Math.PI/2 lays the shape flat AND fixes SVG's Y-down
+  // convention in a single step. After this rotation the extrude depth
+  // points up out of the platform and the logo reads right-side-up from
+  // the default camera angle.
+  wrapper.rotation.x = Math.PI / 2;
+
+  root.add(wrapper);
+  return root;
+}
+
+function makeNvidiaCenterpiece(scene: THREE.Scene, center: THREE.Vector3) {
+  const group = new THREE.Group();
+  group.position.set(center.x, 0, center.z);
+
+  // Rock outcrop rising from inside the conference table. Base is narrow
+  // enough (~1.3 r) to fit between the shell seats (seats sit at r ≈ 2.2),
+  // and the whole stack is tall enough that the logo platform clears the
+  // seats and reads cleanly from the default camera angle.
+  const rockMat = new THREE.MeshStandardMaterial({
+    color: 0x3e4a55,
+    roughness: 0.88,
+    metalness: 0.06,
+  });
+
+  // Base boulder — chunky, rotated to break up symmetry.
+  const base = new THREE.Mesh(new THREE.DodecahedronGeometry(1.35, 0), rockMat);
+  base.scale.set(1.05, 1.35, 1.05);
+  base.position.y = 1.05;
+  base.rotation.set(0.15, 0.6, -0.1);
+  base.castShadow = true;
+  base.receiveShadow = true;
+  group.add(base);
+
+  // Upper boulder — slightly narrower, offset for an irregular silhouette.
+  const upper = new THREE.Mesh(new THREE.DodecahedronGeometry(1.1, 0), rockMat);
+  upper.scale.set(1.15, 0.9, 1.0);
+  upper.position.set(0.12, 2.05, -0.08);
+  upper.rotation.set(-0.2, 1.4, 0.3);
+  upper.castShadow = true;
+  upper.receiveShadow = true;
+  group.add(upper);
+
+  // Small side chunk to add asymmetry near the base.
+  const chunk = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0), rockMat);
+  chunk.scale.set(1.2, 0.7, 0.95);
+  chunk.position.set(-1.0, 0.55, 0.6);
+  chunk.rotation.set(0.4, -0.9, 0.2);
+  chunk.castShadow = true;
+  chunk.receiveShadow = true;
+  group.add(chunk);
+
+  // Flat dark platform sitting on top of the rock — clean stage for the logo.
+  const platformY = 2.85;
+  const platform = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.7, 1.85, 0.16, 32),
+    new THREE.MeshStandardMaterial({
+      color: 0x14181f,
+      roughness: 0.45,
+      metalness: 0.4,
+    }),
+  );
+  platform.position.y = platformY;
+  platform.castShadow = true;
+  platform.receiveShadow = true;
+  group.add(platform);
+
+  // NVIDIA-green emissive rim around the platform edge.
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(1.72, 0.045, 10, 72),
+    new THREE.MeshStandardMaterial({
+      color: 0x76b900,
+      roughness: 0.3,
+      emissive: 0x76b900,
+      emissiveIntensity: 1.1,
+    }),
+  );
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.y = platformY + 0.09;
+  group.add(rim);
+
+  // 3D NVIDIA eye-mark. Two interlocking lens shapes traced with bezier
+  // curves, extruded with a slight bevel, then laid flat on the platform.
+  // No PNG / texture — purely vector geometry so it stays crisp at any
+  // zoom and catches the green key-light on its bevel.
+  const logo = makeNvidiaEyeMark();
+  logo.position.y = platformY + 0.09;
+  group.add(logo);
+
+  // Subtle green key-light from above to make the rim and logo pop.
+  const key = new THREE.PointLight(0x9aff33, 0.9, 6.5, 1.4);
+  key.position.set(0, platformY + 2.0, 0);
+  group.add(key);
+
+  // Soft green halo on the reef floor at the rock's footprint.
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(1.6, 2.6, 64),
+    new THREE.MeshBasicMaterial({
+      color: 0x76b900,
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = 0.04;
+  group.add(halo);
+
+  scene.add(group);
 }
 
 function makeVillageCove(scene: THREE.Scene) {
@@ -606,8 +771,8 @@ function makeVillageCove(scene: THREE.Scene) {
     );
   });
 
-  // Tide-table ring landmark stays — small, defined accent, not a wash.
-  makeShellRing(scene, VILLAGE_CENTER, 7.2, 5.4, 28);
+  // Centerpiece: dark rock with the NVIDIA wordmark on top.
+  makeNvidiaCenterpiece(scene, VILLAGE_CENTER);
 }
 
 function makeNemoSandbox(room: RoomDef) {
@@ -868,7 +1033,7 @@ function makeNoticeRock() {
   return group;
 }
 
-function makeCoralPatch(x: number, z: number, color: number, count = 8, spread = 1.35, height = 1.15) {
+export function makeCoralPatch(x: number, z: number, color: number, count = 8, spread = 1.35, height = 1.15) {
   const group = new THREE.Group();
   group.position.set(x, 0.05, z);
   const mat = new THREE.MeshStandardMaterial({
@@ -897,7 +1062,7 @@ function makeCoralPatch(x: number, z: number, color: number, count = 8, spread =
   return group;
 }
 
-function makeSeaweedPatch(x: number, z: number, count = 7, color = 0x2fa184) {
+export function makeSeaweedPatch(x: number, z: number, count = 7, color = 0x2fa184) {
   const group = new THREE.Group();
   group.position.set(x, 0.05, z);
   const mats = [
@@ -921,7 +1086,7 @@ function makeSeaweedPatch(x: number, z: number, count = 7, color = 0x2fa184) {
   return group;
 }
 
-function makeAnemonePatch(x: number, z: number, color = 0xf37aa7) {
+export function makeAnemonePatch(x: number, z: number, color = 0xf37aa7) {
   const group = new THREE.Group();
   group.position.set(x, 0.06, z);
   const mat = new THREE.MeshStandardMaterial({
@@ -972,7 +1137,7 @@ function makeCoralGarden(scene: THREE.Scene) {
   scene.add(makeAnemonePatch(4, -25, 0xff8a78));
 }
 
-function makeBubbles(count: number, spread = 0.55) {
+export function makeBubbles(count: number, spread = 0.55) {
   const group = new THREE.Group();
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0xdffcff,
@@ -990,9 +1155,420 @@ function makeBubbles(count: number, spread = 0.55) {
   return group;
 }
 
-function makeLobster(agent: AgentInfo) {
+const DEFAULT_LOBSTER_APPEARANCE: LobsterAppearance = {
+  headwear: "none",
+  eyewear: "none",
+  generated_headwear: null,
+};
+
+function lobsterAppearance(agent: AgentInfo): LobsterAppearance {
+  return {
+    headwear: agent.appearance?.headwear ?? DEFAULT_LOBSTER_APPEARANCE.headwear,
+    eyewear: agent.appearance?.eyewear ?? DEFAULT_LOBSTER_APPEARANCE.eyewear,
+    generated_headwear: agent.appearance?.generated_headwear ?? null,
+  };
+}
+
+function agentVisualKey(agent: AgentInfo) {
+  const appearance = lobsterAppearance(agent);
+  const generated = appearance.generated_headwear;
+  const generatedKey = generated
+    ? [
+        generated.kind,
+        generated.label,
+        generated.primary,
+        generated.accent ?? "",
+        (generated.decorations ?? [])
+          .map((dec) => `${dec.type}:${dec.color}:${dec.count}`)
+          .join("|"),
+      ].join(",")
+    : "";
+  return [
+    agent.color ?? "",
+    appearance.headwear,
+    appearance.eyewear,
+    generatedKey,
+  ].join(":");
+}
+
+function makeLobsterAccessories(agent: AgentInfo) {
+  const appearance = lobsterAppearance(agent);
+  const group = new THREE.Group();
+  group.name = `accessories-${agent.name}`;
+
+  const headwear = makeHeadwear(appearance.headwear, appearance.generated_headwear);
+  if (headwear) group.add(headwear);
+
+  const eyewear = makeEyewear(appearance.eyewear);
+  if (eyewear) group.add(eyewear);
+
+  return group;
+}
+
+function makeHeadwear(headwear: LobsterHeadwear, generated?: GeneratedHeadwear | null) {
+  if (headwear === "generated") return makeGeneratedHeadwear(generated);
+  if (headwear === "cowboy_hat") return makeCowboyHat();
+  if (headwear === "baseball_cap") return makeBaseballCap();
+  return null;
+}
+
+function makeEyewear(eyewear: LobsterEyewear) {
+  if (eyewear === "sunglasses") return makeSunglasses();
+  return null;
+}
+
+function colorNumber(hex: string | null | undefined, fallback: number) {
+  if (!hex) return fallback;
+  return parseHexColor(hex) ?? fallback;
+}
+
+function makeGeneratedHeadwear(spec?: GeneratedHeadwear | null) {
+  if (!spec) return null;
+  if (spec.kind === "wizard_hat") return makeGeneratedWizardHat(spec);
+  if (spec.kind === "top_hat") return makeGeneratedTopHat(spec);
+  if (spec.kind === "crown") return makeGeneratedCrown(spec);
+  if (spec.kind === "beanie") return makeGeneratedBeanie(spec);
+  return makeGeneratedPartyHat(spec);
+}
+
+function makeHatMaterial(color: number, roughness = 0.58) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness,
+    metalness: 0.02,
+  });
+}
+
+function makeGeneratedPartyHat(spec: GeneratedHeadwear) {
+  const group = new THREE.Group();
+  group.name = "accessory-generated-party-hat";
+  const primary = colorNumber(spec.primary, 0x7c3aed);
+  const accent = colorNumber(spec.accent, 0xfacc15);
+
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.46, 1.05, 32), makeHatMaterial(primary));
+  cone.position.set(0, 1.76, 0.36);
+  cone.castShadow = true;
+  group.add(cone);
+
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.045, 10, 44), makeHatMaterial(accent, 0.46));
+  rim.rotation.x = Math.PI / 2;
+  rim.position.set(0, 1.24, 0.36);
+  group.add(rim);
+
+  const pom = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), makeHatMaterial(accent, 0.5));
+  pom.position.set(0, 2.31, 0.36);
+  pom.castShadow = true;
+  group.add(pom);
+
+  addGeneratedDecorations(group, spec, { y: 1.68, z: 0.79, spreadX: 0.28, defaultColor: accent });
+  return group;
+}
+
+function makeGeneratedWizardHat(spec: GeneratedHeadwear) {
+  const group = new THREE.Group();
+  group.name = "accessory-generated-wizard-hat";
+  const primary = colorNumber(spec.primary, 0x6d28d9);
+  const accent = colorNumber(spec.accent, 0xfacc15);
+
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.72, 0.08, 40), makeHatMaterial(primary, 0.68));
+  brim.position.set(0, 1.26, 0.34);
+  brim.scale.set(1.18, 1, 0.58);
+  brim.castShadow = true;
+  group.add(brim);
+
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.44, 1.28, 36), makeHatMaterial(primary, 0.62));
+  cone.position.set(0, 1.85, 0.34);
+  cone.rotation.x = -0.1;
+  cone.castShadow = true;
+  group.add(cone);
+
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.39, 0.04, 8, 40), makeHatMaterial(accent, 0.42));
+  band.rotation.x = Math.PI / 2;
+  band.position.set(0, 1.39, 0.43);
+  band.scale.set(1.08, 0.72, 1);
+  group.add(band);
+
+  addGeneratedDecorations(group, spec, { y: 1.72, z: 0.78, spreadX: 0.25, defaultColor: accent });
+  return group;
+}
+
+function makeGeneratedTopHat(spec: GeneratedHeadwear) {
+  const group = new THREE.Group();
+  group.name = "accessory-generated-top-hat";
+  const primary = colorNumber(spec.primary, 0x111827);
+  const accent = colorNumber(spec.accent, 0xfacc15);
+  const mat = makeHatMaterial(primary, 0.52);
+
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.78, 0.08, 40), mat);
+  brim.position.set(0, 1.28, 0.34);
+  brim.scale.set(1.12, 1, 0.54);
+  brim.castShadow = true;
+  group.add(brim);
+
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.43, 0.45, 0.66, 32), mat);
+  crown.position.set(0, 1.65, 0.34);
+  crown.scale.set(0.95, 1, 0.74);
+  crown.castShadow = true;
+  group.add(crown);
+
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.04, 8, 40), makeHatMaterial(accent, 0.45));
+  band.rotation.x = Math.PI / 2;
+  band.position.set(0, 1.47, 0.34);
+  band.scale.set(0.95, 0.74, 1);
+  group.add(band);
+
+  addGeneratedDecorations(group, spec, { y: 1.55, z: 0.72, spreadX: 0.25, defaultColor: accent });
+  return group;
+}
+
+function makeGeneratedCrown(spec: GeneratedHeadwear) {
+  const group = new THREE.Group();
+  group.name = "accessory-generated-crown";
+  const primary = colorNumber(spec.primary, 0xf59e0b);
+  const accent = colorNumber(spec.accent, 0x38bdf8);
+  const gold = makeHatMaterial(primary, 0.36);
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.56, 0.2, 36, 1, true), gold);
+  base.position.set(0, 1.32, 0.34);
+  base.scale.set(1.08, 1, 0.7);
+  base.castShadow = true;
+  group.add(base);
+
+  for (let i = 0; i < 5; i++) {
+    const x = -0.42 + i * 0.21;
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.34, 4), gold);
+    spike.position.set(x, 1.55 + (i % 2) * 0.05, 0.63);
+    spike.rotation.z = i % 2 ? 0.12 : -0.12;
+    spike.castShadow = true;
+    group.add(spike);
+
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.055), makeHatMaterial(accent, 0.32));
+    gem.position.set(x, 1.75 + (i % 2) * 0.05, 0.64);
+    group.add(gem);
+  }
+
+  addGeneratedDecorations(group, spec, { y: 1.34, z: 0.72, spreadX: 0.28, defaultColor: accent });
+  return group;
+}
+
+function makeGeneratedBeanie(spec: GeneratedHeadwear) {
+  const group = new THREE.Group();
+  group.name = "accessory-generated-beanie";
+  const primary = colorNumber(spec.primary, 0x3b82f6);
+  const accent = colorNumber(spec.accent, 0xf8fafc);
+
+  const cap = new THREE.Mesh(
+    new THREE.SphereGeometry(0.48, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+    makeHatMaterial(primary, 0.76)
+  );
+  cap.position.set(0, 1.28, 0.34);
+  cap.scale.set(1.0, 0.78, 0.76);
+  cap.castShadow = true;
+  group.add(cap);
+
+  const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.055, 10, 44), makeHatMaterial(accent, 0.72));
+  cuff.rotation.x = Math.PI / 2;
+  cuff.position.set(0, 1.28, 0.34);
+  cuff.scale.set(1.0, 0.76, 1);
+  group.add(cuff);
+
+  const pom = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), makeHatMaterial(accent, 0.72));
+  pom.position.set(0, 1.72, 0.34);
+  pom.castShadow = true;
+  group.add(pom);
+
+  addGeneratedDecorations(group, spec, { y: 1.38, z: 0.74, spreadX: 0.26, defaultColor: accent });
+  return group;
+}
+
+function addGeneratedDecorations(
+  group: THREE.Group,
+  spec: GeneratedHeadwear,
+  opts: { y: number; z: number; spreadX: number; defaultColor: number }
+) {
+  const decorations = spec.decorations && spec.decorations.length > 0
+    ? spec.decorations
+    : [{ type: "band", color: spec.accent ?? "#facc15", count: 1 } as AccessoryDecoration];
+
+  decorations.forEach((dec, decIndex) => {
+    const color = colorNumber(dec.color, opts.defaultColor);
+    const count = Math.max(1, Math.min(8, Math.round(dec.count || 1)));
+    if (dec.type === "band" || dec.type === "stripe") {
+      const band = new THREE.Mesh(
+        new THREE.TorusGeometry(0.36 + decIndex * 0.035, 0.025, 8, 40),
+        makeHatMaterial(color, 0.42)
+      );
+      band.rotation.x = Math.PI / 2;
+      band.position.set(0, opts.y - 0.24 + decIndex * 0.16, opts.z - 0.35);
+      band.scale.set(1.05, 0.72, 1);
+      group.add(band);
+      return;
+    }
+    if (dec.type === "pom") {
+      const pom = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), makeHatMaterial(color, 0.65));
+      pom.position.set(0, opts.y + 0.58, opts.z - 0.42);
+      pom.castShadow = true;
+      group.add(pom);
+      return;
+    }
+
+    for (let i = 0; i < count; i++) {
+      const offset = count === 1 ? 0 : (i / (count - 1) - 0.5) * 2;
+      const row = Math.floor(i / 4);
+      const x = offset * opts.spreadX * (row ? 0.7 : 1);
+      const y = opts.y + row * 0.18 + Math.sin(i * 1.7) * 0.035;
+      const z = opts.z + row * 0.015;
+      if (dec.type === "star") {
+        const star = makeStarMesh(color, 0.095);
+        star.position.set(x, y, z + 0.015);
+        group.add(star);
+      } else if (dec.type === "gem") {
+        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.065), makeHatMaterial(color, 0.34));
+        gem.position.set(x, y, z);
+        group.add(gem);
+      } else {
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 6), makeHatMaterial(color, 0.46));
+        dot.position.set(x, y, z);
+        group.add(dot);
+      }
+    }
+  });
+}
+
+function makeStarMesh(color: number, radius = 0.1) {
+  const shape = new THREE.Shape();
+  const points = 10;
+  for (let i = 0; i <= points; i++) {
+    const angle = -Math.PI / 2 + (i / points) * Math.PI * 2;
+    const r = i % 2 === 0 ? radius : radius * 0.45;
+    const x = Math.cos(angle) * r;
+    const y = Math.sin(angle) * r;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  const mesh = new THREE.Mesh(
+    new THREE.ShapeGeometry(shape),
+    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+  );
+  mesh.name = "generated-star";
+  return mesh;
+}
+
+function makeCowboyHat() {
+  const group = new THREE.Group();
+  group.name = "accessory-cowboy-hat";
+
+  const felt = new THREE.MeshStandardMaterial({ color: 0x8a5128, roughness: 0.72 });
+  const darkFelt = new THREE.MeshStandardMaterial({ color: 0x4b2d19, roughness: 0.8 });
+
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.76, 0.08, 32), felt);
+  brim.position.set(0, 1.3, 0.34);
+  brim.scale.set(1.28, 1, 0.56);
+  brim.castShadow = true;
+  group.add(brim);
+
+  [-1, 1].forEach((side) => {
+    const curledSide = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.78), felt);
+    curledSide.position.set(side * 0.82, 1.36, 0.34);
+    curledSide.rotation.z = side * 0.38;
+    curledSide.castShadow = true;
+    group.add(curledSide);
+  });
+
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.49, 0.48, 24), felt);
+  crown.position.set(0, 1.55, 0.32);
+  crown.scale.set(1.0, 1, 0.72);
+  crown.castShadow = true;
+  group.add(crown);
+
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.41, 0.035, 8, 36), darkFelt);
+  band.position.set(0, 1.43, 0.32);
+  band.rotation.x = Math.PI / 2;
+  band.scale.set(1.0, 0.72, 1);
+  group.add(band);
+
+  const crease = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.36), darkFelt);
+  crease.position.set(0, 1.77, 0.45);
+  crease.rotation.x = -0.2;
+  crease.castShadow = true;
+  group.add(crease);
+
+  return group;
+}
+
+function makeBaseballCap() {
+  const group = new THREE.Group();
+  group.name = "accessory-baseball-cap";
+
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x1d4f8f, roughness: 0.62 });
+  const billMat = new THREE.MeshStandardMaterial({ color: 0xf2484b, roughness: 0.62 });
+  const seamMat = new THREE.MeshStandardMaterial({ color: 0xf8f7ee, roughness: 0.5 });
+
+  const crown = new THREE.Mesh(
+    new THREE.SphereGeometry(0.52, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    capMat
+  );
+  crown.position.set(0, 1.22, 0.36);
+  crown.scale.set(0.95, 0.72, 0.78);
+  crown.castShadow = true;
+  group.add(crown);
+
+  const bill = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.08, 0.52), billMat);
+  bill.position.set(0, 1.21, 0.82);
+  bill.rotation.x = -0.16;
+  bill.castShadow = true;
+  group.add(bill);
+
+  const button = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 6), seamMat);
+  button.position.set(0, 1.6, 0.36);
+  button.scale.set(1, 0.48, 1);
+  group.add(button);
+
+  const seam = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.04, 0.72), seamMat);
+  seam.position.set(0, 1.38, 0.36);
+  seam.rotation.x = 0.33;
+  group.add(seam);
+
+  return group;
+}
+
+function makeSunglasses() {
+  const group = new THREE.Group();
+  group.name = "accessory-sunglasses";
+
+  const lensMat = new THREE.MeshPhysicalMaterial({
+    color: 0x090d12,
+    roughness: 0.25,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.38 });
+
+  [-1, 1].forEach((side) => {
+    const lens = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 10), lensMat);
+    lens.position.set(side * 0.32, 1.22, 0.91);
+    lens.scale.set(1.2, 0.78, 0.16);
+    lens.rotation.y = side * 0.08;
+    group.add(lens);
+
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.035, 0.46), frameMat);
+    arm.position.set(side * 0.52, 1.22, 0.7);
+    arm.rotation.y = side * -0.2;
+    group.add(arm);
+  });
+
+  const bridge = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.24, 8), frameMat);
+  bridge.position.set(0, 1.22, 0.93);
+  bridge.rotation.z = Math.PI / 2;
+  group.add(bridge);
+
+  return group;
+}
+
+export function makeLobster(agent: AgentInfo) {
   const accent = AGENT_COLORS_HEX[agent.name] ?? 0x6ed7cf;
-  const shellColor = lobsterShell(agent.name);
+  const shellColor = lobsterShell(agent.name, agent.color);
   const shellMat = new THREE.MeshStandardMaterial({ color: shellColor, roughness: 0.58, metalness: 0.02 });
   const bellyMat = new THREE.MeshStandardMaterial({ color: 0xffb19b, roughness: 0.7 });
   const clawMat = new THREE.MeshStandardMaterial({ color: darkenNumber(shellColor, 0.78), roughness: 0.55 });
@@ -1088,6 +1664,9 @@ function makeLobster(agent: AgentInfo) {
     group.add(antenna);
   });
 
+  const accessories = makeLobsterAccessories(agent);
+  group.add(accessories);
+
   const label = makeTextSprite(agent.name, AGENT_COLORS[agent.name] ?? "#ffffff", "rgba(6, 26, 35, 0.72)");
   label.position.set(0, 2.35, 0);
   group.add(label);
@@ -1142,10 +1721,17 @@ function makeLobster(agent: AgentInfo) {
     nextRoamAt: 0,
     anchorKey: agentAnchorKey(agent),
     sandboxSettled: Boolean(sandboxRoomForAgent(agent)),
+    visualKey: agentVisualKey(agent),
   };
 }
 
-function lobsterShell(name: string) {
+function lobsterShell(name: string, colorOverride?: string | null) {
+  // User-picked color takes precedence; falls back to the name-keyed palette
+  // so the 7 starter lobsters keep their established look.
+  if (colorOverride) {
+    const parsed = parseHexColor(colorOverride);
+    if (parsed !== null) return parsed;
+  }
   const colors: Record<string, number> = {
     Clawdia: 0xff6f61,
     Shelldon: 0xf05248,
@@ -1156,6 +1742,12 @@ function lobsterShell(name: string) {
     "Captain Claw": 0xe96b5c,
   };
   return colors[name] ?? 0xff6f61;
+}
+
+function parseHexColor(hex: string): number | null {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return null;
+  return parseInt(m[1], 16);
 }
 
 function darkenNumber(color: number, factor: number) {
@@ -1185,7 +1777,7 @@ function updateActorSpeech(
   actor: AgentActor,
   message: ThreeUnderwaterMapProps["messages"][number] | null
 ) {
-  if (!message || messageAgeMs(message) > 9000) {
+  if (!message || messageAgeMs(message) > SPEECH_BUBBLE_TTL_MS) {
     actor.speech.visible = false;
     return;
   }
@@ -1275,6 +1867,7 @@ function disposeScene(runtime: Runtime) {
     }
   });
   runtime.renderer.dispose();
+  runtime.renderer.forceContextLoss();
   runtime.renderer.domElement.remove();
 }
 
@@ -1283,6 +1876,32 @@ function disposeMaterial(material: THREE.Material) {
     if (value instanceof THREE.Texture) value.dispose();
   });
   material.dispose();
+}
+
+function disposeActor(runtime: Runtime, actor: AgentActor) {
+  runtime.scene.remove(actor.group);
+
+  const ownedObjects = new Set<THREE.Object3D>();
+  actor.group.traverse((obj) => {
+    ownedObjects.add(obj);
+    if (obj instanceof THREE.Mesh) {
+      obj.geometry?.dispose();
+      const mat = obj.material;
+      if (Array.isArray(mat)) {
+        mat.forEach((m) => m?.dispose());
+      } else {
+        mat?.dispose();
+      }
+    } else if (obj instanceof THREE.Sprite) {
+      const mat = obj.material as THREE.SpriteMaterial | undefined;
+      mat?.map?.dispose();
+      mat?.dispose();
+    }
+  });
+
+  // Anything we added to the clickable list when this actor spawned must be
+  // evicted, or raycasts can hit a phantom mesh whose material was disposed.
+  runtime.clickable = runtime.clickable.filter((obj) => !ownedObjects.has(obj));
 }
 
 function setPointerFromClient(
@@ -1392,17 +2011,35 @@ export default function ThreeUnderwaterMap({
 
     const ensureActors = () => {
       const liveNames = new Set(agentsRef.current.map((a) => a.name));
+      const addActor = (agent: AgentInfo) => {
+        const actor = makeLobster(agent);
+        runtime.actors.set(agent.name, actor);
+        runtime.scene.add(actor.group);
+        actor.group.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) runtime.clickable.push(obj);
+        });
+        return actor;
+      };
 
       // Spawn actors for any new lobsters.
       agentsRef.current.forEach((agent) => {
         let actor = runtime.actors.get(agent.name);
-        if (!actor) {
-          actor = makeLobster(agent);
-          runtime.actors.set(agent.name, actor);
-          runtime.scene.add(actor.group);
-          actor.group.traverse((obj) => {
-            if (obj instanceof THREE.Mesh) runtime.clickable.push(obj);
-          });
+        if (actor && actor.visualKey !== agentVisualKey(agent)) {
+          const position = actor.group.position.clone();
+          const rotation = actor.group.rotation.clone();
+          const roamTarget = actor.roamTarget.clone();
+          const nextRoamAt = actor.nextRoamAt;
+          const sandboxSettled = actor.sandboxSettled;
+          disposeActor(runtime, actor);
+          runtime.actors.delete(agent.name);
+          actor = addActor(agent);
+          actor.group.position.copy(position);
+          actor.group.rotation.copy(rotation);
+          actor.roamTarget.copy(roamTarget);
+          actor.nextRoamAt = nextRoamAt;
+          actor.sandboxSettled = sandboxSettled;
+        } else if (!actor) {
+          addActor(agent);
         }
       });
 
@@ -1410,28 +2047,7 @@ export default function ThreeUnderwaterMap({
       // Free the Three.js resources or we leak GPU memory across deletes.
       for (const [name, actor] of runtime.actors) {
         if (liveNames.has(name)) continue;
-        runtime.scene.remove(actor.group);
-        const objs = new Set<THREE.Object3D>();
-        actor.group.traverse((obj) => {
-          objs.add(obj);
-          if (obj instanceof THREE.Mesh) {
-            obj.geometry?.dispose();
-            const mat = obj.material;
-            if (Array.isArray(mat)) {
-              mat.forEach((m) => m?.dispose());
-            } else {
-              mat?.dispose();
-            }
-          } else if (obj instanceof THREE.Sprite) {
-            const mat = obj.material as THREE.SpriteMaterial | undefined;
-            mat?.map?.dispose();
-            mat?.dispose();
-          }
-        });
-        // Anything we added to the clickable list when this actor spawned
-        // must be evicted, or raycasts can hit a phantom mesh whose
-        // material has already been disposed.
-        runtime.clickable = runtime.clickable.filter((obj) => !objs.has(obj));
+        disposeActor(runtime, actor);
         runtime.actors.delete(name);
         if (selectedRef.current === name) {
           selectedRef.current = null;

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
@@ -30,7 +31,11 @@ from office_agents.config import settings
 from office_agents.models import AgentState
 from office_agents.office.layout import get_room_position, release_room_seat
 from office_agents.office.state import OfficeState
-from office_agents.sandbox_runtime.openclaw import ensure_openclaw_agent, run_openclaw
+from office_agents.sandbox_runtime.openclaw import (
+    DEFAULT_RUNS_WORKDIR,
+    ensure_openclaw_agent,
+    run_openclaw,
+)
 from office_agents.sandbox_runtime.nemoclaw import get_policy_presets
 
 logger = logging.getLogger(__name__)
@@ -137,6 +142,18 @@ class SandboxManager:
 
         self._run_tasks.clear()
         self._run_meta.clear()
+
+    def clear_sandbox_run_status(self, sandbox_name: str) -> None:
+        """Drop finished/cancelled visible run history for one sandbox."""
+
+        for run_id, meta in list(self._run_meta.items()):
+            if meta.get("sandbox_name") != sandbox_name:
+                continue
+            task = self._run_tasks.get(run_id)
+            if task and not task.done():
+                continue
+            self._run_meta.pop(run_id, None)
+            self._run_tasks.pop(run_id, None)
 
     async def cancel_all_runs(self, reason: str = "reset") -> None:
         """Cancel every active run. Waits for tasks to actually finish."""
@@ -457,127 +474,181 @@ class SandboxManager:
         agents: list[Agent],
     ) -> None:
         try:
-            logger.info(
-                "Sandbox team task started: run_id=%s sandbox=%s agents=%s task=%s",
-                run_id,
-                sandbox_name,
-                ",".join(agent.name for agent in agents),
-                task[:120],
-            )
-            meta_at_start = self._run_meta.get(run_id, {})
-            await self._broadcast({
-                "type": "sandbox_task_started",
-                "run_id": run_id,
-                "sandbox_name": sandbox_name,
-                "agents": [agent.name for agent in agents],
-                "task": task,
-                "mode": meta_at_start.get("mode", "single"),
-                "policies": meta_at_start.get("policies", []),
-                "timestamp": datetime.now().isoformat(),
-            })
-            mode_label = "in a coordinated relay" if len(agents) > 1 else "solo in this sandbox"
-            await self._broadcast_progress(
-                run_id=run_id,
-                sandbox_name=sandbox_name,
-                message=(
-                    f"Moved {len(agents)} claw{'s' if len(agents) != 1 else ''} into "
-                    f"{short_sandbox_name(sandbox_name)} — running {mode_label}."
-                ),
-                phase="positioning",
-            )
-
-            for agent in agents:
-                self._move_agent_into_sandbox(agent, sandbox_name, task)
-                await self._broadcast({
-                    "type": "agent_action",
-                    "agent": agent.name,
-                    "role": agent.role,
-                    "action": "code",
-                    "content": task,
-                    "target": sandbox_name,
-                    "reasoning": f"Running OpenClaw profile {agent.claw_id} inside NemoClaw sandbox {sandbox_name}",
-                    "state": "coding",
-                    "location": agent.location,
-                    "position": {"x": agent.position[0], "y": agent.position[1]},
-                    "claw_id": agent.claw_id,
-                    "sandbox_name": sandbox_name,
-                    "connect_command": agent.connect_command,
-                    "timestamp": datetime.now().isoformat(),
-                })
-
-            # Coordinated relay: each agent sees the outputs of teammates who
-            # came before so they can build on the work instead of duplicating it.
-            results: list[tuple[Agent, dict[str, Any]]] = []
-            prior_turns: list[dict[str, str]] = []
-            for agent in agents:
-                try:
-                    agent_obj, result = await self._run_one_agent(
-                        run_id,
-                        sandbox_name,
-                        task,
-                        agent,
-                        prior_turns=list(prior_turns) if prior_turns else None,
-                    )
-                    results.append((agent_obj, result))
-                    if result.get("success"):
-                        output_text = str(result.get("output") or "").strip()
-                        if output_text:
-                            prior_turns.append({
-                                "name": agent.name,
-                                "role": agent.role,
-                                "output": output_text,
-                            })
-                except Exception as exc:
-                    logger.exception("Sandbox team task failed for %s", agent.name)
-                    results.append((agent, {"success": False, "output": f"{type(exc).__name__}: {exc}"}))
-
+            await self._broadcast_team_task_started(run_id, sandbox_name, task, agents)
+            await self._position_team_in_sandbox(run_id, sandbox_name, task, agents)
+            results = await self._run_relay(run_id, sandbox_name, task, agents)
             for agent, result in results:
                 await self._record_agent_result(run_id, sandbox_name, agent, result)
-
-            self._reset_agents(agents)
-            meta = self._run_meta.get(run_id)
-            if meta:
-                meta["status"] = "finished"
-                meta["finished_at"] = datetime.now().isoformat()
-            await self._broadcast({
-                "type": "sandbox_task_finished",
-                "run_id": run_id,
-                "sandbox_name": sandbox_name,
-                "agents": [agent.name for agent in agents],
-                "timestamp": datetime.now().isoformat(),
-            })
-            await self._broadcast_full_state()
+            await self._finish_run(run_id, sandbox_name, agents)
         except asyncio.CancelledError:
-            logger.info("Sandbox team task cancelled: run_id=%s sandbox=%s", run_id, sandbox_name)
-            meta = self._run_meta.get(run_id)
-            if meta:
-                meta["status"] = "cancelled"
-                meta["cancelled_at"] = datetime.now().isoformat()
-            self._reset_agents(agents)
-            await self._broadcast({
-                "type": "sandbox_task_cancelled",
-                "run_id": run_id,
-                "sandbox_name": sandbox_name,
-                "agents": [agent.name for agent in agents],
-                "timestamp": datetime.now().isoformat(),
-            })
-            await self._broadcast({
-                "type": "agent_action",
-                "agent": "Captain Claw",
-                "role": "lead",
-                "action": "announce",
-                "content": f"Stopped the active run in {sandbox_name}.",
-                "target": "all",
-                "reasoning": "Sandbox team task cancelled",
-                "state": "idle",
-                "location": "war_room",
-                "position": {"x": 168, "y": 432},
-                "sandbox_name": sandbox_name,
-                "timestamp": datetime.now().isoformat(),
-            })
-            await self._broadcast_full_state()
+            await self._handle_cancellation(run_id, sandbox_name, agents)
         finally:
             self._run_tasks.pop(run_id, None)
+
+    async def _broadcast_team_task_started(
+        self,
+        run_id: str,
+        sandbox_name: str,
+        task: str,
+        agents: list[Agent],
+    ) -> None:
+        logger.info(
+            "Sandbox team task started: run_id=%s sandbox=%s agents=%s task=%s",
+            run_id,
+            sandbox_name,
+            ",".join(agent.name for agent in agents),
+            task[:120],
+        )
+        meta_at_start = self._run_meta.get(run_id, {})
+        await self._broadcast({
+            "type": "sandbox_task_started",
+            "run_id": run_id,
+            "sandbox_name": sandbox_name,
+            "agents": [agent.name for agent in agents],
+            "task": task,
+            "mode": meta_at_start.get("mode", "single"),
+            "policies": meta_at_start.get("policies", []),
+            "timestamp": datetime.now().isoformat(),
+        })
+        mode_label = "in a coordinated relay" if len(agents) > 1 else "solo in this sandbox"
+        await self._broadcast_progress(
+            run_id=run_id,
+            sandbox_name=sandbox_name,
+            message=(
+                f"Moved {len(agents)} claw{'s' if len(agents) != 1 else ''} into "
+                f"{short_sandbox_name(sandbox_name)} — running {mode_label}."
+            ),
+            phase="positioning",
+        )
+
+    async def _position_team_in_sandbox(
+        self,
+        run_id: str,
+        sandbox_name: str,
+        task: str,
+        agents: list[Agent],
+    ) -> None:
+        del run_id  # reserved for future per-position progress events
+        for agent in agents:
+            self._move_agent_into_sandbox(agent, sandbox_name, task)
+            await self._broadcast({
+                "type": "agent_action",
+                "agent": agent.name,
+                "role": agent.role,
+                "action": "code",
+                "content": task,
+                "target": sandbox_name,
+                "reasoning": f"Running OpenClaw profile {agent.claw_id} inside NemoClaw sandbox {sandbox_name}",
+                "state": "coding",
+                "location": agent.location,
+                "position": {"x": agent.position[0], "y": agent.position[1]},
+                "claw_id": agent.claw_id,
+                "sandbox_name": sandbox_name,
+                "connect_command": agent.connect_command,
+                "timestamp": datetime.now().isoformat(),
+            })
+
+    async def _run_relay(
+        self,
+        run_id: str,
+        sandbox_name: str,
+        task: str,
+        agents: list[Agent],
+    ) -> list[tuple[Agent, dict[str, Any]]]:
+        """Coordinated relay: each lobster sees prior teammates' outputs so the
+        team builds on its own work instead of duplicating it. Errors are
+        contained per-lobster — one failure cannot stop the rest of the team."""
+        results: list[tuple[Agent, dict[str, Any]]] = []
+        prior_turns: list[dict[str, str]] = []
+        for agent in agents:
+            try:
+                agent_obj, result = await self._run_one_agent(
+                    run_id,
+                    sandbox_name,
+                    task,
+                    agent,
+                    prior_turns=list(prior_turns) if prior_turns else None,
+                )
+                results.append((agent_obj, result))
+                if result.get("success"):
+                    output_text = str(result.get("output") or "").strip()
+                    if output_text:
+                        prior_turns.append({
+                            "name": agent.name,
+                            "role": agent.role,
+                            "output": output_text,
+                        })
+            except Exception as exc:
+                logger.exception("Sandbox team task failed for %s", agent.name)
+                results.append(
+                    (
+                        agent,
+                        {
+                            "success": False,
+                            "output": f"{type(exc).__name__}: {exc}",
+                            # Full traceback so the Task Monitor can render the real
+                            # cause instead of just a one-line summary. Kept under
+                            # "traceback" so frontend can show it in a collapsible.
+                            "traceback": traceback.format_exc(),
+                        },
+                    )
+                )
+        return results
+
+    async def _finish_run(
+        self,
+        run_id: str,
+        sandbox_name: str,
+        agents: list[Agent],
+    ) -> None:
+        self._reset_agents(agents)
+        meta = self._run_meta.get(run_id)
+        if meta:
+            meta["status"] = "finished"
+            meta["finished_at"] = datetime.now().isoformat()
+        await self._broadcast({
+            "type": "sandbox_task_finished",
+            "run_id": run_id,
+            "sandbox_name": sandbox_name,
+            "agents": [agent.name for agent in agents],
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self._broadcast_full_state()
+
+    async def _handle_cancellation(
+        self,
+        run_id: str,
+        sandbox_name: str,
+        agents: list[Agent],
+    ) -> None:
+        logger.info("Sandbox team task cancelled: run_id=%s sandbox=%s", run_id, sandbox_name)
+        meta = self._run_meta.get(run_id)
+        if meta:
+            meta["status"] = "cancelled"
+            meta["cancelled_at"] = datetime.now().isoformat()
+        self._reset_agents(agents)
+        await self._broadcast({
+            "type": "sandbox_task_cancelled",
+            "run_id": run_id,
+            "sandbox_name": sandbox_name,
+            "agents": [agent.name for agent in agents],
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self._broadcast({
+            "type": "agent_action",
+            "agent": "Captain Claw",
+            "role": "lead",
+            "action": "announce",
+            "content": f"Stopped the active run in {sandbox_name}.",
+            "target": "all",
+            "reasoning": "Sandbox team task cancelled",
+            "state": "idle",
+            "location": "war_room",
+            "position": {"x": 168, "y": 432},
+            "sandbox_name": sandbox_name,
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self._broadcast_full_state()
 
     def _move_agent_into_sandbox(self, agent: Agent, sandbox_name: str, task: str) -> None:
         target_room = get_home_room_for_sandbox(sandbox_name)
@@ -619,6 +690,7 @@ class SandboxManager:
             display_name=agent.name,
             model=f"inference/{settings.llm_model}",
             skills=list(agent.openclaw_skills),
+            working_dir=f"{DEFAULT_RUNS_WORKDIR}/{run_id}/{agent.claw_id}",
         )
         if not ensure_result.get("success"):
             logger.warning(
@@ -657,6 +729,7 @@ class SandboxManager:
             task,
             claw_id=agent.claw_id,
             sandbox_name=sandbox_name,
+            working_dir=f"{DEFAULT_RUNS_WORKDIR}/{run_id}/{agent.claw_id}",
             timeout_seconds=90,
             require_sandbox=True,
             display_name=agent.name,
@@ -664,6 +737,7 @@ class SandboxManager:
             personality=getattr(agent, "personality", None),
             tools=list(agent.tools),
             prior_turns=prior_turns or None,
+            session_id=f"{run_id}-{agent.claw_id}",
             on_chunk=emit_console,
         )
         return agent, result
@@ -691,9 +765,19 @@ class SandboxManager:
             raw_output=raw_output,
         )
 
+        # When the run blew up with a Python exception in _run_relay we get
+        # both a short ``output`` and a full ``traceback``; splicing the
+        # traceback in here gives the Task Monitor a real cause instead of
+        # the one-line "TypeError: foo" stub.
+        traceback_text = str(result.get("traceback") or "").strip()
+        if traceback_text and traceback_text not in raw_output:
+            raw_output = f"{raw_output}\n\nTraceback:\n{traceback_text}" if raw_output else f"Traceback:\n{traceback_text}"
+
         output = raw_output or "No visible response returned."
-        if len(output) > 700:
-            output = output[:697].rstrip() + "..."
+        # Larger cap when a traceback is present so the cause is actually visible.
+        cap = 2000 if traceback_text else 700
+        if len(output) > cap:
+            output = output[: cap - 3].rstrip() + "..."
 
         status = "finished" if result.get("success") else "hit a sandbox error"
         meta = self._run_meta.get(run_id)

@@ -99,6 +99,77 @@ bash start.sh
 
 ---
 
+## Dev Workflow (Mac laptop ↔ Spark backend)
+
+Day-to-day setup: code lives on the laptop at `~/dev/lobster-agents/`, frontend runs locally via Vite at `http://localhost:4454`, backend + Ollama run on the Spark at `10.110.23.141:8001`. The Vite dev server proxies `/state`, `/lobsters`, `/sandboxes`, WebSocket, etc. to the Spark.
+
+### Frontend (local)
+
+Hot-reloads on save. Hard-reload (`Cmd+Shift+R`) only when changing hooks or chunks Vite keeps stale.
+
+```bash
+cd frontend
+npx vite --host 0.0.0.0 --port 4454
+```
+
+Browser → `http://localhost:4454`.
+
+### Backend (Spark, 10.110.23.141)
+
+The backend runs at `/home/nvidia/lobster-agents/backend/` on the Spark and listens on `:8001`. After editing backend code locally, deploy + restart:
+
+```bash
+# 1. Push source to the Spark
+rsync -av --delete backend/src/ nvidia@10.110.23.141:/home/nvidia/lobster-agents/backend/src/
+
+# 2. Restart uvicorn (MUST use `bash -lc` so PATH picks up openshell/nemoclaw)
+ssh nvidia@10.110.23.141 '
+  pkill -f "uvicorn.*office_agents" 2>/dev/null;
+  sleep 2;
+  bash -lc "cd /home/nvidia/lobster-agents/backend && \
+            nohup ./.venv/bin/python -m uvicorn --app-dir src office_agents.main:app \
+              --host 0.0.0.0 --port 8001 > /tmp/office-backend.log 2>&1 & disown"
+'
+
+# 3. Confirm everything's green
+curl -s http://10.110.23.141:8001/health | jq
+# expect: llm reachable, openshell+nemoclaw paths populated, sandboxes.available=true
+```
+
+**Important: the `bash -lc` (login shell) is not optional.** A plain `ssh nvidia@spark 'uvicorn ...'` uses a minimal non-interactive PATH; `openshell` and `nemoclaw` live in `~/.local/bin` which only gets added via `.bashrc`. Without login mode the backend boots but the health endpoint reports "Reef is partially down — CLIs not on PATH".
+
+### Backend logs
+
+```bash
+ssh nvidia@10.110.23.141 'tail -f /tmp/office-backend.log'
+```
+
+### Sanity checks
+
+```bash
+# health (all components)
+curl -s http://10.110.23.141:8001/health | jq
+
+# is uvicorn actually running?
+ssh nvidia@10.110.23.141 'ps aux | grep uvicorn | grep -v grep'
+
+# Ollama up?
+curl -s http://10.110.23.141:11434/api/tags | jq '.models[].name'
+```
+
+### Quick reef-chat tuning knobs
+
+If lobsters get too chatty or too quiet — `backend/src/office_agents/reef/idle_chat.py`:
+- `_ADDRESS_PEER_PROB` — fraction of turns that target a specific lobster (default 0.18; lower = more room-mode).
+- `_RECENT_SPEAKERS_BLOCK` — recent speakers excluded from selection (default 2).
+- `_THREAD_LENGTH` — avg turns per topic before stochastic rotation (default 6).
+- `settings.reef_chat_timeout` (`config.py`) — per-call LLM timeout in seconds, default 180.
+- `settings.reef_fallback_on_outage` — when true, emits templated narration on LLM outage instead of going silent.
+
+Convergence thresholds for query mode — `backend/src/office_agents/agents/orchestrator.py` constants: `NARROW_ROSTER_TICK`, `WRITER_DIRECT_TICK`, `WRITER_NUDGE_TICK`, `QUERY_TIMEOUT_TICK`.
+
+---
+
 ## Configuration
 
 Copy `.env.example` to `.env` (Docker) or edit `backend/.env` (bare metal):

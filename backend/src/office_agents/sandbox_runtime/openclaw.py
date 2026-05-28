@@ -16,12 +16,21 @@ import asyncio
 import json
 import logging
 import shutil
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
+from uuid import uuid4
+
+from ._subprocess import terminate_process as _terminate
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 120
-DEFAULT_SANDBOX_WORKDIR = "/sandbox/workspaces"
+# Sourced from Settings so non-Spark hosts can override via
+# OFFICE_AGENTS_SANDBOX_WORKSPACES_DIR / OFFICE_AGENTS_SANDBOX_RUNS_DIR. Kept
+# as module-level constants because manager.py imports them by name.
+DEFAULT_SANDBOX_WORKDIR = settings.sandbox_workspaces_dir
+DEFAULT_RUNS_WORKDIR = settings.sandbox_runs_dir
 
 
 def _which_openshell() -> str | None:
@@ -48,6 +57,9 @@ async def run_openclaw(
     # Coordinated mode — prior teammates' outputs so this lobster can build
     # on what came before, not just produce a parallel isolated turn.
     prior_turns: list[dict[str, str]] | None = None,
+    # OpenClaw agents are conversational by default. Use a fresh explicit
+    # session per sandbox turn so an old task cannot bleed into a new one.
+    session_id: str | None = None,
     # Optional callback fired for each stderr line as it arrives. The
     # SandboxManager wires this to a `sandbox_console` WS broadcast so the
     # UI gets a live trace of what OpenClaw is doing during the turn.
@@ -60,7 +72,7 @@ async def run_openclaw(
          nemoclaw_available, execution_mode, error?}
     Never raises — failures land in the result dict so the UI can show them.
     """
-    del require_sandbox, working_dir  # accepted but no longer meaningful
+    del require_sandbox  # accepted but no longer meaningful
 
     openshell = _which_openshell()
     if not openshell:
@@ -71,7 +83,8 @@ async def run_openclaw(
         logger.error(msg)
         return _failure(claw_id, sandbox_name, msg, mode="cli_missing")
 
-    sandbox_workdir = f"{DEFAULT_SANDBOX_WORKDIR}/{claw_id}"
+    sandbox_workdir = working_dir or f"{DEFAULT_SANDBOX_WORKDIR}/{claw_id}"
+    openclaw_session_id = session_id or f"lobster-{uuid4().hex}"
     message = _single_line(
         _format_openclaw_message(
             task,
@@ -98,13 +111,14 @@ async def run_openclaw(
             "sh", "-lc",
             (
                 'mkdir -p "$1" && cd "$1" && exec openclaw agent '
-                '--agent "$2" --json --timeout "$3" --message "$4"'
+                '--agent "$2" --session-id "$5" --json --timeout "$3" --message "$4"'
             ),
             "openclaw-runner",
             sandbox_workdir,
             claw_id,
             str(timeout_seconds),
             message,
+            openclaw_session_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -121,21 +135,39 @@ async def run_openclaw(
         stdout_bytes = stdout_buf
         stderr_bytes = stderr_buf
     except asyncio.TimeoutError:
-        logger.error("OpenClaw run timed out after %ss in sandbox=%s", timeout_seconds, sandbox_name)
+        logger.error(
+            "OpenClaw run timed out after %ss in sandbox=%s",
+            timeout_seconds,
+            sandbox_name,
+        )
         await _terminate(proc, "OpenClaw run timed out")
         return _failure(
             claw_id, sandbox_name,
             f"OpenClaw timed out after {timeout_seconds}s.",
             mode="timeout",
+            session_id=openclaw_session_id,
         )
     except asyncio.CancelledError:
         await _terminate(proc, "OpenClaw run cancelled")
         raise
     except FileNotFoundError:
-        return _failure(claw_id, sandbox_name, "openshell binary disappeared between PATH lookup and exec.", mode="cli_missing")
+        return _failure(
+            claw_id,
+            sandbox_name,
+            "openshell binary disappeared between PATH lookup and exec.",
+            mode="cli_missing",
+        )
     except Exception as exc:
-        logger.exception("Unexpected error running OpenClaw inside sandbox %s", sandbox_name)
-        return _failure(claw_id, sandbox_name, f"{type(exc).__name__}: {exc}", mode="unexpected")
+        logger.exception(
+            "Unexpected error running OpenClaw inside sandbox %s",
+            sandbox_name,
+        )
+        return _failure(
+            claw_id,
+            sandbox_name,
+            f"{type(exc).__name__}: {exc}",
+            mode="unexpected",
+        )
 
     stdout = stdout_bytes.decode("utf-8", errors="replace")
     stderr = stderr_bytes.decode("utf-8", errors="replace")
@@ -149,15 +181,31 @@ async def run_openclaw(
             claw_id, sandbox_name,
             stderr or stdout or f"openshell exited with code {proc.returncode}",
             mode="exec_failed",
+            session_id=openclaw_session_id,
         )
 
-    output_text = _extract_openclaw_output(stdout)
+    parsed_result = _parse_openclaw_result(stdout)
+    if parsed_result.failed:
+        logger.warning(
+            "OpenClaw reported failure in sandbox=%s agent=%s session=%s: %s",
+            sandbox_name, claw_id, openclaw_session_id, parsed_result.output[:500],
+        )
+        return _failure(
+            claw_id, sandbox_name,
+            parsed_result.output
+            or stderr
+            or "OpenClaw failed before returning visible output.",
+            mode=parsed_result.mode,
+            session_id=openclaw_session_id,
+        )
+
     return {
         "success": True,
-        "output": output_text,
+        "output": parsed_result.output,
         "files_created": [],
         "claw_id": claw_id,
         "sandbox_name": sandbox_name,
+        "session_id": openclaw_session_id,
         "nemoclaw_available": True,
         "execution_mode": "openshell_sandbox",
     }
@@ -170,6 +218,7 @@ async def ensure_openclaw_agent(
     display_name: str,
     model: str,
     skills: list[str] | None = None,
+    working_dir: str | None = None,
     timeout_seconds: int = 120,
 ) -> dict[str, Any]:
     """Make sure an OpenClaw agent profile exists inside the sandbox.
@@ -216,17 +265,20 @@ async def ensure_openclaw_agent(
         'lst=a.setdefault("list",[]);'
         'aid=sys.argv[1];'
         'skills=[s for s in sys.argv[2].split() if s];'
+        'workspace=sys.argv[3];'
         'entry=next((x for x in lst if x.get("id")==aid),None);'
         'entry is None and lst.append({"id":aid}) or None;'
         'entry=entry or lst[-1];'
+        'entry["workspace"]=workspace;'
         'entry.update({"skills":skills}) if skills else entry.pop("skills",None);'
         'open(p,"w").write(json.dumps(c,indent=2));'
-        'print("FILTER OK",aid,skills)'
+        'print("FILTER OK",aid,workspace,skills)'
     )
+    workspace_arg = working_dir or f"{DEFAULT_SANDBOX_WORKDIR}/{claw_id}"
     script = (
         'set -u; '
         'agent_id="$1"; display_name="$2"; model="$3"; skills="$4"; '
-        'workspace="/sandbox/workspaces/$agent_id"; '
+        'workspace="$5"; '
         'mkdir -p "$workspace"; '
         'openclaw agents add "$agent_id" --workspace "$workspace" --model "$model" '
         '--non-interactive --json >/tmp/openclaw-agent-add.log 2>&1 || true; '
@@ -236,7 +288,7 @@ async def ensure_openclaw_agent(
         '  openclaw skills install "$slug" --force '
         '    >>/tmp/openclaw-skills-install.log 2>&1 || true; '
         'done; '
-        f'python3 -c \'{patch_py}\' "$agent_id" "$skills" '
+        f'python3 -c \'{patch_py}\' "$agent_id" "$skills" "$workspace" '
         '  >/tmp/openclaw-skill-filter.log 2>&1 || true; '
         'openclaw agents list --json; '
         'echo "==SKILLS=="; '
@@ -256,7 +308,7 @@ async def ensure_openclaw_agent(
             "--",
             "sh", "-lc", script,
             "openclaw-agent-ensure",
-            claw_id, display_name, model, skills_arg,
+            claw_id, display_name, model, skills_arg, workspace_arg,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -295,6 +347,7 @@ async def ensure_openclaw_agent(
         "output": stdout or stderr,
         "claw_id": claw_id,
         "sandbox_name": sandbox_name,
+        "working_dir": workspace_arg,
         "skills_requested": list(safe_skills),
         "skills_status_raw": skills_part.strip()[:4000],
     }
@@ -310,6 +363,7 @@ def _failure(
     message: str,
     *,
     mode: str,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "success": False,
@@ -317,6 +371,7 @@ def _failure(
         "files_created": [],
         "claw_id": claw_id,
         "sandbox_name": sandbox_name,
+        **({"session_id": session_id} if session_id else {}),
         "nemoclaw_available": False,
         "execution_mode": mode,
         "error": message,
@@ -366,19 +421,6 @@ async def _stream_subprocess(
     return bytes(stdout_buf), bytes(stderr_buf)
 
 
-async def _terminate(proc: asyncio.subprocess.Process | None, reason: str) -> None:
-    if not proc or proc.returncode is not None:
-        return
-    logger.info("%s; terminating pid=%s", reason, proc.pid)
-    proc.terminate()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=5)
-    except asyncio.TimeoutError:
-        logger.warning("%s; killing pid=%s", reason, proc.pid)
-        proc.kill()
-        await proc.wait()
-
-
 def _format_openclaw_message(
     task: str,
     claw_id: str,
@@ -422,6 +464,10 @@ def _format_openclaw_message(
             f"You are working from NemoClaw sandbox '{sandbox_name}'. "
             f"Use working directory '{working_dir}'."
         )
+    parts.append(
+        "This is a fresh sandbox task turn. Treat the Task below as authoritative; "
+        "do not answer an older task from session history or unrelated leftover files."
+    )
 
     if prior_turns:
         parts.append("")
@@ -451,11 +497,24 @@ def _single_line(message: str) -> str:
     return " ".join(message.replace("\r", "\n").splitlines())
 
 
-def _extract_openclaw_output(stdout: str) -> Any:
-    """Pull the human-readable text out of OpenClaw's structured JSON."""
+@dataclass(frozen=True)
+class _OpenClawResult:
+    output: Any
+    failed: bool = False
+    mode: str = "openclaw_failed"
+
+
+def _parse_openclaw_result(stdout: str) -> _OpenClawResult:
+    """Pull human-readable text out of OpenClaw JSON without hiding failures."""
     parsed = _load_first_json_object(stdout)
     if not isinstance(parsed, dict):
-        return stdout
+        if _looks_like_openclaw_failure(stdout):
+            return _OpenClawResult(stdout, failed=True)
+        return _OpenClawResult(stdout)
+
+    failure_text = _extract_openclaw_failure(parsed)
+    if failure_text:
+        return _OpenClawResult(failure_text, failed=True)
 
     result = parsed.get("result")
     if isinstance(result, dict):
@@ -467,19 +526,68 @@ def _extract_openclaw_output(stdout: str) -> Any:
                 if isinstance(item, dict) and isinstance(item.get("text"), str)
             ]
             if texts:
-                return "\n".join(texts)
+                return _OpenClawResult("\n".join(texts))
         meta = result.get("meta")
         if isinstance(meta, dict):
             visible = meta.get("finalAssistantVisibleText")
             if isinstance(visible, str) and visible:
-                return visible
-        return result
+                return _OpenClawResult(visible)
+        return _OpenClawResult(result)
 
     for key in ("reply", "message", "output", "summary"):
         value = parsed.get(key)
         if isinstance(value, str) and value:
-            return value
-    return stdout
+            return _OpenClawResult(value)
+    return _OpenClawResult(stdout)
+
+
+def _extract_openclaw_failure(parsed: dict[str, Any]) -> str | None:
+    """Return an OpenClaw error string when structured JSON says the run failed."""
+    candidates: list[dict[str, Any]] = [parsed]
+    result = parsed.get("result")
+    if isinstance(result, dict):
+        candidates.append(result)
+        meta = result.get("meta")
+        if isinstance(meta, dict):
+            candidates.append(meta)
+
+    for item in candidates:
+        status = item.get("status") or item.get("finalStatus")
+        if (
+            isinstance(status, str)
+            and status.lower() in {"error", "failed", "aborted", "timeout", "timed_out"}
+        ):
+            return _failure_message_from(item)
+        stop_reason = item.get("stopReason")
+        if isinstance(stop_reason, str) and stop_reason.lower() == "aborted":
+            return _failure_message_from(item)
+        if any(
+            item.get(flag) is True
+            for flag in ("failed", "aborted", "timedOut", "timed_out")
+        ):
+            return _failure_message_from(item)
+        for key in ("error", "errorMessage", "promptError"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _failure_message_from(item: dict[str, Any]) -> str:
+    for key in ("error", "errorMessage", "promptError", "message"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "OpenClaw run did not complete."
+
+
+def _looks_like_openclaw_failure(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "request timed out" in lowered
+        or "request was aborted" in lowered
+        or "prompt-error" in lowered
+    )
 
 
 def _load_first_json_object(text: str) -> Any:

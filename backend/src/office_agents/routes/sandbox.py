@@ -10,6 +10,7 @@ from office_agents.claw_config import SANDBOX_WORKSPACES
 from office_agents.infra.app_state import app_state
 from office_agents.models import SandboxPolicyRequest, SandboxTaskRequest, SandboxTeamRequest
 from office_agents.sandbox_runtime.nemoclaw import (
+    clear_sandbox_state,
     get_nemoclaw_status,
     get_openclaw_approvals,
     get_policy_presets,
@@ -189,6 +190,33 @@ async def cancel_sandbox_task(sandbox_name: str, run_id: str) -> dict[str, objec
         sandbox_name=sandbox_name,
         run_id=run_id,
     )
+
+
+@router.post("/sandboxes/{sandbox_name}/clear")
+async def clear_sandbox(sandbox_name: str) -> dict[str, object]:
+    orch = app_state.require_orchestrator()
+    run_status = orch.get_sandbox_run_statuses().get(sandbox_name)
+    if run_status and run_status.get("running"):
+        raise HTTPException(
+            status_code=409,
+            detail="Stop the active run before clearing this sandbox.",
+        )
+
+    result = await clear_sandbox_state(sandbox_name)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "Sandbox clear failed")
+
+    orch.clear_sandbox_run_status(sandbox_name)
+    broadcaster = app_state.broadcaster
+    if broadcaster:
+        from datetime import datetime
+        await broadcaster.broadcast({
+            "type": "sandbox_cleared",
+            "sandbox_name": sandbox_name,
+            "archive": result.get("archive"),
+            "timestamp": datetime.now().isoformat(),
+        })
+    return result
 
 
 @router.get("/sandboxes/{sandbox_name}/policies")

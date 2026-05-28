@@ -64,9 +64,10 @@ async def get_layout() -> dict[str, object]:
 @router.get("/history")
 async def get_history() -> dict[str, object]:
     office = app_state.office_state
-    if not office or not office._store:
+    store = office.get_store() if office else None
+    if not store:
         return {"deliverables": []}
-    return {"deliverables": await office._store.get_deliverables(limit=20)}
+    return {"deliverables": await store.get_deliverables(limit=20)}
 
 
 @router.get("/agents")

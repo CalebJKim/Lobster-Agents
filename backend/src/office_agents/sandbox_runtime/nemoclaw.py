@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -10,21 +9,25 @@ import re
 import shutil
 from typing import Any
 
+from ._subprocess import run_capture
+from ..config import settings
+
 logger = logging.getLogger(__name__)
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def _which(command: str) -> str | None:
+    """Locate *command* on PATH, falling back to a configurable list of bin
+    directories. Defaults come from ``settings.extra_bin_paths`` (Spark host's
+    NVIDIA layout); override via ``OFFICE_AGENTS_EXTRA_BIN_PATHS``.
+    """
     found = shutil.which(command)
     if found:
         return found
 
-    for directory in (
-        os.path.expanduser("~/.local/bin"),
-        "/home/nvidia/.local/bin",
-        "/usr/local/bin",
-    ):
+    extra = [os.path.expanduser("~/.local/bin"), *settings.extra_bin_paths]
+    for directory in extra:
         candidate = os.path.join(directory, command)
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
@@ -47,21 +50,11 @@ async def get_nemoclaw_status(timeout_seconds: int = 12) -> dict[str, Any]:
             "error": "NemoClaw CLI was not found on PATH.",
         }
 
-    proc = await asyncio.create_subprocess_exec(
-        nemoclaw_cmd,
-        "status",
-        "--json",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    run = await run_capture(
+        nemoclaw_cmd, "status", "--json", timeout_seconds=timeout_seconds
     )
 
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_seconds
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
+    if run.timed_out:
         return {
             "available": True,
             "nemoclaw_path": nemoclaw_cmd,
@@ -72,11 +65,8 @@ async def get_nemoclaw_status(timeout_seconds: int = 12) -> dict[str, Any]:
             "error": f"nemoclaw status timed out after {timeout_seconds}s.",
         }
 
-    stdout = stdout_bytes.decode("utf-8", errors="replace")
-    stderr = stderr_bytes.decode("utf-8", errors="replace")
-
-    if proc.returncode != 0:
-        logger.warning("nemoclaw status failed: %s", stderr[:500])
+    if run.returncode != 0:
+        logger.warning("nemoclaw status failed: %s", run.stderr[:500])
         return {
             "available": True,
             "nemoclaw_path": nemoclaw_cmd,
@@ -84,13 +74,13 @@ async def get_nemoclaw_status(timeout_seconds: int = 12) -> dict[str, Any]:
             "gatewayHealth": {"healthy": False, "state": "status_failed"},
             "liveInference": None,
             "sandboxes": [],
-            "error": stderr or stdout,
+            "error": run.stderr or run.stdout,
         }
 
     try:
-        data = json.loads(stdout)
+        data = json.loads(run.stdout)
     except json.JSONDecodeError:
-        logger.warning("Could not parse nemoclaw status output: %s", stdout[:500])
+        logger.warning("Could not parse nemoclaw status output: %s", run.stdout[:500])
         return {
             "available": True,
             "nemoclaw_path": nemoclaw_cmd,
@@ -98,7 +88,7 @@ async def get_nemoclaw_status(timeout_seconds: int = 12) -> dict[str, Any]:
             "gatewayHealth": {"healthy": False, "state": "invalid_status_json"},
             "liveInference": None,
             "sandboxes": [],
-            "error": stdout[:1000],
+            "error": run.stdout[:1000],
         }
 
     data["available"] = True
@@ -116,25 +106,13 @@ async def get_policy_presets(sandbox_name: str, timeout_seconds: int = 12) -> di
     if not nemoclaw_cmd:
         return {"error": "NemoClaw CLI was not found on PATH.", "policies": []}
 
-    proc = await asyncio.create_subprocess_exec(
-        nemoclaw_cmd,
-        sandbox_name,
-        "policy-list",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    run = await run_capture(
+        nemoclaw_cmd, sandbox_name, "policy-list", timeout_seconds=timeout_seconds
     )
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_seconds
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
+    if run.timed_out:
         return {"error": f"policy-list timed out after {timeout_seconds}s", "policies": []}
 
-    stdout = stdout_bytes.decode("utf-8", errors="replace")
-    stderr = stderr_bytes.decode("utf-8", errors="replace")
-    output = stdout or stderr
+    output = run.stdout or run.stderr
     policies = []
 
     for line in output.splitlines():
@@ -159,7 +137,7 @@ async def get_policy_presets(sandbox_name: str, timeout_seconds: int = 12) -> di
         "sandbox_name": sandbox_name,
         "policies": policies,
         "raw": output,
-        "error": None if proc.returncode == 0 else output,
+        "error": None if run.returncode == 0 else output,
     }
 
 
@@ -181,25 +159,15 @@ async def set_policy_preset(
     if not nemoclaw_cmd:
         return {"ok": False, "error": "NemoClaw CLI was not found on PATH."}
 
-    cmd = [
+    run = await run_capture(
         nemoclaw_cmd,
         sandbox_name,
         "policy-add" if enabled else "policy-remove",
         preset,
         "--dry-run" if dry_run else "--yes",
-    ]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        timeout_seconds=timeout_seconds,
     )
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_seconds
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
+    if run.timed_out:
         return {
             "ok": False,
             "sandbox_name": sandbox_name,
@@ -209,17 +177,113 @@ async def set_policy_preset(
             "error": f"policy update timed out after {timeout_seconds}s",
         }
 
-    stdout = stdout_bytes.decode("utf-8", errors="replace")
-    stderr = stderr_bytes.decode("utf-8", errors="replace")
     return {
-        "ok": proc.returncode == 0,
+        "ok": run.returncode == 0,
         "sandbox_name": sandbox_name,
         "preset": preset,
         "enabled": enabled,
         "dry_run": dry_run,
-        "output": (stdout or stderr).strip(),
-        "error": None if proc.returncode == 0 else (stderr or stdout),
+        "output": (run.stdout or run.stderr).strip(),
+        "error": None if run.returncode == 0 else (run.stderr or run.stdout),
     }
+
+
+async def clear_sandbox_state(
+    sandbox_name: str,
+    timeout_seconds: int = 45,
+) -> dict[str, Any]:
+    """Archive and wipe task workspaces inside one live NemoClaw sandbox.
+
+    Conversation/session logs remain under /sandbox/.openclaw so they can be
+    inspected later. The clear action targets only filesystem context that can
+    distract future tasks: the sandbox workspaces and runs dirs configured in
+    :data:`settings`.
+    """
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"ok": False, "error": "OpenShell CLI was not found on PATH."}
+
+    # Validate the target paths look safe before splicing them into the Python
+    # source we ship to the sandbox — defence in depth against an env-var
+    # mistake injecting shell quotes / newlines via the clear script.
+    workspaces = settings.sandbox_workspaces_dir
+    runs = settings.sandbox_runs_dir
+    if "'" in workspaces or "'" in runs or "\n" in workspaces or "\n" in runs:
+        return {
+            "ok": False,
+            "error": "Sandbox paths contain unsafe characters; refusing to construct clear script.",
+        }
+
+    clear_py = (
+        'exec("'
+        "import json, os, shutil, time\\n"
+        "archive = '/sandbox/archives/clear-' + time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())\\n"
+        f"targets = ['{workspaces}', '{runs}']\\n"
+        "os.makedirs(archive, exist_ok=True)\\n"
+        "cleared = []\\n"
+        "archived_count = 0\\n"
+        "for target in targets:\\n"
+        "    os.makedirs(target, exist_ok=True)\\n"
+        "    entries = [os.path.join(target, name) for name in os.listdir(target)]\\n"
+        "    dst_root = os.path.join(archive, os.path.basename(target))\\n"
+        "    os.makedirs(dst_root, exist_ok=True)\\n"
+        "    for entry in entries:\\n"
+        "        dst = os.path.join(dst_root, os.path.basename(entry))\\n"
+        "        if os.path.isdir(entry) and not os.path.islink(entry):\\n"
+        "            shutil.copytree(entry, dst, symlinks=True, ignore_dangling_symlinks=True)\\n"
+        "        else:\\n"
+        "            shutil.copy2(entry, dst, follow_symlinks=False)\\n"
+        "        archived_count += 1\\n"
+        "    for entry in entries:\\n"
+        "        if os.path.isdir(entry) and not os.path.islink(entry):\\n"
+        "            shutil.rmtree(entry)\\n"
+        "        else:\\n"
+        "            os.unlink(entry)\\n"
+        "    cleared.append(target)\\n"
+        "print(json.dumps({'ok': True, 'archive': archive, 'cleared': cleared, 'archived_count': archived_count}))\\n"
+        '")'
+    )
+
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--workdir",
+        "/sandbox",
+        "--timeout",
+        str(timeout_seconds),
+        "--",
+        "python3",
+        "-c",
+        clear_py,
+        timeout_seconds=timeout_seconds + 10,
+    )
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": f"sandbox clear timed out after {timeout_seconds}s",
+        }
+
+    if run.returncode != 0:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": run.stderr or run.stdout or f"openshell exited with code {run.returncode}",
+        }
+
+    try:
+        parsed = json.loads(run.stdout)
+    except json.JSONDecodeError:
+        parsed = {"ok": True, "output": run.stdout.strip()}
+    parsed["sandbox_name"] = sandbox_name
+    parsed["error"] = None
+    return parsed
 
 
 async def get_openclaw_approvals(
@@ -244,7 +308,7 @@ async def get_openclaw_approvals(
     if sandbox_name and _SAFE_NAME.match(sandbox_name):
         openshell_cmd = _which("openshell")
         if openshell_cmd:
-            proc = await asyncio.create_subprocess_exec(
+            run = await run_capture(
                 openshell_cmd,
                 "sandbox",
                 "exec",
@@ -256,21 +320,12 @@ async def get_openclaw_approvals(
                 "openclaw",
                 "exec-policy",
                 "show",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                timeout_seconds=timeout_seconds + 5,
             )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout_seconds + 5
-                )
-                effective_policy = (
-                    stdout_bytes.decode("utf-8", errors="replace")
-                    or stderr_bytes.decode("utf-8", errors="replace")
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.communicate()
+            if run.timed_out:
                 effective_policy = f"openclaw exec-policy show timed out after {timeout_seconds}s"
+            else:
+                effective_policy = run.stdout or run.stderr
 
     return {
         "approvals_path": approvals_path if os.path.exists(approvals_path) else None,
