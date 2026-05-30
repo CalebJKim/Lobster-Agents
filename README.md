@@ -129,8 +129,8 @@ metadata as truth.
 
 ## Sandboxes
 
-The four default sandboxes are starter workspaces, not a fixed limit. Dynamic
-sandbox creation should use NemoClaw/OpenShell as the source of truth:
+The four default sandboxes are starter workspaces, not a fixed limit. The
+Workspaces dock can create another sandbox on the backend host:
 
 1. Persist the display name and generated internal sandbox name in the backend
    SQLite store.
@@ -152,10 +152,19 @@ They should follow the same philosophy as lobsters:
 - honest runtime metadata in the UI
 - no fake capability claims when the Hermes runtime is unavailable
 
-The integration should prefer OpenShell/NemoClaw boundaries for filesystem and
-network isolation. If a demo device does not have Hermes installed or configured,
-crab runs should fail with a clear `hermes_not_configured` diagnostic instead of
-falling back silently to a lobster/OpenClaw run.
+The integration uses OpenShell/NemoClaw boundaries for filesystem and network
+isolation. Crab profiles route to the Hermes bridge. Configure a real Hermes
+runner on the backend host with:
+
+```bash
+export OFFICE_AGENTS_HERMES_COMMAND='hermes run "$HERMES_TASK"'
+```
+
+The command runs inside the assigned OpenShell sandbox with `HERMES_TASK`,
+`HERMES_AGENT_NAME`, `HERMES_ROLE`, and `HERMES_PERSONALITY` in the environment.
+If a demo device does not have Hermes installed or configured, crab runs fail
+with a clear `hermes_not_configured` diagnostic instead of falling back silently
+to a lobster/OpenClaw run.
 
 ## Architecture
 
