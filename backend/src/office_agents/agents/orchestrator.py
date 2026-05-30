@@ -585,6 +585,10 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     async def _inject_idle_behavior(self) -> None:
+        if self.sandboxes.active_sandbox_names():
+            # Shared demo models often serve one heavy request at a time; keep
+            # idle reef chatter from competing with active OpenClaw turns.
+            return
         await self._idle_chat.tick(
             enabled=self.water_cooler_enabled,
             forced_topic=self.water_cooler_topic,
