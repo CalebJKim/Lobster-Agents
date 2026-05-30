@@ -447,6 +447,71 @@ async def get_network_rules(
     return parsed
 
 
+async def probe_sandbox_inference(
+    sandbox_name: str,
+    *,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    """Check whether an OpenShell sandbox can reach its inference route."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"ok": False, "error": "OpenShell CLI was not found on PATH."}
+
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--timeout",
+        str(timeout_seconds),
+        "--no-tty",
+        "--",
+        "curl",
+        "-sk",
+        "--connect-timeout",
+        "5",
+        "--max-time",
+        str(max(6, timeout_seconds - 4)),
+        "https://inference.local/v1/models",
+        timeout_seconds=timeout_seconds + 5,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": f"inference probe timed out after {timeout_seconds}s",
+            "output": output[:1000],
+        }
+    if run.returncode != 0:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": output or f"curl exited with code {run.returncode}",
+            "output": output[:1000],
+        }
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError:
+        parsed = None
+    model_count = 0
+    if isinstance(parsed, dict):
+        models = parsed.get("models") or parsed.get("data") or []
+        if isinstance(models, list):
+            model_count = len(models)
+    return {
+        "ok": True,
+        "sandbox_name": sandbox_name,
+        "model_count": model_count,
+        "output": output[:1000],
+        "error": None,
+    }
+
+
 async def decide_network_rule(
     sandbox_name: str,
     chunk_id: str,

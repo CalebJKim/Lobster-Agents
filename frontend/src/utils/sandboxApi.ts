@@ -4,6 +4,7 @@
 // different shapes (throw-on-error vs. result-object).
 
 import type {
+  DemoReadiness,
   NemoClawPolicyStatus,
   NemoClawStatus,
   OpenClawApprovalsStatus,
@@ -17,6 +18,13 @@ export async function fetchSandboxes(): Promise<NemoClawStatus> {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Could not load sandboxes (${res.status})`);
+  return res.json();
+}
+
+export async function fetchDemoReadiness(sandboxName?: string | null): Promise<DemoReadiness> {
+  const suffix = sandboxName ? `?sandbox_name=${encodeURIComponent(sandboxName)}` : "";
+  const res = await fetch(`/demo/readiness${suffix}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Could not load demo readiness (${res.status})`);
   return res.json();
 }
 

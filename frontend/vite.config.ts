@@ -31,6 +31,7 @@ export default defineConfig({
       "/lobsters": BACKEND,
       "/skills": BACKEND,
       "/models": BACKEND,
+      "/demo": BACKEND,
     },
   },
 });

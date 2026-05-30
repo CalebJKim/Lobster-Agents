@@ -368,6 +368,50 @@ export interface OpenShellNetworkRuleActionResult {
   error?: string | null;
 }
 
+export type DemoReadinessStatus = "ok" | "warn" | "fail";
+
+export interface DemoReadinessCheck {
+  id: string;
+  label: string;
+  status: DemoReadinessStatus;
+  detail: string;
+  data?: Record<string, unknown>;
+}
+
+export interface DemoReadiness {
+  ok: boolean;
+  generated_at: string;
+  selected_sandbox?: string | null;
+  summary: {
+    ok: number;
+    warn: number;
+    fail: number;
+    total: number;
+  };
+  checks: DemoReadinessCheck[];
+  policy_snapshot?: {
+    enabled?: string[];
+    credential_checks?: NemoClawCredentialCheck[];
+  };
+  network_rules?: {
+    counts?: {
+      pending?: number;
+      approved?: number;
+      rejected?: number;
+    };
+    error?: string | null;
+  };
+  inference_probe?: {
+    ok?: boolean;
+    sandbox_name?: string;
+    model_count?: number;
+    error?: string | null;
+  };
+  hermes?: {
+    configured?: boolean;
+  };
+}
+
 export interface SandboxRunDiagnostics {
   run_id: string;
   sandbox_name: string;

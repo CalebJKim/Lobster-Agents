@@ -11,6 +11,7 @@ import QueryInput from "./components/QueryInput";
 import LobsterDetailModal from "./components/LobsterDetailModal";
 import LobsterBuilder from "./components/LobsterBuilder";
 import ModelSelector from "./components/ModelSelector";
+import DemoReadinessPanel from "./components/DemoReadinessPanel";
 import WaterCoolerControls from "./components/WaterCoolerControls";
 import HistoryPanel from "./components/HistoryPanel";
 import SandboxOrchestrator from "./components/SandboxOrchestrator";
@@ -127,6 +128,7 @@ function HeaderCluster({
   onReset,
   onOpenLobsterBuilder,
   onOpenModelMenu,
+  onOpenReadiness,
   activeModel,
 }: {
   connected: boolean;
@@ -138,6 +140,7 @@ function HeaderCluster({
   onReset: () => void;
   onOpenLobsterBuilder: () => void;
   onOpenModelMenu: () => void;
+  onOpenReadiness: () => void;
   activeModel: { label: string; kind: string } | null;
 }) {
   return (
@@ -157,6 +160,13 @@ function HeaderCluster({
         <span className="text-[10px] uppercase tracking-wider text-white/45">Model</span>
         <span className="max-w-[180px] truncate">{activeModel?.label ?? "—"}</span>
       </button>
+      <HeaderButton
+        onClick={onOpenReadiness}
+        title="Check demo readiness across backend, sandboxes, policies, and runtime"
+        className="hidden border-emerald-300/32 bg-emerald-300/12 text-emerald-50 hover:bg-emerald-300/24 md:block"
+      >
+        Demo Ready
+      </HeaderButton>
       <HeaderButton
         onClick={onOpenLobsterBuilder}
         title="Build a Claw — spawn a new OpenClaw lobster profile"
@@ -216,6 +226,7 @@ export default function App() {
   // both the sandbox dock's "+ New" button and the top-level header button.
   const [builderOpen, setBuilderOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState(false);
   // Active model name surfaced in the header pill so the user knows what's
   // driving the agents without opening the modal.
   const [activeModel, setActiveModel] = useState<{ label: string; kind: string } | null>(null);
@@ -319,6 +330,14 @@ export default function App() {
     () => sandboxesIndex.map((sandbox) => `${sandbox.name}:${sandbox.home_room}:${sandbox.display_name ?? ""}`).join("|"),
     [sandboxesIndex],
   );
+  const readinessSandboxName = useMemo(
+    () =>
+      openSandboxName
+      ?? sandboxesIndex.find((sandbox) => sandbox.isDefault)?.name
+      ?? sandboxesIndex[0]?.name
+      ?? null,
+    [openSandboxName, sandboxesIndex],
+  );
 
   const assignAgentToSandbox = useCallback(
     async (agentName: string, sandboxName: string) => {
@@ -386,6 +405,7 @@ export default function App() {
           onReset={resetOffice}
           onOpenLobsterBuilder={() => setBuilderOpen(true)}
           onOpenModelMenu={() => setModelMenuOpen(true)}
+          onOpenReadiness={() => setReadinessOpen(true)}
           activeModel={activeModel}
         />
       </header>
@@ -614,6 +634,14 @@ export default function App() {
           open={modelMenuOpen}
           onClose={() => setModelMenuOpen(false)}
           onActiveChanged={refreshActiveModel}
+        />
+      </ErrorBoundary>
+
+      <ErrorBoundary label="Demo Readiness">
+        <DemoReadinessPanel
+          open={readinessOpen}
+          sandboxName={readinessSandboxName}
+          onClose={() => setReadinessOpen(false)}
         />
       </ErrorBoundary>
     </div>

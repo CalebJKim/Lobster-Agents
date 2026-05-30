@@ -46,6 +46,21 @@ def _slugify_label(value: str) -> str:
     return slug[:48].strip("-") or "sandbox"
 
 
+def _display_name_from_sandbox_name(sandbox_name: str) -> str:
+    raw = sandbox_name.removeprefix("nemoclaw-").replace("-", " ").replace("_", " ")
+    return raw.title() or sandbox_name
+
+
+def _live_workspace_for_sandbox(sandbox_name: str) -> SandboxWorkspace:
+    slug = _slugify_label(sandbox_name.removeprefix("nemoclaw-"))
+    return SandboxWorkspace(
+        name=sandbox_name,
+        home_room=f"sandbox_live_{slug}",
+        display_name=_display_name_from_sandbox_name(sandbox_name),
+        source="live",
+    )
+
+
 async def _configured_workspaces() -> list[SandboxWorkspace]:
     """Starter workspaces plus user-created registry rows from SQLite."""
     workspaces = list(SANDBOX_WORKSPACES)
@@ -77,6 +92,32 @@ async def _configured_workspaces() -> list[SandboxWorkspace]:
     return workspaces
 
 
+async def _visible_workspaces(status: dict[str, object] | None = None) -> list[SandboxWorkspace]:
+    """Configured workspaces plus live OpenShell sandboxes missing from SQLite.
+
+    Dynamic workspace rows are the durable source for UI names/rooms. Live-only
+    sandboxes are still exposed so a missing or reset local DB does not hide a
+    valid OpenShell sandbox from the demo.
+    """
+
+    workspaces = await _configured_workspaces()
+    seen = {workspace.name for workspace in workspaces}
+    live_status = status if status is not None else await get_nemoclaw_status()
+    live_sandboxes = live_status.get("sandboxes", [])
+    if not isinstance(live_sandboxes, list):
+        return workspaces
+
+    for sandbox in live_sandboxes:
+        if not isinstance(sandbox, dict):
+            continue
+        name = sandbox.get("name")
+        if not isinstance(name, str) or not name or name in seen:
+            continue
+        workspaces.append(_live_workspace_for_sandbox(name))
+        seen.add(name)
+    return workspaces
+
+
 def _sync_orchestrator_workspaces(workspaces: list[SandboxWorkspace]) -> None:
     orch = app_state.orchestrator
     if orch:
@@ -84,7 +125,7 @@ def _sync_orchestrator_workspaces(workspaces: list[SandboxWorkspace]) -> None:
 
 
 async def _refresh_orchestrator_workspaces() -> list[SandboxWorkspace]:
-    workspaces = await _configured_workspaces()
+    workspaces = await _visible_workspaces()
     _sync_orchestrator_workspaces(workspaces)
     return workspaces
 
@@ -175,9 +216,9 @@ def _next_sandbox_name(
 async def get_sandboxes() -> dict[str, object]:
     """Merge configured workspaces with live nemoclaw status + run/team state."""
 
-    workspaces = await _configured_workspaces()
-    _sync_orchestrator_workspaces(workspaces)
     status = await get_nemoclaw_status()
+    workspaces = await _visible_workspaces(status)
+    _sync_orchestrator_workspaces(workspaces)
 
     orch = app_state.orchestrator
     office = app_state.office_state
