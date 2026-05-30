@@ -2,10 +2,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ChatMessage,
   NemoClawPolicyPreset,
+  NemoClawRunStatus,
   NemoClawSandbox,
+  OpenClawApprovalsStatus,
+  OpenShellNetworkRule,
+  OpenShellNetworkRulesStatus,
+  SandboxRunDiagnostics,
   SandboxConsoleLine,
 } from "../types";
-import { fetchPolicies, setPolicy } from "../utils/sandboxApi";
+import {
+  approveAllNetworkRules,
+  clearPendingNetworkRules,
+  decideNetworkRule,
+  fetchApprovals,
+  fetchNetworkRules,
+  fetchPolicies,
+  fetchRunDiagnostics,
+  setPolicy,
+} from "../utils/sandboxApi";
 import { statusDot } from "./sandbox/format";
 import StatusTab from "./sandbox/StatusTab";
 import PoliciesTab from "./sandbox/PoliciesTab";
@@ -53,6 +67,14 @@ export default function SandboxRunPanel({
 }: SandboxRunPanelProps) {
   const [tab, setTab] = useState<Tab>("status");
   const [policies, setPolicies] = useState<NemoClawPolicyPreset[]>([]);
+  const [credentialChecks, setCredentialChecks] = useState<
+    NonNullable<Awaited<ReturnType<typeof fetchPolicies>>["credential_checks"]>
+  >([]);
+  const [approvals, setApprovals] = useState<OpenClawApprovalsStatus | null>(null);
+  const [networkRules, setNetworkRules] = useState<OpenShellNetworkRulesStatus | null>(null);
+  const [networkRulesError, setNetworkRulesError] = useState<string | null>(null);
+  const [networkRulesBusy, setNetworkRulesBusy] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<SandboxRunDiagnostics | null>(null);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [policyBusy, setPolicyBusy] = useState<string | null>(null);
   const [policyPreview, setPolicyPreview] = useState<{
@@ -67,6 +89,7 @@ export default function SandboxRunPanel({
   const [taskDraft, setTaskDraft] = useState("");
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskNotice, setTaskNotice] = useState<string | null>(null);
+  const [optimisticRun, setOptimisticRun] = useState<NemoClawRunStatus | null>(null);
 
   // Close on Escape.
   useEffect(() => {
@@ -79,12 +102,40 @@ export default function SandboxRunPanel({
 
   // Lazy-load policies the first time the user opens that tab.
   const loadPolicies = useCallback(async () => {
+    setNetworkRulesBusy((current) => current ?? "reload");
     try {
-      const data = await fetchPolicies(sandbox.name);
-      setPolicies(data.policies ?? []);
-      setPoliciesError(data.error ?? null);
+      const [data, approvalData, networkData] = await Promise.allSettled([
+        fetchPolicies(sandbox.name),
+        fetchApprovals(sandbox.name),
+        fetchNetworkRules(sandbox.name),
+      ]);
+      if (data.status === "fulfilled") {
+        setPolicies(data.value.policies ?? []);
+        setCredentialChecks(data.value.credential_checks ?? []);
+        setPoliciesError(data.value.error ?? null);
+      } else {
+        setPoliciesError(
+          data.reason instanceof Error ? data.reason.message : "Could not load policies",
+        );
+      }
+      if (approvalData.status === "fulfilled") {
+        setApprovals(approvalData.value);
+      }
+      if (networkData.status === "fulfilled") {
+        setNetworkRules(networkData.value);
+        setNetworkRulesError(networkData.value.error ?? null);
+      } else {
+        setNetworkRules(null);
+        setNetworkRulesError(
+          networkData.reason instanceof Error
+            ? networkData.reason.message
+            : "Could not load OpenShell network rules",
+        );
+      }
     } catch (err) {
       setPoliciesError(err instanceof Error ? err.message : "Could not load policies");
+    } finally {
+      setNetworkRulesBusy((current) => (current === "reload" ? null : current));
     }
   }, [sandbox.name]);
 
@@ -133,7 +184,59 @@ export default function SandboxRunPanel({
     await onAfterChange?.();
   }, [policyPreview, sandbox.name, loadPolicies, onAfterChange]);
 
-  const run = sandbox.run_status ?? null;
+  const handleNetworkRuleDecision = useCallback(
+    async (rule: OpenShellNetworkRule, decision: "approve" | "reject") => {
+      const key = `${decision}:${rule.id}`;
+      setNetworkRulesBusy(key);
+      setPolicyNotice(null);
+      const result = await decideNetworkRule(sandbox.name, rule.id, decision);
+      setNetworkRulesBusy(null);
+      if (result.error) {
+        setPolicyNotice(result.error);
+        return;
+      }
+      setPolicyNotice(
+        result.output || `${rule.rule_name || rule.id} ${decision === "approve" ? "approved" : "rejected"}.`,
+      );
+      await loadPolicies();
+      await onAfterChange?.();
+    },
+    [loadPolicies, onAfterChange, sandbox.name],
+  );
+
+  const handleApproveAllNetworkRules = useCallback(async () => {
+    setNetworkRulesBusy("approve-all");
+    setPolicyNotice(null);
+    const result = await approveAllNetworkRules(sandbox.name);
+    setNetworkRulesBusy(null);
+    if (result.error) {
+      setPolicyNotice(result.error);
+      return;
+    }
+    setPolicyNotice(result.output || "Pending OpenShell network rules approved.");
+    await loadPolicies();
+    await onAfterChange?.();
+  }, [loadPolicies, onAfterChange, sandbox.name]);
+
+  const handleClearPendingNetworkRules = useCallback(async () => {
+    setNetworkRulesBusy("clear-pending");
+    setPolicyNotice(null);
+    const result = await clearPendingNetworkRules(sandbox.name);
+    setNetworkRulesBusy(null);
+    if (result.error) {
+      setPolicyNotice(result.error);
+      return;
+    }
+    setPolicyNotice(result.output || "Pending OpenShell network rules cleared.");
+    await loadPolicies();
+    await onAfterChange?.();
+  }, [loadPolicies, onAfterChange, sandbox.name]);
+
+  const backendRun = sandbox.run_status ?? null;
+  const run =
+    optimisticRun && backendRun?.run_id !== optimisticRun.run_id
+      ? optimisticRun
+      : backendRun;
   const runActive = Boolean(run?.running || run?.status === "running" || run?.status === "stopping");
   const clearDisabled = clearBusy || runActive || !sandbox.live;
   const outputs = useMemo(() => Object.entries(run?.outputs ?? {}), [run]);
@@ -143,6 +246,28 @@ export default function SandboxRunPanel({
     () => messages.filter((m) => m.sandbox_name === sandbox.name).slice(-50),
     [messages, sandbox.name]
   );
+
+  const loadDiagnostics = useCallback(async () => {
+    if (!run?.run_id) {
+      setDiagnostics(null);
+      return;
+    }
+    try {
+      setDiagnostics(await fetchRunDiagnostics(sandbox.name, run.run_id));
+    } catch {
+      setDiagnostics(null);
+    }
+  }, [run?.run_id, sandbox.name]);
+
+  useEffect(() => {
+    loadDiagnostics();
+  }, [loadDiagnostics]);
+
+  useEffect(() => {
+    if (backendRun?.run_id === optimisticRun?.run_id) {
+      setOptimisticRun(null);
+    }
+  }, [backendRun?.run_id, optimisticRun?.run_id]);
 
   // Inline rename state. Empty draft means "use default."
   const [isRenaming, setIsRenaming] = useState(false);
@@ -200,6 +325,11 @@ export default function SandboxRunPanel({
     setClearConfirm(false);
     setClearNotice(null);
     setTaskNotice(null);
+    setOptimisticRun(null);
+    setDiagnostics(null);
+    setNetworkRules(null);
+    setNetworkRulesError(null);
+    setNetworkRulesBusy(null);
   }, [sandbox.name]);
 
   const runTask = useCallback(async () => {
@@ -222,14 +352,45 @@ export default function SandboxRunPanel({
         return;
       }
       setTaskDraft("");
-      setTaskNotice(body?.run_id ? `Run started: ${body.run_id.slice(0, 8)}…` : "Run started.");
+      const runId = typeof body?.run_id === "string" ? body.run_id : "";
+      if (runId) {
+        const now = new Date().toISOString();
+        const agentNames = team.length > 0
+          ? team.map((agent) => agent.name)
+          : [...(sandbox.assigned_agents ?? [])];
+        setDiagnostics(null);
+        setOptimisticRun({
+          run_id: runId,
+          sandbox_name: sandbox.name,
+          agents: agentNames,
+          task,
+          status: "running",
+          started_at: now,
+          phase: "openclaw",
+          current_agent: agentNames[0],
+          last_message: agentNames[0]
+            ? `Starting ${agentNames[0]}'s OpenClaw turn in this sandbox.`
+            : "Starting NemoClaw run.",
+          last_update_at: now,
+          outputs: {},
+          errors: {},
+          running: true,
+          mode: agentNames.length > 1 ? "coordinated" : "single",
+          policies: sandbox.policies ?? [],
+          policy_snapshot: sandbox.policies ?? [],
+          success_count: 0,
+          error_count: 0,
+          total_count: agentNames.length,
+        });
+      }
+      setTaskNotice(runId ? `Run started: ${runId.slice(0, 8)}…` : "Run started.");
       await onAfterChange?.();
     } catch (err) {
       setTaskNotice(err instanceof Error ? err.message : "Run failed");
     } finally {
       setTaskBusy(false);
     }
-  }, [taskDraft, taskBusy, sandbox.name, onAfterChange]);
+  }, [taskDraft, taskBusy, sandbox.name, sandbox.assigned_agents, sandbox.policies, team, onAfterChange]);
 
   const cancelRun = useCallback(async () => {
     if (!run?.run_id) return;
@@ -373,8 +534,8 @@ export default function SandboxRunPanel({
           <div className="flex shrink-0 items-center gap-2">
             {run && (
               <span className="flex items-center gap-1.5 rounded-full bg-white/[0.08] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/80">
-                <span className={`h-2 w-2 rounded-full ${statusDot(run.status)}`} />
-                {run.status}
+                <span className={`h-2 w-2 rounded-full ${statusDot(run.status, run.outcome)}`} />
+                {run.outcome && run.status === "finished" ? run.outcome : run.status}
               </span>
             )}
             <button
@@ -515,6 +676,7 @@ export default function SandboxRunPanel({
               outputs={outputs}
               errors={errors}
               team={team}
+              diagnostics={diagnostics}
             />
           )}
 
@@ -529,6 +691,15 @@ export default function SandboxRunPanel({
               onApply={handleApplyPolicy}
               onCancelPreview={() => setPolicyPreview(null)}
               onReload={loadPolicies}
+              credentialChecks={credentialChecks}
+              approvals={approvals}
+              networkRules={networkRules}
+              networkRulesError={networkRulesError}
+              networkRulesBusy={networkRulesBusy}
+              onNetworkRulesReload={loadPolicies}
+              onNetworkRuleDecision={handleNetworkRuleDecision}
+              onNetworkRulesApproveAll={handleApproveAllNetworkRules}
+              onNetworkRulesClearPending={handleClearPendingNetworkRules}
             />
           )}
 

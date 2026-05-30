@@ -41,6 +41,7 @@ type SandboxRunStatus = {
   runId: string;
   message: string;
   status: RunUiStatus;
+  outcome?: string;
   agents?: string[];
   task?: string;
   currentAgent?: string;
@@ -95,6 +96,36 @@ function addAgentToSandbox(
   return next;
 }
 
+function assignedDetailsForSandbox(
+  sandbox: NemoClawSandbox,
+  assigned: string[],
+  agentsByName: Map<string, AgentInfo>,
+): AgentInfo[] {
+  const backendByName = new Map(
+    (sandbox.assigned_agent_details ?? []).map((agent) => [agent.name, agent]),
+  );
+  return assigned
+    .map((name): AgentInfo | null => {
+      const live = agentsByName.get(name);
+      const backend = backendByName.get(name);
+      if (!live && !backend) return null;
+      const merged: AgentInfo = {
+        ...(backend ?? live!),
+        ...(live ?? {}),
+        tools:
+          live?.tools && live.tools.length > 0
+            ? live.tools
+            : backend?.tools,
+        openclaw_skills:
+          live?.openclaw_skills && live.openclaw_skills.length > 0
+            ? live.openclaw_skills
+            : backend?.openclaw_skills,
+      };
+      return merged;
+    })
+    .filter((agent): agent is AgentInfo => agent !== null);
+}
+
 function runUiStatus(status?: string, running?: boolean): RunUiStatus {
   if (status === "cancelling") return "stopping";
   if (status === "cancelled") return "cancelled";
@@ -118,6 +149,7 @@ function formatRunStatus(run: NemoClawRunStatus): SandboxRunStatus {
     runId: run.run_id,
     message: run.last_message || messageByStatus[status],
     status,
+    outcome: run.outcome,
     agents: run.agents ?? [],
     task: run.task,
     currentAgent: run.current_agent,
@@ -353,9 +385,7 @@ export default function SandboxOrchestrator({
       return {
         ...sandbox,
         assigned_agents: assigned,
-        assigned_agent_details: assigned
-          .map((name) => agentsByName.get(name))
-          .filter((agent): agent is AgentInfo => Boolean(agent)),
+        assigned_agent_details: assignedDetailsForSandbox(sandbox, assigned, agentsByName),
       };
     });
   }, [agentsByName, assignmentSnapshot, status]);
@@ -398,9 +428,7 @@ export default function SandboxOrchestrator({
               return {
                 ...sandbox,
                 assigned_agents: assigned,
-                assigned_agent_details: assigned
-                  .map((name) => agentsByName.get(name))
-                  .filter((agent): agent is AgentInfo => Boolean(agent)),
+                assigned_agent_details: assignedDetailsForSandbox(sandbox, assigned, agentsByName),
               };
             }),
           };
@@ -1012,6 +1040,10 @@ export default function SandboxOrchestrator({
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                       selectedRunStatus.status === "cancelled"
                         ? "bg-amber-200"
+                        : selectedRunStatus.outcome === "partial"
+                        ? "bg-amber-200"
+                        : selectedRunStatus.outcome === "failed"
+                        ? "bg-rose-200"
                         : selectedRunStatus.status === "finished"
                         ? "bg-emerald-200"
                         : selectedRunStatus.status === "error"

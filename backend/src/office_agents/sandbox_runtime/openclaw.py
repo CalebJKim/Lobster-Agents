@@ -15,8 +15,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
@@ -25,12 +26,31 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_SECONDS = 120
+DEFAULT_TIMEOUT_SECONDS = settings.openclaw_turn_timeout_seconds
 # Sourced from Settings so non-Spark hosts can override via
 # OFFICE_AGENTS_SANDBOX_WORKSPACES_DIR / OFFICE_AGENTS_SANDBOX_RUNS_DIR. Kept
 # as module-level constants because manager.py imports them by name.
 DEFAULT_SANDBOX_WORKDIR = settings.sandbox_workspaces_dir
 DEFAULT_RUNS_WORKDIR = settings.sandbox_runs_dir
+_OPENCLAW_IDLE_TIMEOUT_PATCH = (
+    "import hashlib,json,pathlib,sys;"
+    "p=pathlib.Path('/sandbox/.openclaw/openclaw.json');"
+    "sys.exit(0) if not p.exists() else None;"
+    "cfg=json.loads(p.read_text());"
+    "llm=cfg.setdefault('agents',{}).setdefault('defaults',{}).setdefault('llm',{});"
+    "value=int(sys.argv[1]);"
+    "changed=llm.get('idleTimeoutSeconds')!=value;"
+    "llm['idleTimeoutSeconds']=value;"
+    "text=json.dumps(cfg,indent=2)+'\\n';"
+    "p.write_text(text) if changed else None;"
+    "h=hashlib.sha256(p.read_bytes()).hexdigest();"
+    "hp=p.with_name('.config-hash');"
+    "hp.write_text(f'{h}  openclaw.json\\n') if changed or hp.exists() else None;"
+    "marker=p.with_name('.lobster-openclaw-idle-timeout');"
+    "desired=str(value)+'\\n';"
+    "restart=changed or (not marker.exists()) or marker.read_text()!=desired;"
+    "print('restart' if restart else 'ok')"
+)
 
 
 def _which_openshell() -> str | None:
@@ -110,6 +130,13 @@ async def run_openclaw(
             "--",
             "sh", "-lc",
             (
+                'patch_status=$(python3 -c "$7" "$6") && '
+                'if [ "$patch_status" = restart ]; then '
+                'openclaw gateway restart >/tmp/openclaw-gateway-restart.log 2>&1 '
+                '|| cat /tmp/openclaw-gateway-restart.log >&2; '
+                'printf "%s\\n" "$6" >/sandbox/.openclaw/.lobster-openclaw-idle-timeout; '
+                'sleep 2; '
+                'fi; '
                 'mkdir -p "$1" && cd "$1" && exec openclaw agent '
                 '--agent "$2" --session-id "$5" --json --timeout "$3" --message "$4"'
             ),
@@ -119,6 +146,8 @@ async def run_openclaw(
             str(timeout_seconds),
             message,
             openclaw_session_id,
+            str(settings.openclaw_llm_idle_timeout_seconds),
+            _OPENCLAW_IDLE_TIMEOUT_PATCH,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -146,6 +175,7 @@ async def run_openclaw(
             f"OpenClaw timed out after {timeout_seconds}s.",
             mode="timeout",
             session_id=openclaw_session_id,
+            timed_out=True,
         )
     except asyncio.CancelledError:
         await _terminate(proc, "OpenClaw run cancelled")
@@ -177,11 +207,13 @@ async def run_openclaw(
             "OpenClaw exited %s in sandbox=%s: %s",
             proc.returncode, sandbox_name, (stderr or stdout)[:500],
         )
+        raw_error = stderr or stdout or f"openshell exited with code {proc.returncode}"
         return _failure(
             claw_id, sandbox_name,
-            stderr or stdout or f"openshell exited with code {proc.returncode}",
+            _summarize_failure_text(raw_error),
             mode="exec_failed",
             session_id=openclaw_session_id,
+            diagnostics=_diagnostics_from_text(raw_error),
         )
 
     parsed_result = _parse_openclaw_result(stdout)
@@ -192,11 +224,12 @@ async def run_openclaw(
         )
         return _failure(
             claw_id, sandbox_name,
-            parsed_result.output
+            str(parsed_result.output or "")
             or stderr
             or "OpenClaw failed before returning visible output.",
             mode=parsed_result.mode,
             session_id=openclaw_session_id,
+            diagnostics=parsed_result.diagnostics,
         )
 
     return {
@@ -208,6 +241,9 @@ async def run_openclaw(
         "session_id": openclaw_session_id,
         "nemoclaw_available": True,
         "execution_mode": "openshell_sandbox",
+        "diagnostics": parsed_result.diagnostics,
+        "partial_output": parsed_result.diagnostics.get("partial_output"),
+        "tool_errors": parsed_result.diagnostics.get("tool_errors", []),
     }
 
 
@@ -279,22 +315,38 @@ async def ensure_openclaw_agent(
         'set -u; '
         'agent_id="$1"; display_name="$2"; model="$3"; skills="$4"; '
         'workspace="$5"; '
+        'install_failed=0; patch_failed=0; '
+        ': >/tmp/openclaw-skills-install.log; '
+        ': >/tmp/openclaw-skills-install-status.log; '
         'mkdir -p "$workspace"; '
         'openclaw agents add "$agent_id" --workspace "$workspace" --model "$model" '
         '--non-interactive --json >/tmp/openclaw-agent-add.log 2>&1 || true; '
         'openclaw agents set-identity --agent "$agent_id" --name "$display_name" '
         '--json >/tmp/openclaw-agent-identity.log 2>&1 || true; '
         'for slug in $skills; do '
+        '  echo "== $slug ==" >>/tmp/openclaw-skills-install.log; '
+        '  echo "INSTALL START $slug" >>/tmp/openclaw-skills-install-status.log; '
         '  openclaw skills install "$slug" --force '
-        '    >>/tmp/openclaw-skills-install.log 2>&1 || true; '
+        '    >>/tmp/openclaw-skills-install.log 2>&1 '
+        '    && echo "INSTALL OK $slug" >>/tmp/openclaw-skills-install-status.log '
+        '    || { echo "INSTALL FAIL $slug" >>/tmp/openclaw-skills-install-status.log; install_failed=1; }; '
         'done; '
         f'python3 -c \'{patch_py}\' "$agent_id" "$skills" "$workspace" '
-        '  >/tmp/openclaw-skill-filter.log 2>&1 || true; '
+        '  >/tmp/openclaw-skill-filter.log 2>&1 || patch_failed=1; '
         'openclaw agents list --json; '
+        'agents_status=$?; '
         'echo "==SKILLS=="; '
-        '(cd "$workspace" && openclaw skills list 2>/dev/null) || true; '
+        '(cd "$workspace" && openclaw skills list); '
+        'skills_status=$?; '
         'echo "==FILTER=="; '
-        'cat /tmp/openclaw-skill-filter.log 2>/dev/null'
+        'cat /tmp/openclaw-skill-filter.log 2>/dev/null; '
+        'echo "==INSTALL_STATUS=="; '
+        'cat /tmp/openclaw-skills-install-status.log 2>/dev/null; '
+        'echo "==INSTALL_LOG=="; '
+        'cat /tmp/openclaw-skills-install.log 2>/dev/null; '
+        'if [ "$install_failed" -eq 0 ] && [ "$patch_failed" -eq 0 ] '
+        '  && [ "$agents_status" -eq 0 ] && [ "$skills_status" -eq 0 ]; then exit 0; fi; '
+        'exit 1'
     )
 
     proc: asyncio.subprocess.Process | None = None
@@ -331,8 +383,17 @@ async def ensure_openclaw_agent(
 
     stdout = stdout_bytes.decode("utf-8", errors="replace")
     stderr = stderr_bytes.decode("utf-8", errors="replace")
-    agents_part, _, skills_part = stdout.partition("==SKILLS==")
-    found = f'"id": "{claw_id}"' in agents_part
+    sections = _split_openclaw_sections(stdout)
+    agents_part = sections.get("agents", stdout)
+    skills_part = sections.get("skills", "")
+    install_status = sections.get("install_status", "")
+    install_log = sections.get("install_log", "")
+    found = _agent_list_contains(agents_part, claw_id)
+    skill_status = _parse_skill_status(
+        requested=safe_skills,
+        skills_raw=skills_part,
+        install_status_raw=install_status,
+    )
     if proc.returncode != 0 or not found:
         logger.warning(
             "Could not ensure OpenClaw agent %s in %s: %s",
@@ -350,6 +411,12 @@ async def ensure_openclaw_agent(
         "working_dir": workspace_arg,
         "skills_requested": list(safe_skills),
         "skills_status_raw": skills_part.strip()[:4000],
+        "skill_status": skill_status,
+        "skills_ready": skill_status["ready"],
+        "skills_needs_setup": skill_status["needs_setup"],
+        "skills_missing": skill_status["missing"],
+        "skills_install_failed": skill_status["install_failed"],
+        "skills_install_log": install_log.strip()[:4000],
     }
 
 
@@ -364,17 +431,37 @@ def _failure(
     *,
     mode: str,
     session_id: str | None = None,
+    timed_out: bool | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    detail = str(message or "").strip() or "OpenClaw run did not complete."
+    diag = diagnostics.copy() if isinstance(diagnostics, dict) else {}
+    if timed_out is not None:
+        diag["timed_out"] = timed_out
+    if "failure_detail" not in diag:
+        diag["failure_detail"] = detail
+    if "failure_kind" not in diag:
+        diag["failure_kind"] = mode
+    if "timed_out" not in diag:
+        diag["timed_out"] = mode in {"timeout", "timed_out"}
+    partial_output = diag.get("partial_output")
+    tool_errors = diag.get("tool_errors")
     return {
         "success": False,
-        "output": message,
+        "output": detail,
         "files_created": [],
         "claw_id": claw_id,
         "sandbox_name": sandbox_name,
         **({"session_id": session_id} if session_id else {}),
-        "nemoclaw_available": False,
+        "nemoclaw_available": mode != "cli_missing",
         "execution_mode": mode,
-        "error": message,
+        "failure_kind": diag.get("failure_kind") or mode,
+        "failure_detail": diag.get("failure_detail") or detail,
+        "timed_out": bool(diag.get("timed_out")),
+        "partial_output": partial_output if isinstance(partial_output, str) else None,
+        "tool_errors": tool_errors if isinstance(tool_errors, list) else [],
+        "diagnostics": diag,
+        "error": detail,
     }
 
 
@@ -486,6 +573,18 @@ def _format_openclaw_message(
             "don't duplicate their work."
         )
 
+    parts.append(
+        "NemoClaw coordinates this relay outside OpenClaw. Do not inspect "
+        "OpenClaw sessions, spawn subagents, or send session messages unless "
+        "the Task explicitly asks for those tools. For simple confirmation "
+        "tasks, answer directly and briefly."
+    )
+    parts.append(
+        "Respect explicit tool limits in the Task. If the Task says not to use "
+        "web search, do not call web_search, web_fetch, browser, or related "
+        "network tools."
+    )
+
     parts.append("")
     parts.append("Task:")
     parts.append(task)
@@ -502,19 +601,25 @@ class _OpenClawResult:
     output: Any
     failed: bool = False
     mode: str = "openclaw_failed"
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def _parse_openclaw_result(stdout: str) -> _OpenClawResult:
     """Pull human-readable text out of OpenClaw JSON without hiding failures."""
     parsed = _load_first_json_object(stdout)
     if not isinstance(parsed, dict):
+        diagnostics = _diagnostics_from_text(stdout)
         if _looks_like_openclaw_failure(stdout):
-            return _OpenClawResult(stdout, failed=True)
-        return _OpenClawResult(stdout)
+            mode = _failure_mode(stdout, diagnostics)
+            return _OpenClawResult(_summarize_failure_text(stdout), failed=True, mode=mode, diagnostics=diagnostics)
+        return _OpenClawResult(stdout, diagnostics=diagnostics)
 
+    diagnostics = _diagnostics_from_openclaw_json(parsed)
     failure_text = _extract_openclaw_failure(parsed)
     if failure_text:
-        return _OpenClawResult(failure_text, failed=True)
+        diagnostics.setdefault("failure_detail", failure_text)
+        mode = _failure_mode(failure_text, diagnostics)
+        return _OpenClawResult(failure_text, failed=True, mode=mode, diagnostics=diagnostics)
 
     result = parsed.get("result")
     if isinstance(result, dict):
@@ -526,19 +631,289 @@ def _parse_openclaw_result(stdout: str) -> _OpenClawResult:
                 if isinstance(item, dict) and isinstance(item.get("text"), str)
             ]
             if texts:
-                return _OpenClawResult("\n".join(texts))
+                return _OpenClawResult("\n".join(texts), diagnostics=diagnostics)
         meta = result.get("meta")
         if isinstance(meta, dict):
             visible = meta.get("finalAssistantVisibleText")
             if isinstance(visible, str) and visible:
-                return _OpenClawResult(visible)
-        return _OpenClawResult(result)
+                return _OpenClawResult(visible, diagnostics=diagnostics)
+        return _OpenClawResult(result, diagnostics=diagnostics)
 
     for key in ("reply", "message", "output", "summary"):
         value = parsed.get(key)
         if isinstance(value, str) and value:
-            return _OpenClawResult(value)
-    return _OpenClawResult(stdout)
+            return _OpenClawResult(value, diagnostics=diagnostics)
+    return _OpenClawResult(stdout, diagnostics=diagnostics)
+
+
+def _diagnostics_from_openclaw_json(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Extract stable, UI-safe diagnostics from OpenClaw's JSON envelope."""
+    diagnostics: dict[str, Any] = {
+        "timed_out": _contains_true_flag(parsed, {"timedOut", "timed_out"}),
+        "tool_errors": _collect_tool_errors(parsed),
+    }
+
+    partial = _extract_partial_output(parsed)
+    if partial:
+        diagnostics["partial_output"] = partial
+        if _is_timeout_text(partial):
+            diagnostics["timed_out"] = True
+            diagnostics["failure_kind"] = "timeout"
+            diagnostics.setdefault("failure_detail", partial)
+
+    prompt_errors = _collect_string_values(
+        parsed,
+        {"promptError", "error", "errorMessage"},
+    )
+    if prompt_errors:
+        diagnostics["failure_detail"] = prompt_errors[0]
+
+    if diagnostics["timed_out"]:
+        diagnostics["failure_kind"] = "timeout"
+    elif _mentions_missing_brave_key(json.dumps(parsed, ensure_ascii=False, default=str)):
+        diagnostics["failure_kind"] = "credential_missing"
+        diagnostics.setdefault(
+            "failure_detail",
+            "Brave search was attempted but BRAVE_API_KEY is missing inside the sandbox.",
+        )
+    elif diagnostics["tool_errors"]:
+        diagnostics["failure_kind"] = "tool_error"
+
+    return diagnostics
+
+
+def _diagnostics_from_text(text: str) -> dict[str, Any]:
+    lowered = text.lower()
+    diagnostics: dict[str, Any] = {
+        "timed_out": _is_timeout_text(lowered),
+        "tool_errors": [],
+    }
+    if diagnostics["timed_out"]:
+        diagnostics["failure_kind"] = "timeout"
+    if _mentions_missing_brave_key(text):
+        diagnostics["failure_kind"] = "credential_missing"
+        diagnostics["failure_detail"] = (
+            "Brave search was attempted but BRAVE_API_KEY is missing inside the sandbox."
+        )
+        diagnostics["tool_errors"] = [
+            {
+                "tool": "web_search",
+                "error": "missing_brave_api_key",
+                "message": "BRAVE_API_KEY is not configured in the sandbox.",
+            }
+        ]
+    elif text.strip():
+        diagnostics["failure_detail"] = _summarize_failure_text(text)
+    return diagnostics
+
+
+def _failure_mode(text: str, diagnostics: dict[str, Any]) -> str:
+    if diagnostics.get("failure_kind"):
+        return str(diagnostics["failure_kind"])
+    lowered = text.lower()
+    if diagnostics.get("timed_out") or _is_timeout_text(lowered):
+        return "timeout"
+    if _mentions_missing_brave_key(text):
+        return "credential_missing"
+    return "openclaw_failed"
+
+
+def _summarize_failure_text(text: str, limit: int = 1200) -> str:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return "OpenClaw run did not complete."
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    summary = "\n".join(lines[:12]) if lines else stripped
+    if len(summary) > limit:
+        summary = summary[: limit - 3].rstrip() + "..."
+    return summary
+
+
+def _extract_partial_output(value: Any) -> str | None:
+    texts: list[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, item in node.items():
+                if key in {"finalAssistantVisibleText", "visibleText"} and isinstance(item, str):
+                    texts.append(item)
+                elif key in {"assistantTexts", "assistantText"}:
+                    if isinstance(item, str):
+                        texts.append(item)
+                    elif isinstance(item, list):
+                        texts.extend(x for x in item if isinstance(x, str))
+                elif key == "payloads" and isinstance(item, list):
+                    for payload in item:
+                        if isinstance(payload, dict) and isinstance(payload.get("text"), str):
+                            texts.append(payload["text"])
+                walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(value)
+    for text in texts:
+        cleaned = text.strip()
+        if cleaned:
+            return cleaned[:4000]
+    return None
+
+
+def _collect_tool_errors(value: Any) -> list[dict[str, str]]:
+    errors: list[dict[str, str]] = []
+
+    def add(tool: str, error: str, message: str | None = None) -> None:
+        item = {
+            "tool": tool[:80] or "unknown",
+            "error": error[:200] or "tool_error",
+        }
+        if message:
+            item["message"] = message[:400]
+        if item not in errors:
+            errors.append(item)
+
+    def walk(node: Any, tool_hint: str | None = None) -> None:
+        if isinstance(node, dict):
+            tool = (
+                str(node.get("tool") or node.get("name") or node.get("slug") or tool_hint or "unknown")
+            )
+            for key in ("error", "errorMessage", "promptError"):
+                raw = node.get(key)
+                if isinstance(raw, str) and raw.strip():
+                    add(tool, raw.strip(), node.get("message") if isinstance(node.get("message"), str) else None)
+            raw_text = json.dumps(node, ensure_ascii=False, default=str)
+            if _mentions_missing_brave_key(raw_text):
+                add("web_search", "missing_brave_api_key", "BRAVE_API_KEY is not configured in the sandbox.")
+            for child in node.values():
+                walk(child, tool)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, tool_hint)
+        elif isinstance(node, str) and _mentions_missing_brave_key(node):
+            add("web_search", "missing_brave_api_key", "BRAVE_API_KEY is not configured in the sandbox.")
+
+    walk(value)
+    return errors[:12]
+
+
+def _contains_true_flag(value: Any, names: set[str]) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in names and item is True:
+                return True
+            if _contains_true_flag(item, names):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_true_flag(item, names) for item in value)
+    return False
+
+
+def _collect_string_values(value: Any, keys: set[str]) -> list[str]:
+    found: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in keys and isinstance(item, str) and item.strip():
+                found.append(item.strip())
+            found.extend(_collect_string_values(item, keys))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_collect_string_values(item, keys))
+    return found
+
+
+def _mentions_missing_brave_key(text: str) -> bool:
+    lowered = text.lower()
+    return "missing_brave_api_key" in lowered or "brave_api_key" in lowered
+
+
+def _split_openclaw_sections(stdout: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {"agents": []}
+    current = "agents"
+    marker_to_key = {
+        "SKILLS": "skills",
+        "FILTER": "filter",
+        "INSTALL_STATUS": "install_status",
+        "INSTALL_LOG": "install_log",
+    }
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("==") and stripped.endswith("=="):
+            marker = stripped.strip("=").strip()
+            key = marker_to_key.get(marker)
+            if key:
+                current = key
+                sections.setdefault(current, [])
+                continue
+        sections.setdefault(current, []).append(line)
+    return {key: "\n".join(lines).strip() for key, lines in sections.items()}
+
+
+def _agent_list_contains(agents_part: str, claw_id: str) -> bool:
+    parsed = _load_first_json_object(agents_part)
+    if isinstance(parsed, list):
+        return any(isinstance(item, dict) and item.get("id") == claw_id for item in parsed)
+    if isinstance(parsed, dict):
+        values = parsed.get("agents") or parsed.get("list") or parsed.get("items")
+        if isinstance(values, list):
+            return any(isinstance(item, dict) and item.get("id") == claw_id for item in values)
+    return bool(re.search(rf'"id"\s*:\s*"{re.escape(claw_id)}"', agents_part))
+
+
+def _parse_skill_status(
+    *,
+    requested: list[str],
+    skills_raw: str,
+    install_status_raw: str,
+) -> dict[str, Any]:
+    install_failed: list[str] = []
+    install_succeeded: list[str] = []
+    for line in install_status_raw.splitlines():
+        parts = line.strip().split()
+        if len(parts) < 3 or parts[0] != "INSTALL":
+            continue
+        status, slug = parts[1], parts[2]
+        if status == "OK":
+            install_succeeded.append(slug)
+        elif status == "FAIL":
+            install_failed.append(slug)
+
+    ready: list[str] = []
+    needs_setup: list[str] = []
+    installed: list[str] = []
+    missing: list[str] = []
+    normalized_lines = [line.strip() for line in skills_raw.splitlines() if line.strip()]
+    lowered_lines = [(line, line.lower()) for line in normalized_lines]
+
+    for slug in requested:
+        line = next((raw for raw, low in lowered_lines if _line_mentions_slug(low, slug)), "")
+        low = line.lower()
+        if not line:
+            missing.append(slug)
+        elif any(token in low for token in ("needs setup", "setup required", "not ready")):
+            needs_setup.append(slug)
+        elif "ready" in low or "✅" in line or "✓" in line or "✔" in line:
+            ready.append(slug)
+        else:
+            installed.append(slug)
+
+    for slug in install_failed:
+        if slug not in missing and slug not in requested:
+            missing.append(slug)
+
+    return {
+        "requested": list(requested),
+        "ready": ready,
+        "needs_setup": needs_setup,
+        "installed": installed,
+        "missing": missing,
+        "install_succeeded": sorted(set(install_succeeded)),
+        "install_failed": sorted(set(install_failed)),
+        "raw": skills_raw.strip()[:4000],
+    }
+
+
+def _line_mentions_slug(line: str, slug: str) -> bool:
+    return bool(re.search(rf"(^|[^a-z0-9_-]){re.escape(slug.lower())}([^a-z0-9_-]|$)", line))
 
 
 def _extract_openclaw_failure(parsed: dict[str, Any]) -> str | None:
@@ -550,6 +925,9 @@ def _extract_openclaw_failure(parsed: dict[str, Any]) -> str | None:
         meta = result.get("meta")
         if isinstance(meta, dict):
             candidates.append(meta)
+    partial = _extract_partial_output(parsed)
+    if partial and _is_timeout_text(partial):
+        return partial
 
     for item in candidates:
         status = item.get("status") or item.get("finalStatus")
@@ -579,6 +957,15 @@ def _failure_message_from(item: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return "OpenClaw run did not complete."
+
+
+def _is_timeout_text(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return (
+        "timed out" in lowered
+        or "timeout" in lowered
+        or "request timed out" in lowered
+    )
 
 
 def _looks_like_openclaw_failure(text: str) -> bool:

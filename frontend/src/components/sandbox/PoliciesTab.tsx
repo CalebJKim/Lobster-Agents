@@ -1,4 +1,11 @@
-import type { NemoClawPolicyPreset } from "../../types";
+import { useMemo, useState } from "react";
+import type {
+  NemoClawCredentialCheck,
+  NemoClawPolicyPreset,
+  OpenClawApprovalsStatus,
+  OpenShellNetworkRule,
+  OpenShellNetworkRulesStatus,
+} from "../../types";
 
 interface PolicyPreview {
   preset: string;
@@ -16,6 +23,137 @@ interface PoliciesTabProps {
   onApply: () => void;
   onCancelPreview: () => void;
   onReload: () => void;
+  credentialChecks?: NemoClawCredentialCheck[];
+  approvals?: OpenClawApprovalsStatus | null;
+  networkRules?: OpenShellNetworkRulesStatus | null;
+  networkRulesError?: string | null;
+  networkRulesBusy?: string | null;
+  onNetworkRulesReload?: () => void;
+  onNetworkRuleDecision?: (
+    rule: OpenShellNetworkRule,
+    decision: "approve" | "reject",
+  ) => void;
+  onNetworkRulesApproveAll?: () => void;
+  onNetworkRulesClearPending?: () => void;
+}
+
+function statusClass(status: OpenShellNetworkRule["status"]) {
+  if (status === "pending") return "border-amber-300/28 bg-amber-300/[0.07] text-amber-50";
+  if (status === "approved") return "border-emerald-300/22 bg-emerald-300/[0.06] text-emerald-50";
+  if (status === "rejected") return "border-rose-300/24 bg-rose-300/[0.07] text-rose-50";
+  return "border-white/10 bg-white/[0.04] text-white/70";
+}
+
+function ruleBusyKey(rule: OpenShellNetworkRule, decision: "approve" | "reject") {
+  return `${decision}:${rule.id}`;
+}
+
+function RuleCard({
+  rule,
+  busy,
+  onDecision,
+}: {
+  rule: OpenShellNetworkRule;
+  busy?: string | null;
+  onDecision?: (rule: OpenShellNetworkRule, decision: "approve" | "reject") => void;
+}) {
+  const endpoints = rule.endpoints?.length
+    ? rule.endpoints
+    : rule.endpoints_raw
+      ? [rule.endpoints_raw]
+      : [];
+  const binaries = rule.binaries?.length
+    ? rule.binaries
+    : rule.binaries_raw
+      ? [rule.binaries_raw]
+      : rule.binary
+        ? [rule.binary]
+        : [];
+  const approveBusy = busy === ruleBusyKey(rule, "approve");
+  const rejectBusy = busy === ruleBusyKey(rule, "reject");
+
+  return (
+    <div className={`rounded-xl border px-3 py-3 ${statusClass(rule.status)}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-white/[0.10] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+              {rule.status}
+            </span>
+            {typeof rule.confidence === "number" && (
+              <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+                {rule.confidence}% confidence
+              </span>
+            )}
+            {typeof rule.hit_count === "number" && (
+              <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+                {rule.hit_count} hit{rule.hit_count === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          <div className="mt-1.5 break-words text-[12px] font-semibold leading-5 text-white/90">
+            {rule.rule_name || rule.id}
+          </div>
+          {endpoints.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {endpoints.map((endpoint) => (
+                <span
+                  key={endpoint}
+                  className="rounded-md bg-slate-950/36 px-2 py-0.5 font-mono text-[10px] text-cyan-50/80"
+                >
+                  {endpoint}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+          {(rule.status === "pending" || rule.status === "rejected") && (
+            <button
+              type="button"
+              disabled={!onDecision || approveBusy || Boolean(busy && !approveBusy)}
+              onClick={() => onDecision?.(rule, "approve")}
+              className="rounded-md bg-emerald-300/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-50 hover:bg-emerald-300/32 disabled:opacity-40"
+            >
+              {approveBusy ? "Approving" : "Approve"}
+            </button>
+          )}
+          {(rule.status === "pending" || rule.status === "approved") && (
+            <button
+              type="button"
+              disabled={!onDecision || rejectBusy || Boolean(busy && !rejectBusy)}
+              onClick={() => onDecision?.(rule, "reject")}
+              className="rounded-md bg-rose-300/18 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-50 hover:bg-rose-300/30 disabled:opacity-40"
+              title={rule.status === "approved" ? "Revoke this approved rule" : "Reject this pending rule"}
+            >
+              {rejectBusy ? "Working" : rule.status === "approved" ? "Revoke" : "Reject"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {rule.rationale && (
+        <div className="mt-2 break-words text-[12px] leading-5 text-white/72">
+          {rule.rationale}
+        </div>
+      )}
+
+      <div className="mt-2 grid gap-1.5 text-[11px] leading-4 text-white/54 md:grid-cols-2">
+        <div className="min-w-0">
+          <span className="font-bold uppercase tracking-wide text-white/35">Binary</span>
+          <div className="mt-0.5 break-all font-mono text-white/62">
+            {rule.binary || binaries[0] || "unknown"}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <span className="font-bold uppercase tracking-wide text-white/35">Last seen</span>
+          <div className="mt-0.5 break-words font-mono text-white/62">
+            {rule.last_seen || "unknown"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function PoliciesTab({
@@ -28,89 +166,321 @@ export default function PoliciesTab({
   onApply,
   onCancelPreview,
   onReload,
+  credentialChecks = [],
+  approvals,
+  networkRules,
+  networkRulesError,
+  networkRulesBusy,
+  onNetworkRulesReload,
+  onNetworkRuleDecision,
+  onNetworkRulesApproveAll,
+  onNetworkRulesClearPending,
 }: PoliciesTabProps) {
+  const [clearPendingConfirm, setClearPendingConfirm] = useState(false);
+  const rules = networkRules?.rules ?? [];
+  const pendingRules = useMemo(
+    () => rules.filter((rule) => rule.status === "pending"),
+    [rules],
+  );
+  const approvedRules = useMemo(
+    () => rules.filter((rule) => rule.status === "approved"),
+    [rules],
+  );
+  const rejectedRules = useMemo(
+    () => rules.filter((rule) => rule.status === "rejected"),
+    [rules],
+  );
+
+  const handleClearPending = () => {
+    if (!clearPendingConfirm) {
+      setClearPendingConfirm(true);
+      return;
+    }
+    setClearPendingConfirm(false);
+    onNetworkRulesClearPending?.();
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[12px] leading-5 text-white/65">
-          Toggle a preset to preview what the NemoClaw policy CLI would do.
-          Nothing is applied until you click <span className="font-semibold text-white/82">Apply</span>.
-        </p>
-        <button
-          type="button"
-          onClick={onReload}
-          className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/72 hover:bg-white/[0.16] hover:text-white"
-        >
-          Reload
-        </button>
-      </div>
+    <div className="space-y-4">
+      <section className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
+              Policy architecture
+            </div>
+            <div className="mt-1.5 text-[12px] leading-5 text-white/65">
+              NemoClaw presets define broad sandbox allowances. OpenShell network rules are approval-after-deny recommendations for outbound traffic. Runtime exec policy is separate and read-only here.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onReload}
+            className="shrink-0 rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/72 hover:bg-white/[0.16] hover:text-white"
+          >
+            Reload
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+          <span className="rounded-full bg-emerald-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-emerald-100">
+            presets on: {policies.filter((p) => p.enabled).length}
+          </span>
+          <span className="rounded-full bg-amber-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-amber-100">
+            pending rules: {pendingRules.length}
+          </span>
+          <span className="rounded-full bg-emerald-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-emerald-100">
+            approved rules: {approvedRules.length}
+          </span>
+          <span className="rounded-full bg-cyan-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-cyan-100">
+            exec security: {approvals?.summary?.security ?? "unknown"}
+          </span>
+          <span className="rounded-full bg-cyan-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-cyan-100">
+            exec ask: {approvals?.summary?.ask ?? "unknown"}
+          </span>
+        </div>
+      </section>
 
-      {error && (
-        <div className="rounded-lg border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-[12px] text-rose-100">
-          {error}
+      <section className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
+              OpenShell network rules
+            </div>
+            <div className="mt-1 text-[12px] leading-5 text-white/65">
+              OpenShell denies first, records the attempted outbound access, then proposes a minimal policy rule. Approving lets future retries through after policy hot-reload.
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={onNetworkRulesReload ?? onReload}
+              disabled={networkRulesBusy === "reload"}
+              className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/70 hover:bg-white/[0.16] disabled:opacity-40"
+            >
+              Reload
+            </button>
+            {pendingRules.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={onNetworkRulesApproveAll}
+                  disabled={!onNetworkRulesApproveAll || Boolean(networkRulesBusy)}
+                  className="rounded-md bg-emerald-300/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-50 hover:bg-emerald-300/32 disabled:opacity-40"
+                >
+                  {networkRulesBusy === "approve-all" ? "Approving" : "Approve all"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearPending}
+                  disabled={!onNetworkRulesClearPending || Boolean(networkRulesBusy)}
+                  className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide disabled:opacity-40 ${
+                    clearPendingConfirm
+                      ? "bg-rose-300/28 text-rose-50 hover:bg-rose-300/40"
+                      : "bg-white/[0.08] text-white/70 hover:bg-white/[0.16]"
+                  }`}
+                >
+                  {networkRulesBusy === "clear-pending"
+                    ? "Clearing"
+                    : clearPendingConfirm
+                      ? "Confirm clear"
+                      : "Clear pending"}
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      )}
-      {notice && (
-        <div className="rounded-lg border border-emerald-300/24 bg-emerald-300/10 px-3 py-2 text-[12px] text-emerald-100">
-          {notice}
-        </div>
-      )}
 
-      {policies.length === 0 && !error ? (
-        <div className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
-          Loading policies…
+        {networkRulesError && (
+          <div className="mt-3 rounded-lg border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-[12px] text-rose-100">
+            {networkRulesError}
+          </div>
+        )}
+
+        {!networkRules && !networkRulesError ? (
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
+            Loading OpenShell network rules...
+          </div>
+        ) : rules.length === 0 && !networkRulesError ? (
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
+            No OpenShell network-rule recommendations for this sandbox.
+          </div>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {pendingRules.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-amber-100/75">
+                  Pending
+                </div>
+                {pendingRules.map((rule) => (
+                  <RuleCard
+                    key={rule.id}
+                    rule={rule}
+                    busy={networkRulesBusy}
+                    onDecision={onNetworkRuleDecision}
+                  />
+                ))}
+              </div>
+            )}
+
+            {approvedRules.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-100/75">
+                  Approved
+                </div>
+                {approvedRules.map((rule) => (
+                  <RuleCard
+                    key={rule.id}
+                    rule={rule}
+                    busy={networkRulesBusy}
+                    onDecision={onNetworkRuleDecision}
+                  />
+                ))}
+              </div>
+            )}
+
+            {rejectedRules.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-rose-100/75">
+                  Rejected
+                </div>
+                {rejectedRules.map((rule) => (
+                  <RuleCard
+                    key={rule.id}
+                    rule={rule}
+                    busy={networkRulesBusy}
+                    onDecision={onNetworkRuleDecision}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+        <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
+          Runtime exec policy
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-          {policies.map((p) => {
-            const isBusy = busy === p.name;
-            const previewMatches = preview?.preset === p.name;
-            const nextEnabled = previewMatches ? preview!.enabled : !p.enabled;
-            return (
+        <div className="mt-1.5 text-[12px] leading-5 text-white/65">
+          OpenClaw exec approvals are runtime-level command approvals. This panel shows effective policy only; OpenShell network rules above are the sandbox-level approve/reject flow.
+        </div>
+        {approvals?.effective_policy ? (
+          <pre className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap break-words rounded bg-slate-950/35 px-3 py-2 font-mono text-[10px] leading-4 text-white/58">
+            {approvals.effective_policy}
+          </pre>
+        ) : (
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-[12px] text-white/55">
+            Runtime exec policy has not loaded yet.
+          </div>
+        )}
+      </section>
+
+      {credentialChecks.length > 0 && (
+        <section className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
+            Credential checks
+          </div>
+          <div className="mt-2 space-y-1.5">
+            {credentialChecks.map((check) => (
               <div
-                key={p.name}
-                className={`rounded-xl border px-3 py-3 transition ${
-                  p.enabled
-                    ? "border-emerald-300/22 bg-emerald-300/[0.05]"
-                    : "border-white/10 bg-white/[0.04]"
+                key={`${check.policy}-${check.name}`}
+                className={`rounded-lg px-3 py-2 text-[12px] leading-4 ${
+                  check.status === "missing"
+                    ? "border border-rose-300/24 bg-rose-300/[0.08] text-rose-50"
+                    : check.status === "ok"
+                      ? "border border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-50"
+                      : "border border-white/10 bg-white/[0.04] text-white/64"
                 }`}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-[12px] font-semibold text-white/88">
-                      {p.name}
-                    </div>
-                    {p.description && (
-                      <div className="mt-0.5 break-words text-[11px] leading-4 text-white/55">
-                        {p.description}
-                      </div>
-                    )}
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                      p.enabled
-                        ? "bg-emerald-300/16 text-emerald-100"
-                        : "bg-white/[0.08] text-white/65"
-                    }`}
-                  >
-                    {p.enabled ? "on" : "off"}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => onPreview(p.name, nextEnabled)}
-                    className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/82 hover:bg-white/[0.16] disabled:opacity-40"
-                  >
-                    {isBusy ? "Working…" : `Preview turning ${nextEnabled ? "on" : "off"}`}
-                  </button>
-                </div>
+                <span className="font-semibold">{check.policy}</span>
+                {" / "}
+                <span className="font-mono">{check.name}</span>
+                {" - "}
+                {check.message}
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        </section>
       )}
+
+      <section className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
+              NemoClaw presets
+            </div>
+            <p className="mt-1 text-[12px] leading-5 text-white/65">
+              Toggle a preset to preview what the NemoClaw policy CLI would do. Nothing is applied until you click <span className="font-semibold text-white/82">Apply</span>.
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-[12px] text-rose-100">
+            {error}
+          </div>
+        )}
+        {notice && (
+          <div className="mt-3 rounded-lg border border-emerald-300/24 bg-emerald-300/10 px-3 py-2 text-[12px] text-emerald-100">
+            {notice}
+          </div>
+        )}
+
+        {policies.length === 0 && !error ? (
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
+            Loading policies...
+          </div>
+        ) : (
+          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {policies.map((p) => {
+              const isBusy = busy === p.name;
+              const previewMatches = preview?.preset === p.name;
+              const nextEnabled = previewMatches ? preview.enabled : !p.enabled;
+              return (
+                <div
+                  key={p.name}
+                  className={`rounded-xl border px-3 py-3 transition ${
+                    p.enabled
+                      ? "border-emerald-300/22 bg-emerald-300/[0.05]"
+                      : "border-white/10 bg-white/[0.04]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-semibold text-white/88">
+                        {p.name}
+                      </div>
+                      {p.description && (
+                        <div className="mt-0.5 break-words text-[11px] leading-4 text-white/55">
+                          {p.description}
+                        </div>
+                      )}
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                        p.enabled
+                          ? "bg-emerald-300/16 text-emerald-100"
+                          : "bg-white/[0.08] text-white/65"
+                      }`}
+                    >
+                      {p.enabled ? "on" : "off"}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => onPreview(p.name, nextEnabled)}
+                      className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/82 hover:bg-white/[0.16] disabled:opacity-40"
+                    >
+                      {isBusy ? "Working..." : `Preview turning ${nextEnabled ? "on" : "off"}`}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {preview && (
         <div className="rounded-xl border border-cyan-300/30 bg-cyan-300/[0.08] px-4 py-3">
@@ -137,7 +507,7 @@ export default function PoliciesTab({
                 disabled={busy === preview.preset}
                 className="rounded-md bg-cyan-300/30 px-3 py-1 text-[11px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
               >
-                {busy === preview.preset ? "Applying…" : "Apply"}
+                {busy === preview.preset ? "Applying..." : "Apply"}
               </button>
             </div>
           </div>

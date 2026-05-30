@@ -1,4 +1,8 @@
-import type { NemoClawSandbox } from "../../types";
+import type {
+  NemoClawSandbox,
+  OpenClawSkillStatus,
+  SandboxRunDiagnostics,
+} from "../../types";
 import { AGENT_COLORS } from "../../utils/sprites";
 import { formatTime } from "./format";
 
@@ -7,6 +11,7 @@ interface StatusTabProps {
   outputs: [string, string][];
   errors: [string, string][];
   team: NonNullable<NemoClawSandbox["assigned_agent_details"]>;
+  diagnostics?: SandboxRunDiagnostics | null;
 }
 
 export default function StatusTab({
@@ -14,7 +19,34 @@ export default function StatusTab({
   outputs,
   errors,
   team,
+  diagnostics,
 }: StatusTabProps) {
+  const skillStatus = diagnostics?.skill_status ?? run?.skill_status ?? {};
+  const toolErrors = diagnostics?.tool_errors ?? run?.tool_errors ?? [];
+  const failureKind = diagnostics?.failure_kind ?? run?.failure_kind;
+  const failureDetail = diagnostics?.failure_detail ?? run?.failure_detail;
+  const partialOutput = diagnostics?.partial_output ?? run?.partial_output ?? {};
+  const timedOut = Boolean(diagnostics?.timed_out ?? run?.timed_out);
+  const agentRuns = diagnostics?.agent_runs ?? run?.agent_runs ?? {};
+  const totalCount = run?.total_count ?? run?.agents?.length ?? Object.keys(agentRuns).length;
+  const successCount =
+    run?.success_count ??
+    Object.values(agentRuns).filter((agentRun) => agentRun?.success).length;
+  const errorCount =
+    run?.error_count ??
+    Math.max(0, totalCount - successCount);
+  const outcome = run?.outcome;
+  const outcomeLabel =
+    outcome === "success"
+      ? "Run succeeded"
+      : outcome === "partial"
+        ? "Run partially succeeded"
+        : outcome === "failed"
+          ? "Run failed"
+          : outcome === "empty"
+            ? "Run finished with no agents"
+            : null;
+
   return (
     <div className="space-y-4">
       {/* Run summary */}
@@ -82,7 +114,28 @@ export default function StatusTab({
             {run.current_agent && <span>active: {run.current_agent}</span>}
             {run.started_at && <span>started: {formatTime(run.started_at)}</span>}
             {run.finished_at && <span>finished: {formatTime(run.finished_at)}</span>}
+            {timedOut && <span>timed_out: true</span>}
           </div>
+          {outcomeLabel && run.status === "finished" && (
+            <div
+              className={`mt-3 rounded-lg border px-3 py-2 text-[12px] leading-5 ${
+                outcome === "success"
+                  ? "border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-50"
+                  : outcome === "partial"
+                    ? "border-amber-300/24 bg-amber-300/[0.08] text-amber-50"
+                    : "border-rose-300/24 bg-rose-300/[0.08] text-rose-50"
+              }`}
+            >
+              <span className="font-semibold">{outcomeLabel}</span>
+              {totalCount > 0 && (
+                <span className="text-white/72">
+                  {" "}
+                  ({successCount}/{totalCount} agents succeeded
+                  {errorCount > 0 ? `; ${errorCount} failed` : ""}).
+                </span>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid place-items-center rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.03] to-white/[0.01] px-6 py-14 text-center">
@@ -98,6 +151,71 @@ export default function StatusTab({
             in the dock to start one.
           </div>
         </div>
+      )}
+
+      {(failureKind || failureDetail || toolErrors.length > 0) && (
+        <section>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-amber-100/85">
+            Failure diagnostics{errorCount > 0 ? ` (${errorCount} agent${errorCount === 1 ? "" : "s"} failed)` : ""}
+          </div>
+          <div className="rounded-xl border border-amber-300/24 bg-amber-300/[0.07] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {failureKind && (
+                <span className="rounded-full bg-amber-300/18 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-50">
+                  {failureKind.replace(/_/g, " ")}
+                </span>
+              )}
+              {timedOut && (
+                <span className="rounded-full bg-rose-300/16 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-50">
+                  timeout
+                </span>
+              )}
+            </div>
+            {failureDetail && (
+              <div className="mt-2 whitespace-pre-wrap break-words text-[12px] leading-5 text-white/78">
+                {failureDetail}
+              </div>
+            )}
+            {toolErrors.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {toolErrors.map((err, idx) => (
+                  <div
+                    key={`tool-${idx}`}
+                    className="rounded-md bg-slate-950/35 px-2.5 py-1.5 text-[11px] leading-4 text-white/72"
+                  >
+                    <span className="font-semibold text-amber-100">
+                      {err.agent ? `${err.agent}: ` : ""}
+                      {err.tool ?? "tool"}
+                    </span>
+                    {" "}
+                    {err.error}
+                    {err.message ? ` — ${err.message}` : ""}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {Object.keys(partialOutput).length > 0 && (
+        <section>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
+            Partial output preserved
+          </div>
+          <div className="space-y-2">
+            {Object.entries(partialOutput).map(([agent, text]) => (
+              <pre
+                key={`partial-${agent}`}
+                className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 font-sans text-[12px] leading-5 text-white/72"
+              >
+                <span className="font-semibold text-white/88">{agent}</span>
+                {"\n"}
+                {text}
+              </pre>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Attempted violations — red rows visible to the user */}
@@ -187,8 +305,8 @@ export default function StatusTab({
         </section>
       )}
 
-      {/* Team capabilities — real OpenClaw skills first (these are actually
-          installed on each agent inside the sandbox), then soft trait chips. */}
+      {/* Team capabilities — actual run-time skill readiness first, then
+          requested OpenClaw skills and soft trait chips. */}
       {team.length > 0 && (
         <section>
           <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
@@ -214,10 +332,24 @@ export default function StatusTab({
             }
             return (
               <div className="space-y-2">
+                {Object.keys(skillStatus).length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/40">
+                      Live OpenClaw skill readiness
+                    </div>
+                    {Object.entries(skillStatus).map(([agentName, status]) => (
+                      <SkillStatusRow
+                        key={agentName}
+                        agentName={agentName}
+                        status={status}
+                      />
+                    ))}
+                  </div>
+                )}
                 {skills.length > 0 && (
                   <div>
                     <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-100/72">
-                      Installed OpenClaw skills
+                      Requested OpenClaw skills
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {skills.map((s) => (
@@ -287,6 +419,65 @@ export default function StatusTab({
         )}
       </section>
 
+    </div>
+  );
+}
+
+function SkillStatusRow({
+  agentName,
+  status,
+}: {
+  agentName: string;
+  status: OpenClawSkillStatus;
+}) {
+  const groups = [
+    { label: "ready", values: status.ready ?? [], cls: "bg-emerald-300/16 text-emerald-50" },
+    { label: "needs setup", values: status.needs_setup ?? [], cls: "bg-amber-300/16 text-amber-50" },
+    { label: "installed", values: status.installed ?? [], cls: "bg-cyan-300/14 text-cyan-50" },
+    { label: "missing", values: status.missing ?? [], cls: "bg-rose-300/16 text-rose-50" },
+    { label: "install failed", values: status.install_failed ?? [], cls: "bg-rose-300/22 text-rose-50" },
+  ].filter((group) => group.values.length > 0);
+
+  if (groups.length === 0 && (status.requested ?? []).length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold text-white/82">
+          {agentName}
+        </span>
+        {status.success === false && (
+          <span className="rounded-full bg-rose-300/16 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-50">
+            profile issue
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {groups.length > 0 ? (
+          groups.flatMap((group) =>
+            group.values.map((value) => (
+              <span
+                key={`${group.label}-${value}`}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${group.cls}`}
+                title={group.label}
+              >
+                {group.label}: {value}
+              </span>
+            )),
+          )
+        ) : (
+          (status.requested ?? []).map((value) => (
+            <span
+              key={`requested-${value}`}
+              className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/65"
+            >
+              requested: {value}
+            </span>
+          ))
+        )}
+      </div>
     </div>
   );
 }

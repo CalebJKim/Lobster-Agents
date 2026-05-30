@@ -18,6 +18,7 @@ import SandboxRunPanel from "./components/SandboxRunPanel";
 import ErrorBoundary from "./components/ErrorBoundary";
 import type { ChatMessage, NemoClawSandbox } from "./types";
 import { withoutLandOfficeIdleMessages } from "./utils/messageFilters";
+import { fetchSandboxes } from "./utils/sandboxApi";
 
 const TABS: { id: SidebarTab; label: string }[] = [
   { id: "chat", label: "Chat" },
@@ -241,6 +242,26 @@ export default function App() {
   // Latest /sandboxes payload, lifted up so both the Orchestrator dock and the
   // floating monitor can read the same source of truth.
   const [sandboxesIndex, setSandboxesIndex] = useState<NemoClawSandbox[]>([]);
+  const refreshSandboxesIndex = useCallback(async () => {
+    try {
+      const next = await fetchSandboxes();
+      setSandboxesIndex(next.sandboxes ?? []);
+      return next;
+    } catch (err) {
+      setSandboxNotice(err instanceof Error ? err.message : "Could not load sandboxes");
+      return null;
+    }
+  }, []);
+  const refreshSandboxSurfaces = useCallback(async () => {
+    await Promise.all([refreshOfficeState(), refreshSandboxesIndex()]);
+  }, [refreshOfficeState, refreshSandboxesIndex]);
+
+  useEffect(() => {
+    if (!openSandboxName) return;
+    refreshSandboxesIndex();
+    const id = window.setInterval(refreshSandboxesIndex, 5000);
+    return () => window.clearInterval(id);
+  }, [openSandboxName, refreshSandboxesIndex]);
 
   useEffect(() => {
     if (!sandboxNotice) return;
@@ -540,7 +561,7 @@ export default function App() {
               messages={messages}
               consoleLines={consoleLines}
               onClose={() => setOpenSandboxName(null)}
-              onAfterChange={refreshOfficeState}
+              onAfterChange={refreshSandboxSurfaces}
               onLocalRename={(name, displayName) =>
                 setSandboxesIndex((prev) =>
                   prev.map((s) =>

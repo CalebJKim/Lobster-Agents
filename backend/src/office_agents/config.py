@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # NemoClaw Spark host layout; override for local-dev environments.
     sandbox_workspaces_dir: str = "/sandbox/workspaces"
     sandbox_runs_dir: str = "/sandbox/runs"
+    # OpenClaw turn timeout for NemoClaw relay runs. The 35B model can take
+    # about two minutes even for a tiny first turn, so web/tool relay turns
+    # need a wider window than the old hard-coded 90s timeout.
+    openclaw_turn_timeout_seconds: int = 300
+    # OpenClaw also has an internal LLM idle timeout: if no token arrives
+    # within this window, it aborts even when the outer turn timeout is still
+    # open. Disable that idle guard and rely on the bounded turn timeout above.
+    openclaw_llm_idle_timeout_seconds: int = 0
+    # Profile preparation installs/filters skills before a turn starts.
+    openclaw_profile_timeout_seconds: int = 120
 
     # Extra directories searched by sandbox_runtime._which() when nemoclaw /
     # openshell aren't on PATH. Defaults are the Spark host's NVIDIA layout.

@@ -13,7 +13,12 @@ export function formatTime(ts: string | undefined): string {
   }
 }
 
-export function statusDot(status?: string | null): string {
+export function statusDot(status?: string | null, outcome?: string | null): string {
+  if (status === "finished") {
+    if (outcome === "partial") return "bg-amber-300";
+    if (outcome === "failed") return "bg-rose-300";
+    if (outcome === "success") return "bg-emerald-300";
+  }
   switch (status) {
     case "running":
       return "bg-cyan-300";

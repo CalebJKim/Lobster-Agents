@@ -169,6 +169,39 @@ export interface NemoClawSandbox {
   assigned_agents: string[];
   assigned_agent_details?: AgentInfo[];
   run_status?: NemoClawRunStatus | null;
+  readiness?: {
+    ok: boolean;
+    live: boolean;
+    gateway?: {
+      healthy?: boolean;
+      state?: string;
+    } | null;
+    inference?: {
+      provider?: string;
+      model?: string;
+    } | null;
+    issues?: string[];
+  };
+}
+
+export interface OpenClawSkillStatus {
+  claw_id?: string;
+  success?: boolean;
+  requested?: string[];
+  ready?: string[];
+  needs_setup?: string[];
+  installed?: string[];
+  missing?: string[];
+  install_succeeded?: string[];
+  install_failed?: string[];
+  raw?: string;
+}
+
+export interface OpenClawToolError {
+  agent?: string;
+  tool?: string;
+  error: string;
+  message?: string;
 }
 
 export interface NemoClawRunStatus {
@@ -188,6 +221,31 @@ export interface NemoClawRunStatus {
   outputs?: Record<string, string>;
   errors?: Record<string, string>;
   running?: boolean;
+  outcome?: "success" | "partial" | "failed" | "empty" | string;
+  success_count?: number;
+  error_count?: number;
+  total_count?: number;
+  succeeded_agents?: string[];
+  failed_agents?: string[];
+  failure_kind?: string | null;
+  failure_detail?: string | null;
+  timed_out?: boolean;
+  partial_output?: Record<string, string>;
+  tool_errors?: OpenClawToolError[];
+  skill_status?: Record<string, OpenClawSkillStatus>;
+  policy_snapshot?: string[];
+  agent_runs?: Record<string, {
+    agent?: string;
+    claw_id?: string;
+    success?: boolean;
+    session_id?: string;
+    execution_mode?: string;
+    failure_kind?: string | null;
+    failure_detail?: string | null;
+    timed_out?: boolean;
+    partial_output?: string | null;
+    tool_errors?: OpenClawToolError[];
+  }>;
   /** "single" for one-lobster runs, "sequential" for multi-lobster.
    *  Frontend uses this to label the row honestly — multi-lobster
    *  runs are not collaborative; each agent gets its own subprocess turn. */
@@ -231,8 +289,18 @@ export interface NemoClawPolicyPreset {
 export interface NemoClawPolicyStatus {
   sandbox_name: string;
   policies: NemoClawPolicyPreset[];
+  credential_checks?: NemoClawCredentialCheck[];
   raw?: string;
   error?: string | null;
+}
+
+export interface NemoClawCredentialCheck {
+  policy: string;
+  name: string;
+  required: boolean;
+  present?: boolean | null;
+  status: "ok" | "missing" | "unknown" | "not_required";
+  message: string;
 }
 
 export interface OpenClawApprovalsStatus {
@@ -248,6 +316,71 @@ export interface OpenClawApprovalsStatus {
   error?: string | null;
   sandbox_name?: string | null;
   effective_policy?: string;
+  summary?: {
+    ask?: string;
+    security?: string;
+    has_snapshot?: boolean;
+  };
+}
+
+export type OpenShellNetworkRuleStatus = "pending" | "approved" | "rejected" | "unknown";
+
+export interface OpenShellNetworkRule {
+  id: string;
+  status: OpenShellNetworkRuleStatus;
+  rule_name: string;
+  binary: string;
+  confidence?: number | null;
+  rationale?: string;
+  endpoints?: string[];
+  endpoints_raw?: string;
+  binaries?: string[];
+  binaries_raw?: string;
+  hit_count?: number | null;
+  first_seen?: string | null;
+  last_seen?: string | null;
+}
+
+export interface OpenShellNetworkRulesStatus {
+  sandbox_name?: string | null;
+  status_filter?: "pending" | "approved" | "rejected" | "all" | string;
+  version?: number | null;
+  expected_count?: number | null;
+  rules: OpenShellNetworkRule[];
+  counts?: {
+    pending?: number;
+    approved?: number;
+    rejected?: number;
+  };
+  raw?: string;
+  ok?: boolean;
+  error?: string | null;
+}
+
+export interface OpenShellNetworkRuleActionResult {
+  ok?: boolean;
+  sandbox_name?: string;
+  chunk_id?: string;
+  decision?: "approve" | "reject" | string;
+  include_security_flagged?: boolean;
+  output?: string;
+  error?: string | null;
+}
+
+export interface SandboxRunDiagnostics {
+  run_id: string;
+  sandbox_name: string;
+  run_status?: NemoClawRunStatus;
+  agent_runs?: NemoClawRunStatus["agent_runs"];
+  skill_status?: Record<string, OpenClawSkillStatus>;
+  policy_snapshot?: string[];
+  failure_kind?: string | null;
+  failure_detail?: string | null;
+  timed_out?: boolean;
+  partial_output?: Record<string, string>;
+  tool_errors?: OpenClawToolError[];
+  console?: SandboxConsoleLine[];
+  violations?: NemoClawRunStatus["violations"];
 }
 
 // WebSocket event union moved to ./ws.ts. Import { WSServerEvent, WSClientMessage } from there.

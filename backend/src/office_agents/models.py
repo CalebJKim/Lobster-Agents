@@ -96,3 +96,11 @@ class SandboxPolicyRequest(BaseModel):
     preset: str
     enabled: bool
     dry_run: bool = True
+
+
+class NetworkRuleDecisionRequest(BaseModel):
+    decision: str
+
+
+class NetworkRuleApproveAllRequest(BaseModel):
+    include_security_flagged: bool = False

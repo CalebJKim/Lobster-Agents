@@ -8,10 +8,20 @@ from fastapi import APIRouter, HTTPException
 
 from office_agents.claw_config import SANDBOX_WORKSPACES
 from office_agents.infra.app_state import app_state
-from office_agents.models import SandboxPolicyRequest, SandboxTaskRequest, SandboxTeamRequest
+from office_agents.models import (
+    NetworkRuleApproveAllRequest,
+    NetworkRuleDecisionRequest,
+    SandboxPolicyRequest,
+    SandboxTaskRequest,
+    SandboxTeamRequest,
+)
 from office_agents.sandbox_runtime.nemoclaw import (
+    approve_all_network_rules,
     clear_sandbox_state,
+    clear_pending_network_rules,
+    decide_network_rule,
     get_nemoclaw_status,
+    get_network_rules,
     get_openclaw_approvals,
     get_policy_presets,
     set_policy_preset,
@@ -77,6 +87,21 @@ async def get_sandboxes() -> dict[str, object]:
                 if a in agents_by_name
             ],
             "run_status": run_statuses.get(name),
+        }
+        readiness_issues: list[str] = []
+        if not item["live"]:
+            readiness_issues.append("Sandbox is configured but not live.")
+        gateway = status.get("gatewayHealth")
+        if isinstance(gateway, dict) and not gateway.get("healthy"):
+            readiness_issues.append(f"Gateway is {gateway.get('state') or 'unhealthy'}.")
+        if not live_inference:
+            readiness_issues.append("No live inference endpoint reported by NemoClaw.")
+        item["readiness"] = {
+            "ok": len(readiness_issues) == 0,
+            "live": item["live"],
+            "gateway": gateway if isinstance(gateway, dict) else None,
+            "inference": live_inference or None,
+            "issues": readiness_issues,
         }
         sandboxes.append(item)
 
@@ -221,7 +246,7 @@ async def clear_sandbox(sandbox_name: str) -> dict[str, object]:
 
 @router.get("/sandboxes/{sandbox_name}/policies")
 async def list_sandbox_policies(sandbox_name: str) -> dict[str, object]:
-    return await get_policy_presets(sandbox_name)
+    return await get_policy_presets(sandbox_name, include_checks=True)
 
 
 @router.post("/sandboxes/{sandbox_name}/policies")
@@ -240,3 +265,72 @@ async def update_sandbox_policy(sandbox_name: str, req: SandboxPolicyRequest) ->
 @router.get("/approvals")
 async def list_approvals(sandbox_name: str | None = None) -> dict[str, object]:
     return await get_openclaw_approvals(sandbox_name)
+
+
+@router.get("/sandboxes/{sandbox_name}/network-rules")
+async def list_network_rules(
+    sandbox_name: str,
+    status: str = "all",
+) -> dict[str, object]:
+    result = await get_network_rules(sandbox_name, status=status)
+    if result.get("error") and not result.get("rules"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@router.post("/sandboxes/{sandbox_name}/network-rules/{chunk_id}/decision")
+async def update_network_rule_decision(
+    sandbox_name: str,
+    chunk_id: str,
+    req: NetworkRuleDecisionRequest,
+) -> dict[str, object]:
+    result = await decide_network_rule(
+        sandbox_name,
+        chunk_id,
+        decision=req.decision,
+    )
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error") or "Network rule decision failed",
+        )
+    return result
+
+
+@router.post("/sandboxes/{sandbox_name}/network-rules/approve-all")
+async def approve_all_sandbox_network_rules(
+    sandbox_name: str,
+    req: NetworkRuleApproveAllRequest,
+) -> dict[str, object]:
+    result = await approve_all_network_rules(
+        sandbox_name,
+        include_security_flagged=req.include_security_flagged,
+    )
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error") or "Network rule approve-all failed",
+        )
+    return result
+
+
+@router.post("/sandboxes/{sandbox_name}/network-rules/clear-pending")
+async def clear_sandbox_pending_network_rules(sandbox_name: str) -> dict[str, object]:
+    result = await clear_pending_network_rules(sandbox_name)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error") or "Network rule clear failed",
+        )
+    return result
+
+
+@router.get("/sandboxes/{sandbox_name}/tasks/{run_id}/diagnostics")
+async def get_sandbox_task_diagnostics(sandbox_name: str, run_id: str) -> dict[str, object]:
+    diagnostics = app_state.require_orchestrator().get_sandbox_run_diagnostics(
+        sandbox_name=sandbox_name,
+        run_id=run_id,
+    )
+    if diagnostics is None:
+        raise HTTPException(status_code=404, detail="Run diagnostics not found")
+    return diagnostics

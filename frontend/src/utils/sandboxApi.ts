@@ -3,7 +3,22 @@
 // Error handling is intentionally left to the caller; the two consumers want
 // different shapes (throw-on-error vs. result-object).
 
-import type { NemoClawPolicyStatus } from "../types";
+import type {
+  NemoClawPolicyStatus,
+  NemoClawStatus,
+  OpenClawApprovalsStatus,
+  OpenShellNetworkRuleActionResult,
+  OpenShellNetworkRulesStatus,
+  SandboxRunDiagnostics,
+} from "../types";
+
+export async function fetchSandboxes(): Promise<NemoClawStatus> {
+  const res = await fetch("/sandboxes", {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Could not load sandboxes (${res.status})`);
+  return res.json();
+}
 
 /** Throws on non-2xx; otherwise parses JSON. Use when the caller has try/catch. */
 export async function fetchPolicies(sandboxName: string): Promise<NemoClawPolicyStatus> {
@@ -14,10 +29,103 @@ export async function fetchPolicies(sandboxName: string): Promise<NemoClawPolicy
   return res.json();
 }
 
+export async function fetchApprovals(sandboxName: string | null): Promise<OpenClawApprovalsStatus> {
+  const suffix = sandboxName ? `?sandbox_name=${encodeURIComponent(sandboxName)}` : "";
+  const res = await fetch(`/approvals${suffix}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Could not load approvals (${res.status})`);
+  return res.json();
+}
+
+export async function fetchNetworkRules(
+  sandboxName: string,
+  status: "pending" | "approved" | "rejected" | "all" = "all",
+): Promise<OpenShellNetworkRulesStatus> {
+  const res = await fetch(
+    `/sandboxes/${encodeURIComponent(sandboxName)}/network-rules?status=${encodeURIComponent(status)}`,
+    { cache: "no-store" },
+  );
+  const body = (await res.json().catch(() => ({}))) as OpenShellNetworkRulesStatus & {
+    detail?: string;
+  };
+  if (!res.ok) {
+    throw new Error(body.detail || body.error || `Could not load network rules (${res.status})`);
+  }
+  return body;
+}
+
+export async function fetchRunDiagnostics(
+  sandboxName: string,
+  runId: string,
+): Promise<SandboxRunDiagnostics> {
+  const res = await fetch(
+    `/sandboxes/${encodeURIComponent(sandboxName)}/tasks/${encodeURIComponent(runId)}/diagnostics`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Could not load run diagnostics (${res.status})`);
+  return res.json();
+}
+
 export interface SetPolicyResult {
   output?: string;
   ok?: boolean;
   error?: string;
+}
+
+async function networkRuleAction(
+  url: string,
+  init?: RequestInit,
+): Promise<OpenShellNetworkRuleActionResult> {
+  const res = await fetch(url, init);
+  const body = (await res.json().catch(() => ({}))) as OpenShellNetworkRuleActionResult & {
+    detail?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: body.error || body.detail || `Network rule action failed (${res.status})`,
+    };
+  }
+  return body;
+}
+
+export async function decideNetworkRule(
+  sandboxName: string,
+  chunkId: string,
+  decision: "approve" | "reject",
+): Promise<OpenShellNetworkRuleActionResult> {
+  return networkRuleAction(
+    `/sandboxes/${encodeURIComponent(sandboxName)}/network-rules/${encodeURIComponent(chunkId)}/decision`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    },
+  );
+}
+
+export async function approveAllNetworkRules(
+  sandboxName: string,
+  includeSecurityFlagged = false,
+): Promise<OpenShellNetworkRuleActionResult> {
+  return networkRuleAction(
+    `/sandboxes/${encodeURIComponent(sandboxName)}/network-rules/approve-all`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ include_security_flagged: includeSecurityFlagged }),
+    },
+  );
+}
+
+export async function clearPendingNetworkRules(
+  sandboxName: string,
+): Promise<OpenShellNetworkRuleActionResult> {
+  return networkRuleAction(
+    `/sandboxes/${encodeURIComponent(sandboxName)}/network-rules/clear-pending`,
+    { method: "POST" },
+  );
 }
 
 /** Never throws — failures return `{ ok: false, error }`. Use when the caller
@@ -37,7 +145,12 @@ export async function setPolicy(
   if (!res.ok) {
     return {
       ok: false,
-      error: typeof body?.error === "string" ? body.error : `Policy change failed (${res.status})`,
+      error:
+        typeof body?.error === "string"
+          ? body.error
+          : typeof (body as { detail?: unknown })?.detail === "string"
+            ? String((body as { detail: string }).detail)
+            : `Policy change failed (${res.status})`,
     };
   }
   return body;

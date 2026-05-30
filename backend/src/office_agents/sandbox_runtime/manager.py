@@ -95,11 +95,41 @@ class SandboxManager:
             item = dict(meta)
             item["run_id"] = run_id
             item["running"] = bool(task and not task.done())
+            # Console lines can grow to hundreds of entries; keep them behind
+            # the diagnostics endpoint instead of bloating every /sandboxes poll.
+            item.pop("console", None)
 
             existing = by_sandbox.get(sandbox_name)
             if not existing or str(item.get("started_at", "")) >= str(existing.get("started_at", "")):
                 by_sandbox[sandbox_name] = item
         return by_sandbox
+
+    def get_run_diagnostics(self, sandbox_name: str, run_id: str) -> dict[str, Any] | None:
+        """Return the detailed, per-run diagnostic record retained in memory."""
+
+        meta = self._run_meta.get(run_id)
+        if not meta or meta.get("sandbox_name") != sandbox_name:
+            return None
+
+        task = self._run_tasks.get(run_id)
+        item = dict(meta)
+        item["run_id"] = run_id
+        item["running"] = bool(task and not task.done())
+        return {
+            "run_id": run_id,
+            "sandbox_name": sandbox_name,
+            "run_status": item,
+            "agent_runs": item.get("agent_runs", {}),
+            "skill_status": item.get("skill_status", {}),
+            "policy_snapshot": item.get("policy_snapshot", item.get("policies", [])),
+            "failure_kind": item.get("failure_kind"),
+            "failure_detail": item.get("failure_detail"),
+            "timed_out": item.get("timed_out", False),
+            "partial_output": item.get("partial_output", {}),
+            "tool_errors": item.get("tool_errors", []),
+            "console": item.get("console", []),
+            "violations": item.get("violations", []),
+        }
 
     def active_agent_names(self) -> set[str]:
         """Agents currently owned by a running sandbox task."""
@@ -363,9 +393,15 @@ class SandboxManager:
             "started_at": datetime.now().isoformat(),
             "outputs": {},
             "errors": {},
+            "agent_runs": {},
+            "skill_status": {},
+            "partial_output": {},
+            "tool_errors": [],
+            "console": [],
             # 1 lobster → "single", 2+ → "coordinated" (each sees prior outputs).
             "mode": "single" if len(selected) == 1 else "coordinated",
             "policies": active_policies,
+            "policy_snapshot": active_policies,
         }
         self._run_tasks[run_id] = asyncio.create_task(
             self._execute_team_task(
@@ -604,6 +640,7 @@ class SandboxManager:
         self._reset_agents(agents)
         meta = self._run_meta.get(run_id)
         if meta:
+            self._summarize_run_outcome(meta, agents)
             meta["status"] = "finished"
             meta["finished_at"] = datetime.now().isoformat()
         await self._broadcast({
@@ -614,6 +651,55 @@ class SandboxManager:
             "timestamp": datetime.now().isoformat(),
         })
         await self._broadcast_full_state()
+
+    def _summarize_run_outcome(self, meta: dict[str, Any], agents: list[Agent]) -> None:
+        """Attach an aggregate outcome without losing per-agent detail.
+
+        ``status=finished`` means the relay lifecycle completed. ``outcome``
+        answers whether the team actually succeeded.
+        """
+
+        agent_runs = meta.get("agent_runs")
+        if not isinstance(agent_runs, dict):
+            agent_runs = {}
+        total = len(agents)
+        succeeded_agents = [
+            agent.name for agent in agents
+            if bool((agent_runs.get(agent.name) or {}).get("success"))
+        ]
+        failed_agents = [
+            agent.name for agent in agents
+            if agent.name not in succeeded_agents
+        ]
+        success_count = len(succeeded_agents)
+        error_count = len(failed_agents)
+        if total == 0:
+            outcome = "empty"
+        elif success_count == total:
+            outcome = "success"
+        elif success_count == 0:
+            outcome = "failed"
+        else:
+            outcome = "partial"
+
+        meta["outcome"] = outcome
+        meta["success_count"] = success_count
+        meta["error_count"] = error_count
+        meta["total_count"] = total
+        meta["succeeded_agents"] = succeeded_agents
+        meta["failed_agents"] = failed_agents
+        if outcome == "success":
+            meta["last_message"] = f"Run succeeded: {success_count}/{total} agents finished."
+        elif outcome == "partial":
+            meta["last_message"] = (
+                f"Run finished with partial success: {success_count}/{total} agents succeeded; "
+                f"{error_count} failed."
+            )
+        elif outcome == "failed":
+            meta["last_message"] = f"Run failed: 0/{total} agents succeeded."
+        else:
+            meta["last_message"] = "Run finished with no agents."
+        meta["last_update_at"] = datetime.now().isoformat()
 
     async def _handle_cancellation(
         self,
@@ -691,7 +777,17 @@ class SandboxManager:
             model=f"inference/{settings.llm_model}",
             skills=list(agent.openclaw_skills),
             working_dir=f"{DEFAULT_RUNS_WORKDIR}/{run_id}/{agent.claw_id}",
+            timeout_seconds=settings.openclaw_profile_timeout_seconds,
         )
+        meta = self._run_meta.get(run_id)
+        if meta is not None:
+            skill_status = meta.setdefault("skill_status", {})
+            skill_status[agent.name] = {
+                "claw_id": agent.claw_id,
+                "success": bool(ensure_result.get("success")),
+                "requested": ensure_result.get("skills_requested", []),
+                **(ensure_result.get("skill_status") or {}),
+            }
         if not ensure_result.get("success"):
             logger.warning(
                 "OpenClaw agent profile ensure failed: sandbox=%s agent=%s output=%s",
@@ -714,6 +810,21 @@ class SandboxManager:
         # the Task Monitor can render a live trace of what OpenClaw's
         # subprocess is doing. Cheap, observable proof the run is real.
         async def emit_console(stream: str, line: str) -> None:
+            timestamp = datetime.now().isoformat()
+            meta = self._run_meta.get(run_id)
+            if meta is not None:
+                console = meta.setdefault("console", [])
+                console.append({
+                    "run_id": run_id,
+                    "sandbox_name": sandbox_name,
+                    "agent": agent.name,
+                    "claw_id": agent.claw_id,
+                    "stream": stream,
+                    "line": line[:2000],
+                    "timestamp": timestamp,
+                })
+                if len(console) > 1000:
+                    del console[: len(console) - 1000]
             await self._broadcast({
                 "type": "sandbox_console",
                 "run_id": run_id,
@@ -722,7 +833,7 @@ class SandboxManager:
                 "claw_id": agent.claw_id,
                 "stream": stream,
                 "line": line[:2000],
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": timestamp,
             })
 
         result = await run_openclaw(
@@ -730,7 +841,7 @@ class SandboxManager:
             claw_id=agent.claw_id,
             sandbox_name=sandbox_name,
             working_dir=f"{DEFAULT_RUNS_WORKDIR}/{run_id}/{agent.claw_id}",
-            timeout_seconds=90,
+            timeout_seconds=settings.openclaw_turn_timeout_seconds,
             require_sandbox=True,
             display_name=agent.name,
             role_label=agent.role,
@@ -752,7 +863,14 @@ class SandboxManager:
         agent.state = AgentState.idle
         agent.current_task = None
 
+        diagnostics = result.get("diagnostics") if isinstance(result.get("diagnostics"), dict) else {}
+        partial = str(result.get("partial_output") or diagnostics.get("partial_output") or "").strip()
+        failure_detail = str(result.get("failure_detail") or diagnostics.get("failure_detail") or "").strip()
         raw_output = str(result.get("output") or "").strip()
+        if not result.get("success") and failure_detail and failure_detail not in raw_output:
+            raw_output = f"{failure_detail}\n\n{raw_output}" if raw_output else failure_detail
+        if not result.get("success") and partial and partial not in raw_output:
+            raw_output = f"{raw_output}\n\nPartial output:\n{partial}" if raw_output else f"Partial output:\n{partial}"
 
         # Surface attempted violations — when an agent tried to reach a tool /
         # host / file the sandbox blocked. Today these show up as substrings
@@ -784,11 +902,29 @@ class SandboxManager:
         if meta is not None:
             outputs = meta.setdefault("outputs", {})
             errors = meta.setdefault("errors", {})
+            agent_runs = meta.setdefault("agent_runs", {})
+            agent_runs[agent.name] = self._agent_run_diagnostics(agent, result)
+            if partial:
+                meta.setdefault("partial_output", {})[agent.name] = partial[:4000]
+            tool_errors = result.get("tool_errors") or diagnostics.get("tool_errors") or []
+            if isinstance(tool_errors, list) and tool_errors:
+                aggregate = meta.setdefault("tool_errors", [])
+                for entry in tool_errors:
+                    if isinstance(entry, dict):
+                        aggregate.append({"agent": agent.name, **entry})
+                    else:
+                        aggregate.append({"agent": agent.name, "error": str(entry)})
+                if len(aggregate) > 50:
+                    del aggregate[: len(aggregate) - 50]
             if result.get("success"):
                 outputs[agent.name] = output
                 errors.pop(agent.name, None)
             else:
                 errors[agent.name] = output
+                meta["failure_kind"] = meta.get("failure_kind") or result.get("failure_kind") or diagnostics.get("failure_kind") or "openclaw_failed"
+                meta["failure_detail"] = meta.get("failure_detail") or failure_detail or output
+                if result.get("timed_out") or diagnostics.get("timed_out"):
+                    meta["timed_out"] = True
         logger.info(
             "Sandbox team task result: run_id=%s sandbox=%s agent=%s success=%s output=%s",
             run_id,
@@ -820,6 +956,21 @@ class SandboxManager:
             "connect_command": agent.connect_command,
             "timestamp": datetime.now().isoformat(),
         })
+
+    def _agent_run_diagnostics(self, agent: Agent, result: dict[str, Any]) -> dict[str, Any]:
+        diagnostics = result.get("diagnostics") if isinstance(result.get("diagnostics"), dict) else {}
+        return {
+            "agent": agent.name,
+            "claw_id": agent.claw_id,
+            "success": bool(result.get("success")),
+            "session_id": result.get("session_id"),
+            "execution_mode": result.get("execution_mode"),
+            "failure_kind": result.get("failure_kind") or diagnostics.get("failure_kind"),
+            "failure_detail": result.get("failure_detail") or diagnostics.get("failure_detail"),
+            "timed_out": bool(result.get("timed_out") or diagnostics.get("timed_out")),
+            "partial_output": result.get("partial_output") or diagnostics.get("partial_output"),
+            "tool_errors": result.get("tool_errors") or diagnostics.get("tool_errors") or [],
+        }
 
     # Patterns that indicate an agent tried to invoke a tool / host / file
     # the sandbox or its per-agent filter denied. These are matched against

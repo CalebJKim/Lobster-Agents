@@ -15,6 +15,9 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SAFE_CHUNK_ID = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\a]*(?:\a|\x1b\\)")
+_NETWORK_RULE_STATUSES = {"pending", "approved", "rejected", "all"}
 
 
 def _which(command: str) -> str | None:
@@ -97,7 +100,12 @@ async def get_nemoclaw_status(timeout_seconds: int = 12) -> dict[str, Any]:
     return data
 
 
-async def get_policy_presets(sandbox_name: str, timeout_seconds: int = 12) -> dict[str, Any]:
+async def get_policy_presets(
+    sandbox_name: str,
+    timeout_seconds: int = 12,
+    *,
+    include_checks: bool = False,
+) -> dict[str, Any]:
     """Return all policy presets for a sandbox, including enabled state."""
     if not _SAFE_NAME.match(sandbox_name):
         return {"error": "Invalid sandbox name", "policies": []}
@@ -113,8 +121,24 @@ async def get_policy_presets(sandbox_name: str, timeout_seconds: int = 12) -> di
         return {"error": f"policy-list timed out after {timeout_seconds}s", "policies": []}
 
     output = run.stdout or run.stderr
-    policies = []
+    policies = _parse_policy_list(output)
+    credential_checks = (
+        await get_policy_credential_checks(sandbox_name, policies)
+        if include_checks
+        else []
+    )
 
+    return {
+        "sandbox_name": sandbox_name,
+        "policies": policies,
+        "credential_checks": credential_checks,
+        "raw": output,
+        "error": None if run.returncode == 0 else output,
+    }
+
+
+def _parse_policy_list(output: str) -> list[dict[str, Any]]:
+    policies: list[dict[str, Any]] = []
     for line in output.splitlines():
         stripped = line.strip()
         if not stripped.startswith(("●", "○")):
@@ -132,13 +156,408 @@ async def get_policy_presets(sandbox_name: str, timeout_seconds: int = 12) -> di
             "description": description,
             "enabled": enabled,
         })
+    return policies
+
+
+def _strip_ansi(value: str) -> str:
+    return _ANSI_RE.sub("", value).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _parse_int(value: str) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_network_rule_list(
+    output: str,
+    *,
+    sandbox_name: str | None = None,
+    status_filter: str = "all",
+) -> dict[str, Any]:
+    """Parse ``openshell rule get`` text output into stable UI data.
+
+    OpenShell currently prints a human-oriented, ANSI-colored table. Keep this
+    parser intentionally tolerant so minor formatting shifts do not hide rules
+    from the UI.
+    """
+    clean = _strip_ansi(output)
+    version: int | None = None
+    expected_count: int | None = None
+    rules: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    header_match = re.search(
+        r"Network Rules:\s*(?:\(version\s+(\d+),\s+(\d+)\s+chunks?\))?",
+        clean,
+        re.IGNORECASE,
+    )
+    if header_match:
+        version = _parse_int(header_match.group(1) or "")
+        expected_count = _parse_int(header_match.group(2) or "")
+
+    def finish_current() -> None:
+        nonlocal current
+        if not current:
+            return
+        if current.get("id"):
+            rules.append(current)
+        current = None
+
+    for raw_line in clean.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        label_match = re.match(r"^([A-Za-z][A-Za-z ]+):\s*(.*)$", line)
+        if not label_match:
+            continue
+
+        label = label_match.group(1).strip().lower()
+        value = label_match.group(2).strip()
+
+        if label == "chunk":
+            finish_current()
+            current = {
+                "id": value,
+                "status": "unknown",
+                "rule_name": "",
+                "binary": "",
+                "confidence": None,
+                "rationale": "",
+                "endpoints": [],
+                "endpoints_raw": "",
+                "binaries": [],
+                "binaries_raw": "",
+                "hit_count": None,
+                "first_seen": None,
+                "last_seen": None,
+            }
+            continue
+
+        if current is None:
+            continue
+
+        if label == "status":
+            current["status"] = value.lower()
+        elif label == "rule":
+            current["rule_name"] = value
+        elif label == "binary":
+            current["binary"] = value
+        elif label == "confidence":
+            pct = re.search(r"(\d+)", value)
+            current["confidence"] = _parse_int(pct.group(1)) if pct else None
+        elif label == "rationale":
+            current["rationale"] = value
+        elif label == "endpoints":
+            current["endpoints_raw"] = value
+            current["endpoints"] = [part.strip() for part in value.split(",") if part.strip()]
+        elif label == "binaries":
+            current["binaries_raw"] = value
+            current["binaries"] = [part.strip() for part in value.split(",") if part.strip()]
+        elif label == "hits":
+            hit_match = re.match(
+                r"(\d+)(?:\s+\(first seen\s+([^,]+),\s+last seen\s+([^)]+)\))?",
+                value,
+                re.IGNORECASE,
+            )
+            if hit_match:
+                current["hit_count"] = _parse_int(hit_match.group(1))
+                current["first_seen"] = hit_match.group(2)
+                current["last_seen"] = hit_match.group(3)
+
+    finish_current()
+
+    counts = {
+        "pending": sum(1 for rule in rules if rule.get("status") == "pending"),
+        "approved": sum(1 for rule in rules if rule.get("status") == "approved"),
+        "rejected": sum(1 for rule in rules if rule.get("status") == "rejected"),
+    }
 
     return {
         "sandbox_name": sandbox_name,
-        "policies": policies,
-        "raw": output,
+        "status_filter": status_filter,
+        "version": version,
+        "expected_count": expected_count,
+        "rules": rules,
+        "counts": counts,
+        "raw": clean,
+        "error": None,
+    }
+
+
+async def get_network_rules(
+    sandbox_name: str,
+    *,
+    status: str = "all",
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    """Return OpenShell network-rule recommendations for a sandbox."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"error": "Invalid sandbox name", "rules": []}
+
+    status_filter = status.lower().strip() if status else "all"
+    if status_filter not in _NETWORK_RULE_STATUSES:
+        return {"error": "Invalid network rule status", "rules": []}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"error": "OpenShell CLI was not found on PATH.", "rules": []}
+
+    cmd = [openshell_cmd, "rule", "get"]
+    if status_filter != "all":
+        cmd.extend(["--status", status_filter])
+    cmd.append(sandbox_name)
+
+    run = await run_capture(*cmd, timeout_seconds=timeout_seconds)
+    output = run.stdout or run.stderr
+    if run.timed_out:
+        return {
+            "sandbox_name": sandbox_name,
+            "status_filter": status_filter,
+            "rules": [],
+            "counts": {"pending": 0, "approved": 0, "rejected": 0},
+            "raw": _strip_ansi(output),
+            "error": f"openshell rule get timed out after {timeout_seconds}s",
+        }
+
+    parsed = _parse_network_rule_list(
+        output,
+        sandbox_name=sandbox_name,
+        status_filter=status_filter,
+    )
+    parsed["ok"] = run.returncode == 0
+    parsed["error"] = None if run.returncode == 0 else _strip_ansi(output).strip()
+    return parsed
+
+
+async def decide_network_rule(
+    sandbox_name: str,
+    chunk_id: str,
+    *,
+    decision: str,
+    timeout_seconds: int = 30,
+) -> dict[str, Any]:
+    """Approve or reject/revoke one OpenShell network-rule recommendation."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+    if not _SAFE_CHUNK_ID.match(chunk_id):
+        return {"ok": False, "error": "Invalid network rule chunk id"}
+    if decision not in {"approve", "reject"}:
+        return {"ok": False, "error": "Invalid network rule decision"}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"ok": False, "error": "OpenShell CLI was not found on PATH."}
+
+    run = await run_capture(
+        openshell_cmd,
+        "rule",
+        decision,
+        sandbox_name,
+        "--chunk-id",
+        chunk_id,
+        timeout_seconds=timeout_seconds,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "chunk_id": chunk_id,
+            "decision": decision,
+            "output": output,
+            "error": f"openshell rule {decision} timed out after {timeout_seconds}s",
+        }
+
+    return {
+        "ok": run.returncode == 0,
+        "sandbox_name": sandbox_name,
+        "chunk_id": chunk_id,
+        "decision": decision,
+        "output": output,
         "error": None if run.returncode == 0 else output,
     }
+
+
+async def approve_all_network_rules(
+    sandbox_name: str,
+    *,
+    include_security_flagged: bool = False,
+    timeout_seconds: int = 45,
+) -> dict[str, Any]:
+    """Approve pending OpenShell network rules for a sandbox."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"ok": False, "error": "OpenShell CLI was not found on PATH."}
+
+    cmd = [openshell_cmd, "rule", "approve-all", sandbox_name]
+    if include_security_flagged:
+        cmd.append("--include-security-flagged")
+
+    run = await run_capture(*cmd, timeout_seconds=timeout_seconds)
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "include_security_flagged": include_security_flagged,
+            "output": output,
+            "error": f"openshell rule approve-all timed out after {timeout_seconds}s",
+        }
+
+    return {
+        "ok": run.returncode == 0,
+        "sandbox_name": sandbox_name,
+        "include_security_flagged": include_security_flagged,
+        "output": output,
+        "error": None if run.returncode == 0 else output,
+    }
+
+
+async def clear_pending_network_rules(
+    sandbox_name: str,
+    *,
+    timeout_seconds: int = 30,
+) -> dict[str, Any]:
+    """Clear pending OpenShell network-rule recommendations."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"ok": False, "error": "OpenShell CLI was not found on PATH."}
+
+    run = await run_capture(
+        openshell_cmd,
+        "rule",
+        "clear",
+        sandbox_name,
+        timeout_seconds=timeout_seconds,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "output": output,
+            "error": f"openshell rule clear timed out after {timeout_seconds}s",
+        }
+
+    return {
+        "ok": run.returncode == 0,
+        "sandbox_name": sandbox_name,
+        "output": output,
+        "error": None if run.returncode == 0 else output,
+    }
+
+
+_POLICY_CREDENTIALS: dict[str, list[str]] = {
+    "brave": ["BRAVE_API_KEY"],
+}
+
+
+async def get_policy_credential_checks(
+    sandbox_name: str,
+    policies: list[dict[str, Any]],
+    timeout_seconds: int = 8,
+) -> list[dict[str, Any]]:
+    """Return presence-only checks for credentials required by enabled policies."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return []
+
+    policy_by_name = {
+        str(policy.get("name")): bool(policy.get("enabled"))
+        for policy in policies
+        if isinstance(policy.get("name"), str)
+    }
+    env_names = sorted({
+        env_name
+        for policy_name in policy_by_name
+        for env_name in _POLICY_CREDENTIALS.get(policy_name, [])
+    })
+    if not env_names:
+        return []
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return [
+            {
+                "policy": policy_name,
+                "name": env_name,
+                "required": enabled,
+                "present": None,
+                "status": "unknown",
+                "message": "OpenShell CLI was not found on PATH.",
+            }
+            for policy_name, enabled in policy_by_name.items()
+            for env_name in _POLICY_CREDENTIALS.get(policy_name, [])
+        ]
+
+    py = (
+        "import json,os,sys;"
+        "names=sys.argv[1:];"
+        "print(json.dumps({name: bool(os.environ.get(name)) for name in names}))"
+    )
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--timeout",
+        str(timeout_seconds),
+        "--",
+        "python3",
+        "-c",
+        py,
+        *env_names,
+        timeout_seconds=timeout_seconds + 5,
+    )
+
+    present_by_name: dict[str, bool] = {}
+    error: str | None = None
+    if run.timed_out:
+        error = f"credential check timed out after {timeout_seconds}s"
+    elif run.returncode != 0:
+        error = run.stderr or run.stdout or f"openshell exited with code {run.returncode}"
+    else:
+        try:
+            parsed = json.loads(run.stdout)
+            if isinstance(parsed, dict):
+                present_by_name = {str(k): bool(v) for k, v in parsed.items()}
+        except json.JSONDecodeError:
+            error = "credential check returned invalid JSON"
+
+    checks: list[dict[str, Any]] = []
+    for policy_name, enabled in policy_by_name.items():
+        for env_name in _POLICY_CREDENTIALS.get(policy_name, []):
+            present = present_by_name.get(env_name) if error is None else None
+            if error:
+                status = "unknown"
+                message = error
+            elif present:
+                status = "ok"
+                message = f"{env_name} is present."
+            elif enabled:
+                status = "missing"
+                message = f"{policy_name} is enabled, but {env_name} is missing."
+            else:
+                status = "not_required"
+                message = f"{policy_name} is disabled."
+            checks.append({
+                "policy": policy_name,
+                "name": env_name,
+                "required": enabled,
+                "present": present,
+                "status": status,
+                "message": message,
+            })
+    return checks
 
 
 async def set_policy_preset(
@@ -329,8 +748,43 @@ async def get_openclaw_approvals(
 
     return {
         "approvals_path": approvals_path if os.path.exists(approvals_path) else None,
-        "snapshot": snapshot,
+        "snapshot": _redact_sensitive(snapshot),
         "error": error,
         "sandbox_name": sandbox_name,
         "effective_policy": effective_policy,
+        "summary": _approval_summary(effective_policy, snapshot),
+    }
+
+
+_SENSITIVE_KEY_RE = re.compile(r"(token|secret|password|api[_-]?key|auth|credential)", re.IGNORECASE)
+
+
+def _redact_sensitive(value: Any) -> Any:
+    """Redact secrets from approval snapshots before returning them to the UI."""
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if _SENSITIVE_KEY_RE.search(str(key)):
+                redacted[key] = "<redacted>"
+            else:
+                redacted[key] = _redact_sensitive(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive(item) for item in value]
+    return value
+
+
+def _approval_summary(effective_policy: str, snapshot: Any) -> dict[str, Any]:
+    ask = None
+    security = None
+    ask_match = re.search(r"ask=([a-z0-9_-]+)", effective_policy or "", re.IGNORECASE)
+    security_match = re.search(r"security=([a-z0-9_-]+)", effective_policy or "", re.IGNORECASE)
+    if ask_match:
+        ask = ask_match.group(1)
+    if security_match:
+        security = security_match.group(1)
+    return {
+        "ask": ask or "unknown",
+        "security": security or "unknown",
+        "has_snapshot": isinstance(snapshot, dict),
     }

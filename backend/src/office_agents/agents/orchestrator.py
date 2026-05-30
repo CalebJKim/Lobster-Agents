@@ -201,6 +201,9 @@ class Orchestrator:
     def get_sandbox_run_statuses(self) -> dict[str, dict[str, Any]]:
         return self.sandboxes.get_run_statuses()
 
+    def get_sandbox_run_diagnostics(self, sandbox_name: str, run_id: str) -> dict[str, Any] | None:
+        return self.sandboxes.get_run_diagnostics(sandbox_name, run_id)
+
     def _active_sandbox_agent_names(self) -> set[str]:
         return self.sandboxes.active_agent_names()
 
