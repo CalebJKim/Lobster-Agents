@@ -1,4 +1,8 @@
-from pydantic_settings import BaseSettings
+import json
+from typing import Annotated, Any
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
@@ -9,7 +13,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     tick_interval: float = 4.0
     db_path: str = "office_agents.db"
-    allowed_file_paths: list[str] = []
+    allowed_file_paths: Annotated[list[str], NoDecode] = []
     tavily_api_key: str = ""
 
     # Path where the live-editable water-cooler topics file is found.
@@ -49,10 +53,22 @@ class Settings(BaseSettings):
 
     # Extra directories searched by sandbox_runtime._which() when nemoclaw /
     # openshell aren't on PATH. Defaults cover the common NVIDIA demo layout.
-    extra_bin_paths: list[str] = [
+    extra_bin_paths: Annotated[list[str], NoDecode] = [
         "/home/nvidia/.local/bin",
         "/usr/local/bin",
     ]
+
+    @field_validator("allowed_file_paths", "extra_bin_paths", mode="before")
+    @classmethod
+    def parse_path_list(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            return json.loads(text)
+        return [part.strip() for part in text.split(",") if part.strip()]
 
     model_config = {
         "env_prefix": "OFFICE_AGENTS_",
