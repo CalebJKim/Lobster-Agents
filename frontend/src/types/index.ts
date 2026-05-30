@@ -333,6 +333,8 @@ export interface OpenShellNetworkRule {
   binary: string;
   confidence?: number | null;
   rationale?: string;
+  security?: string;
+  security_flags?: string[];
   endpoints?: string[];
   endpoints_raw?: string;
   binaries?: string[];

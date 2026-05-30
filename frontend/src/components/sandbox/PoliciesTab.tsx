@@ -48,6 +48,14 @@ function ruleBusyKey(rule: OpenShellNetworkRule, decision: "approve" | "reject")
   return `${decision}:${rule.id}`;
 }
 
+function hasSecuritySignal(rule: OpenShellNetworkRule): boolean {
+  return Boolean(rule.security || rule.security_flags?.length);
+}
+
+function endpointLabel(endpoint: string): string {
+  return endpoint.replace(/\s+\[L4\]$/i, "");
+}
+
 function RuleCard({
   rule,
   busy,
@@ -90,20 +98,34 @@ function RuleCard({
                 {rule.hit_count} hit{rule.hit_count === 1 ? "" : "s"}
               </span>
             )}
+            {hasSecuritySignal(rule) && (
+              <span
+                className="rounded-full bg-amber-300/18 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-50"
+                title={rule.security || rule.security_flags?.join(", ")}
+              >
+                {rule.security_flags?.includes("private-ip") ? "private IP" : "security note"}
+              </span>
+            )}
           </div>
           <div className="mt-1.5 break-words text-[12px] font-semibold leading-5 text-white/90">
             {rule.rule_name || rule.id}
           </div>
           {endpoints.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {endpoints.map((endpoint) => (
-                <span
-                  key={endpoint}
-                  className="rounded-md bg-slate-950/36 px-2 py-0.5 font-mono text-[10px] text-cyan-50/80"
-                >
-                  {endpoint}
-                </span>
-              ))}
+            <div className="mt-2">
+              <div className="text-[9px] font-bold uppercase tracking-wide text-white/35">
+                Endpoint
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {endpoints.map((endpoint) => (
+                  <span
+                    key={endpoint}
+                    className="rounded-md bg-slate-950/36 px-2 py-0.5 font-mono text-[10px] text-cyan-50/80"
+                    title={endpoint}
+                  >
+                    {endpointLabel(endpoint)}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -137,21 +159,44 @@ function RuleCard({
           {rule.rationale}
         </div>
       )}
+      {rule.security && (
+        <div className="mt-2 rounded-lg border border-amber-300/18 bg-amber-300/[0.08] px-2.5 py-1.5 text-[11px] leading-4 text-amber-50/82">
+          {rule.security}
+        </div>
+      )}
 
       <div className="mt-2 grid gap-1.5 text-[11px] leading-4 text-white/54 md:grid-cols-2">
         <div className="min-w-0">
-          <span className="font-bold uppercase tracking-wide text-white/35">Binary</span>
-          <div className="mt-0.5 break-all font-mono text-white/62">
-            {rule.binary || binaries[0] || "unknown"}
+          <span className="font-bold uppercase tracking-wide text-white/35">Binary path</span>
+          <div className="mt-0.5 space-y-0.5">
+            {(binaries.length ? binaries : [rule.binary || "unknown"]).map((binary) => (
+              <div key={binary} className="break-all font-mono text-white/62">
+                {binary}
+              </div>
+            ))}
           </div>
         </div>
         <div className="min-w-0">
-          <span className="font-bold uppercase tracking-wide text-white/35">Last seen</span>
+          <span className="font-bold uppercase tracking-wide text-white/35">Observed</span>
           <div className="mt-0.5 break-words font-mono text-white/62">
-            {rule.last_seen || "unknown"}
+            {rule.last_seen
+              ? `last ${rule.last_seen}`
+              : rule.first_seen
+                ? `first ${rule.first_seen}`
+                : "waiting for hit metadata"}
           </div>
         </div>
       </div>
+      {rule.status === "approved" && (
+        <div className="mt-2 text-[10px] leading-4 text-emerald-50/62">
+          Active for future retries. Revoke removes the allowance from OpenShell.
+        </div>
+      )}
+      {rule.status === "pending" && (
+        <div className="mt-2 text-[10px] leading-4 text-amber-50/62">
+          Approve, then retry the blocked request or rerun the task if it already failed.
+        </div>
+      )}
     </div>
   );
 }

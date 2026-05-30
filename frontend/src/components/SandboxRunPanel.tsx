@@ -225,8 +225,14 @@ export default function SandboxRunPanel({
         setPolicyNotice(result.error);
         return;
       }
+      const actionLabel =
+        decision === "approve"
+          ? "approved. Retry the blocked request or rerun the task if it already failed."
+          : rule.status === "approved"
+            ? "revoked. Future retries will be denied unless another policy allows them."
+            : "rejected. Future retries will stay blocked unless you approve this rule.";
       setPolicyNotice(
-        result.output || `${rule.rule_name || rule.id} ${decision === "approve" ? "approved" : "rejected"}.`,
+        result.output || `${rule.rule_name || rule.id} ${actionLabel}`,
       );
       await loadPolicies();
       await onAfterChange?.();
@@ -243,7 +249,7 @@ export default function SandboxRunPanel({
       setPolicyNotice(result.error);
       return;
     }
-    setPolicyNotice(result.output || "Pending OpenShell network rules approved.");
+    setPolicyNotice(result.output || "Pending OpenShell network rules approved. Retry blocked requests or rerun failed tasks.");
     await loadPolicies();
     await onAfterChange?.();
   }, [loadPolicies, onAfterChange, sandbox.name]);

@@ -38,10 +38,12 @@ class Settings(BaseSettings):
     # NemoClaw/OpenShell host layout; override for local-dev environments.
     sandbox_workspaces_dir: str = "/sandbox/workspaces"
     sandbox_runs_dir: str = "/sandbox/runs"
-    # OpenClaw turn timeout for NemoClaw relay runs. The 35B model can take
-    # about two minutes even for a tiny first turn, so web/tool relay turns
-    # need a wider window than the old hard-coded 90s timeout.
-    openclaw_turn_timeout_seconds: int = 300
+    # OpenClaw turn timeout for NemoClaw relay runs. Match OpenClaw's CLI
+    # default and leave enough room for first-token stalls on demo hardware.
+    openclaw_turn_timeout_seconds: int = 600
+    # Keep demo relay turns concise and avoid long hidden reasoning for simple
+    # one-sentence tasks. Override to medium/high for deeper agent work.
+    openclaw_thinking_level: str = "minimal"
     # The current GB300 vLLM server is not launched with OpenAI tool-call
     # parsing flags, so OpenClaw must not send model-facing tool schemas.
     openclaw_model_tools_enabled: bool = False
@@ -73,6 +75,15 @@ class Settings(BaseSettings):
         if text.startswith("["):
             return json.loads(text)
         return [part.strip() for part in text.split(",") if part.strip()]
+
+    @field_validator("openclaw_thinking_level", mode="before")
+    @classmethod
+    def normalize_openclaw_thinking_level(cls, value: Any) -> str:
+        allowed = {"off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"}
+        if not isinstance(value, str):
+            return "minimal"
+        normalized = value.strip().lower()
+        return normalized if normalized in allowed else "minimal"
 
     model_config = {
         "env_prefix": "OFFICE_AGENTS_",

@@ -39,6 +39,7 @@ class Context:
     keep_agents: bool
     skip_task: bool
     json_mode: bool
+    task_timeout_seconds: int
     checks: list[Check] = field(default_factory=list)
     created_agents: list[str] = field(default_factory=list)
     before_policies: list[str] = field(default_factory=list)
@@ -78,6 +79,12 @@ def parse_args() -> argparse.Namespace:
         "--skip-task",
         action="store_true",
         help="Validate setup, profile creation, assignment, policies, and rules without running a relay task.",
+    )
+    parser.add_argument(
+        "--task-timeout-seconds",
+        type=int,
+        default=1500,
+        help="Maximum time to wait for the two-agent relay before failing and cleaning up.",
     )
     parser.add_argument("--json", action="store_true", help="Emit a machine-readable summary at the end.")
     return parser.parse_args()
@@ -399,19 +406,22 @@ def run_flow(ctx: Context) -> None:
 
     finished = False
     final_run: dict[str, Any] | None = None
-    for i in range(72):
+    started_wait = time.monotonic()
+    poll_index = 0
+    while time.monotonic() - started_wait < ctx.task_timeout_seconds:
         current = find_sandbox(ctx, ctx.sandbox)
         run = (current or {}).get("run_status") or {}
         if run.get("run_id") == ctx.run_id:
             final_run = run
             if not ctx.json_mode:
                 print(
-                    f"poll {i:02d}: phase={run.get('phase')} running={run.get('running')} "
+                    f"poll {poll_index:02d}: phase={run.get('phase')} running={run.get('running')} "
                     f"active={run.get('current_agent')} latest={(run.get('last_message') or '')[:80]}"
                 )
             if not run.get("running") and run.get("phase") == "result":
                 finished = True
                 break
+            poll_index += 1
         time.sleep(5)
     require(ctx, "sandbox team task reaches result phase", finished, run_brief(final_run))
 
@@ -451,6 +461,7 @@ def main() -> int:
         keep_agents=args.keep_agents,
         skip_task=args.skip_task,
         json_mode=args.json,
+        task_timeout_seconds=max(30, args.task_timeout_seconds),
     )
     ok = False
     exit_code = 0

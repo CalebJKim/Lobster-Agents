@@ -341,6 +341,8 @@ def _parse_network_rule_list(
                 "binary": "",
                 "confidence": None,
                 "rationale": "",
+                "security": "",
+                "security_flags": [],
                 "endpoints": [],
                 "endpoints_raw": "",
                 "binaries": [],
@@ -365,6 +367,15 @@ def _parse_network_rule_list(
             current["confidence"] = _parse_int(pct.group(1)) if pct else None
         elif label == "rationale":
             current["rationale"] = value
+        elif label == "security":
+            current["security"] = value
+            flags: list[str] = []
+            lower = value.lower()
+            if "internal" in lower or "private" in lower:
+                flags.append("private-ip")
+            if "ssrf" in lower:
+                flags.append("ssrf-override")
+            current["security_flags"] = flags
         elif label == "endpoints":
             current["endpoints_raw"] = value
             current["endpoints"] = [part.strip() for part in value.split(",") if part.strip()]

@@ -134,15 +134,18 @@ async def run_openclaw(
             "--",
             "sh", "-lc",
             (
-                'patch_status=$(python3 -c "$8" "$6" "$7") && '
+                'patch_status=$(python3 -c "$8" "$6") && '
                 'if [ "$patch_status" = restart ]; then '
                 'openclaw gateway restart >/tmp/openclaw-gateway-restart.log 2>&1 '
                 '|| cat /tmp/openclaw-gateway-restart.log >&2; '
                 'printf "%s\\n" "$6" >/sandbox/.openclaw/.lobster-openclaw-timeout; '
                 'sleep 2; '
                 'fi; '
+                'thinking_args=""; '
+                'if [ -n "$7" ]; then thinking_args="--thinking $7"; fi; '
                 'mkdir -p "$1" && cd "$1" && exec openclaw agent '
-                '--agent "$2" --session-id "$5" --json --timeout "$3" --message "$4"'
+                '--agent "$2" --session-id "$5" --json --timeout "$3" '
+                '$thinking_args --message "$4"'
             ),
             "openclaw-runner",
             sandbox_workdir,
@@ -151,7 +154,7 @@ async def run_openclaw(
             message,
             openclaw_session_id,
             str(timeout_seconds),
-            "1" if settings.openclaw_model_tools_enabled else "0",
+            settings.openclaw_thinking_level,
             _OPENCLAW_TIMEOUT_PATCH,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
