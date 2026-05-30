@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ChatMessage,
+  DemoReadiness,
+  DemoReadinessCheck,
   NemoClawPolicyPreset,
   NemoClawRunStatus,
   NemoClawSandbox,
@@ -15,6 +17,7 @@ import {
   clearPendingNetworkRules,
   decideNetworkRule,
   fetchApprovals,
+  fetchDemoReadiness,
   fetchNetworkRules,
   fetchPolicies,
   fetchRunDiagnostics,
@@ -51,6 +54,31 @@ async function clearSandbox(sandboxName: string): Promise<{ archive?: string; er
 }
 
 type Tab = "status" | "policies" | "chat" | "console";
+
+interface PreflightIssue {
+  id: string;
+  label: string;
+  detail: string;
+}
+
+interface RunPreflight {
+  task: string;
+  teamNames: string[];
+  blockers: PreflightIssue[];
+  warnings: PreflightIssue[];
+  readiness: DemoReadiness | null;
+  checkedAt: string;
+}
+
+const HARD_PREFLIGHT_CHECKS = new Set(["llm", "inference_route", "sandbox_inference"]);
+
+function issueFromCheck(check: DemoReadinessCheck): PreflightIssue {
+  return {
+    id: check.id,
+    label: check.label,
+    detail: check.detail || check.status,
+  };
+}
 
 /**
  * Centered modal: the canonical Task Monitor for one sandbox. Replaces the
@@ -89,6 +117,8 @@ export default function SandboxRunPanel({
   const [taskDraft, setTaskDraft] = useState("");
   const [taskBusy, setTaskBusy] = useState(false);
   const [taskNotice, setTaskNotice] = useState<string | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const [runPreflight, setRunPreflight] = useState<RunPreflight | null>(null);
   const [optimisticRun, setOptimisticRun] = useState<NemoClawRunStatus | null>(null);
 
   // Close on Escape.
@@ -242,6 +272,20 @@ export default function SandboxRunPanel({
   const outputs = useMemo(() => Object.entries(run?.outputs ?? {}), [run]);
   const errors = useMemo(() => Object.entries(run?.errors ?? {}), [run]);
   const team = sandbox.assigned_agent_details ?? [];
+  const assignedNames = useMemo(
+    () =>
+      team.length > 0
+        ? team.map((agent) => agent.name)
+        : [...(sandbox.assigned_agents ?? [])],
+    [sandbox.assigned_agents, team],
+  );
+  const hermesAssigned = useMemo(
+    () =>
+      team.some(
+        (agent) => agent.runtime === "hermes" || agent.species === "crab",
+      ),
+    [team],
+  );
   const localMessages = useMemo(
     () => messages.filter((m) => m.sandbox_name === sandbox.name).slice(-50),
     [messages, sandbox.name]
@@ -330,10 +374,10 @@ export default function SandboxRunPanel({
     setNetworkRules(null);
     setNetworkRulesError(null);
     setNetworkRulesBusy(null);
+    setRunPreflight(null);
   }, [sandbox.name]);
 
-  const runTask = useCallback(async () => {
-    const task = taskDraft.trim();
+  const startTask = useCallback(async (task: string) => {
     if (!task || taskBusy) return;
     setTaskBusy(true);
     setTaskNotice(null);
@@ -355,32 +399,29 @@ export default function SandboxRunPanel({
       const runId = typeof body?.run_id === "string" ? body.run_id : "";
       if (runId) {
         const now = new Date().toISOString();
-        const agentNames = team.length > 0
-          ? team.map((agent) => agent.name)
-          : [...(sandbox.assigned_agents ?? [])];
         setDiagnostics(null);
         setOptimisticRun({
           run_id: runId,
           sandbox_name: sandbox.name,
-          agents: agentNames,
+          agents: assignedNames,
           task,
           status: "running",
           started_at: now,
           phase: "openclaw",
-          current_agent: agentNames[0],
-          last_message: agentNames[0]
-            ? `Starting ${agentNames[0]}'s OpenClaw turn in this sandbox.`
+          current_agent: assignedNames[0],
+          last_message: assignedNames[0]
+            ? `Starting ${assignedNames[0]}'s OpenClaw turn in this sandbox.`
             : "Starting NemoClaw run.",
           last_update_at: now,
           outputs: {},
           errors: {},
           running: true,
-          mode: agentNames.length > 1 ? "coordinated" : "single",
+          mode: assignedNames.length > 1 ? "coordinated" : "single",
           policies: sandbox.policies ?? [],
           policy_snapshot: sandbox.policies ?? [],
           success_count: 0,
           error_count: 0,
-          total_count: agentNames.length,
+          total_count: assignedNames.length,
         });
       }
       setTaskNotice(runId ? `Run started: ${runId.slice(0, 8)}…` : "Run started.");
@@ -390,7 +431,85 @@ export default function SandboxRunPanel({
     } finally {
       setTaskBusy(false);
     }
-  }, [taskDraft, taskBusy, sandbox.name, sandbox.assigned_agents, sandbox.policies, team, onAfterChange]);
+  }, [assignedNames, taskBusy, sandbox.name, sandbox.policies, onAfterChange]);
+
+  const requestRunTask = useCallback(async () => {
+    const task = taskDraft.trim();
+    if (!task || taskBusy || preflightBusy || runActive) return;
+    setPreflightBusy(true);
+    setTaskNotice(null);
+    try {
+      const readiness = await fetchDemoReadiness(sandbox.name);
+      const blockers: PreflightIssue[] = [];
+      const warnings: PreflightIssue[] = [];
+
+      if (!sandbox.live) {
+        blockers.push({
+          id: "sandbox_live",
+          label: "Sandbox is not live",
+          detail: "Start or create this NemoClaw/OpenShell sandbox before running a task.",
+        });
+      }
+      if (assignedNames.length === 0) {
+        blockers.push({
+          id: "assigned_agents",
+          label: "No assigned agents",
+          detail: "Drag at least one lobster or crab into this sandbox before running.",
+        });
+      }
+
+      for (const check of readiness.checks ?? []) {
+        if (check.status === "fail" && HARD_PREFLIGHT_CHECKS.has(check.id)) {
+          blockers.push(issueFromCheck(check));
+        } else if (check.id === "hermes") {
+          continue;
+        } else if (check.status === "warn") {
+          warnings.push(issueFromCheck(check));
+        } else if (check.status === "fail") {
+          warnings.push(issueFromCheck(check));
+        }
+      }
+
+      if (hermesAssigned && readiness.hermes?.configured !== true) {
+        warnings.push({
+          id: "hermes_assigned",
+          label: "Hermes crab runtime is not configured",
+          detail: "Crabs can be displayed and assigned, but they will not execute Hermes turns until OFFICE_AGENTS_HERMES_COMMAND is set.",
+        });
+      }
+
+      setRunPreflight({
+        task,
+        teamNames: assignedNames,
+        blockers,
+        warnings,
+        readiness,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      setRunPreflight({
+        task,
+        teamNames: assignedNames,
+        blockers: [{
+          id: "preflight_unavailable",
+          label: "Preflight failed",
+          detail: err instanceof Error ? err.message : "Could not load demo readiness.",
+        }],
+        warnings: [],
+        readiness: null,
+        checkedAt: new Date().toISOString(),
+      });
+    } finally {
+      setPreflightBusy(false);
+    }
+  }, [assignedNames, hermesAssigned, preflightBusy, runActive, sandbox.live, sandbox.name, taskBusy, taskDraft]);
+
+  const confirmRunTask = useCallback(async () => {
+    if (!runPreflight || runPreflight.blockers.length > 0) return;
+    const task = runPreflight.task;
+    setRunPreflight(null);
+    await startTask(task);
+  }, [runPreflight, startTask]);
 
   const cancelRun = useCallback(async () => {
     if (!run?.run_id) return;
@@ -431,7 +550,7 @@ export default function SandboxRunPanel({
       onClick={onClose}
     >
       <div
-        className="flex h-[min(82vh,820px)] w-[min(92vw,960px)] flex-col overflow-hidden rounded-2xl border border-white/14 bg-slate-950/92 shadow-[0_40px_120px_rgba(4,22,31,0.55)]"
+        className="relative flex h-[min(82vh,820px)] w-[min(92vw,960px)] flex-col overflow-hidden rounded-2xl border border-white/14 bg-slate-950/92 shadow-[0_40px_120px_rgba(4,22,31,0.55)]"
         onClick={(event) => event.stopPropagation()}
       >
         {/* Header */}
@@ -624,10 +743,10 @@ export default function SandboxRunPanel({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
-                    runTask();
+                    requestRunTask();
                   }
                 }}
-                disabled={taskBusy || runActive || !sandbox.live}
+                disabled={taskBusy || preflightBusy || runActive}
                 rows={1}
                 placeholder={
                   !sandbox.live
@@ -635,7 +754,7 @@ export default function SandboxRunPanel({
                     : runActive
                       ? "Run in progress — cancel it to start another"
                       : team.length === 0
-                        ? "No lobsters assigned — runs the default solo team"
+                        ? "Assign at least one lobster or crab before running"
                         : `What should the team do? (⌘↵ to run)`
                 }
                 className="min-h-[40px] max-h-32 w-full resize-none rounded-lg border border-white/12 bg-slate-950/55 px-3 py-2 text-[13px] leading-5 text-white outline-none placeholder:text-white/35 focus:border-cyan-200/45 disabled:opacity-60"
@@ -653,11 +772,11 @@ export default function SandboxRunPanel({
             ) : (
               <button
                 type="button"
-                onClick={runTask}
-                disabled={!taskDraft.trim() || taskBusy || !sandbox.live}
+                onClick={requestRunTask}
+                disabled={!taskDraft.trim() || taskBusy || preflightBusy || runActive}
                 className="h-10 shrink-0 rounded-lg bg-cyan-300/30 px-4 text-[12px] font-bold uppercase tracking-wide text-cyan-50 transition hover:bg-cyan-300/45 disabled:cursor-not-allowed disabled:bg-white/[0.07] disabled:text-white/35"
               >
-                {taskBusy ? "Starting…" : "Run"}
+                {taskBusy ? "Starting…" : preflightBusy ? "Checking…" : "Run"}
               </button>
             )}
           </div>
@@ -667,6 +786,119 @@ export default function SandboxRunPanel({
             </div>
           )}
         </div>
+
+        {runPreflight && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/72 p-6 backdrop-blur-sm">
+            <div className="w-[min(92vw,640px)] overflow-hidden rounded-xl border border-white/14 bg-slate-950 text-white shadow-[0_32px_90px_rgba(2,6,23,0.55)]">
+              <div className="border-b border-white/10 bg-slate-900/55 px-5 py-4">
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/60">
+                  Run preflight
+                </div>
+                <div className="mt-1 text-[18px] font-semibold leading-6">
+                  {runPreflight.blockers.length > 0 ? "Fix blockers before running" : "Ready to start task"}
+                </div>
+                <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-white/58">
+                  {runPreflight.task}
+                </div>
+              </div>
+
+              <div className="max-h-[56vh] overflow-y-auto px-5 py-4">
+                <div className="mb-4 grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">
+                    <div className="text-[9px] font-bold uppercase tracking-wide text-white/38">Agents</div>
+                    <div className="mt-1 text-[15px] font-semibold text-white">{runPreflight.teamNames.length}</div>
+                  </div>
+                  <div className="rounded-lg border border-rose-300/24 bg-rose-300/[0.08] px-3 py-2">
+                    <div className="text-[9px] font-bold uppercase tracking-wide text-rose-100/60">Blockers</div>
+                    <div className="mt-1 text-[15px] font-semibold text-rose-50">{runPreflight.blockers.length}</div>
+                  </div>
+                  <div className="rounded-lg border border-amber-300/24 bg-amber-300/[0.07] px-3 py-2">
+                    <div className="text-[9px] font-bold uppercase tracking-wide text-amber-100/60">Warnings</div>
+                    <div className="mt-1 text-[15px] font-semibold text-amber-50">{runPreflight.warnings.length}</div>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-white/42">
+                    Team
+                  </div>
+                  {runPreflight.teamNames.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {runPreflight.teamNames.map((name) => (
+                        <span
+                          key={name}
+                          className="rounded-full bg-cyan-300/12 px-2.5 py-1 text-[11px] font-semibold text-cyan-50 ring-1 ring-cyan-200/14"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-rose-300/22 bg-rose-300/[0.08] px-3 py-2 text-[12px] text-rose-50">
+                      No profiles are assigned to this sandbox.
+                    </div>
+                  )}
+                </div>
+
+                {runPreflight.blockers.length > 0 && (
+                  <section className="mb-4">
+                    <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-rose-100/72">
+                      Blockers
+                    </div>
+                    <div className="space-y-2">
+                      {runPreflight.blockers.map((issue) => (
+                        <div key={issue.id} className="rounded-lg border border-rose-300/24 bg-rose-300/[0.08] px-3 py-2.5">
+                          <div className="text-[12px] font-semibold text-rose-50">{issue.label}</div>
+                          <div className="mt-1 text-[11px] leading-4 text-rose-50/72">{issue.detail}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {runPreflight.warnings.length > 0 && (
+                  <section>
+                    <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-amber-100/72">
+                      Warnings
+                    </div>
+                    <div className="space-y-2">
+                      {runPreflight.warnings.map((issue, index) => (
+                        <div key={`${issue.id}-${index}`} className="rounded-lg border border-amber-300/24 bg-amber-300/[0.07] px-3 py-2.5">
+                          <div className="text-[12px] font-semibold text-amber-50">{issue.label}</div>
+                          <div className="mt-1 text-[11px] leading-4 text-amber-50/72">{issue.detail}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {runPreflight.blockers.length === 0 && runPreflight.warnings.length === 0 && (
+                  <div className="rounded-lg border border-emerald-300/22 bg-emerald-300/[0.07] px-3 py-2.5 text-[12px] font-medium text-emerald-50">
+                    Sandbox, team assignment, and inference checks passed.
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-white/10 bg-slate-900/40 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => setRunPreflight(null)}
+                  className="h-9 rounded-lg bg-white/[0.08] px-3 text-[11px] font-bold uppercase tracking-wide text-white/70 hover:bg-white/[0.16] hover:text-white"
+                >
+                  {runPreflight.blockers.length > 0 ? "Close" : "Cancel"}
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmRunTask}
+                  disabled={taskBusy || runPreflight.blockers.length > 0}
+                  className="h-9 rounded-lg bg-cyan-300/30 px-4 text-[11px] font-bold uppercase tracking-wide text-cyan-50 hover:bg-cyan-300/45 disabled:cursor-not-allowed disabled:bg-white/[0.07] disabled:text-white/35"
+                >
+                  {taskBusy ? "Starting" : "Start Run"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 text-white/82">
