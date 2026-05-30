@@ -169,6 +169,26 @@ async def create_nemoclaw_sandbox(
             "error": f"nemoclaw onboard timed out after {timeout_seconds}s",
         }
 
+    output = _strip_ansi("\n".join(part for part in (run.stdout, run.stderr) if part)).strip()
+    if run.returncode == 0:
+        policy_result = await set_policy_preset(
+            sandbox_name,
+            "local-inference",
+            enabled=True,
+            dry_run=False,
+        )
+        if policy_result.get("ok"):
+            policy_output = str(policy_result.get("output") or "").strip()
+            output = "\n".join(
+                part for part in (output, f"[post-onboard] local-inference enabled\n{policy_output}")
+                if part
+            )
+        else:
+            policy_error = str(policy_result.get("error") or "local-inference policy failed").strip()
+            output = "\n".join(
+                part for part in (output, f"[post-onboard warning] {policy_error}") if part
+            )
+
     return {
         "ok": run.returncode == 0,
         "sandbox_name": sandbox_name,

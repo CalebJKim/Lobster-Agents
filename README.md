@@ -63,6 +63,31 @@ usually `OFFICE_AGENTS_NEMOCLAW_PROVIDER=ollama` and
 `inference service unavailable`, fix the OpenShell/NemoClaw inference route
 before running agent tasks.
 
+When the model server is vLLM/llama.cpp bound only to host loopback
+(`127.0.0.1:8000`), OpenShell sandboxes cannot reach it through the Docker
+bridge without a host-side bridge. Keep the model server untouched and expose
+only the bridge IP that `host.openshell.internal` resolves to:
+
+```bash
+# Example for Spark where host.openshell.internal resolves to 172.18.0.1.
+nohup python3 scripts/vllm_bridge_proxy.py \
+  --bind-host 172.18.0.1 \
+  --bind-port 8000 \
+  --upstream-host 127.0.0.1 \
+  --upstream-port 8000 \
+  >/tmp/vllm-bridge-proxy.log 2>&1 &
+openshell provider update compatible-endpoint \
+  --config OPENAI_BASE_URL=http://host.openshell.internal:8000/v1
+openshell inference update --timeout 180 --no-verify
+openshell sandbox exec --name <sandbox> --timeout 20 --no-tty -- \
+  curl -sk https://inference.local/v1/models
+```
+
+The bridge script should bind the Docker bridge address on port `8000` and
+forward to `127.0.0.1:8000`. If `inference.local` does not return the model
+list from inside a sandbox, OpenClaw task runs will fail even though the
+backend `/health` endpoint can reach the model directly.
+
 Build the NemoClaw sandboxes on the same host that runs the backend. The four
 default demo workspace names are:
 
