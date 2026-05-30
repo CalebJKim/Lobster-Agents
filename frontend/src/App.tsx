@@ -257,6 +257,10 @@ export default function App() {
   }, [refreshOfficeState, refreshSandboxesIndex]);
 
   useEffect(() => {
+    refreshSandboxesIndex();
+  }, [refreshSandboxesIndex]);
+
+  useEffect(() => {
     if (!openSandboxName) return;
     refreshSandboxesIndex();
     const id = window.setInterval(refreshSandboxesIndex, 5000);
@@ -305,6 +309,10 @@ export default function App() {
   const sandboxBusyCount = officeState.agents.filter(
     (agent) => agent.state === "coding" && Boolean(agent.sandbox_name)
   ).length;
+  const sandboxSceneKey = useMemo(
+    () => sandboxesIndex.map((sandbox) => `${sandbox.name}:${sandbox.home_room}:${sandbox.display_name ?? ""}`).join("|"),
+    [sandboxesIndex],
+  );
 
   const assignAgentToSandbox = useCallback(
     async (agentName: string, sandboxName: string) => {
@@ -340,7 +348,9 @@ export default function App() {
       <div className="absolute inset-0">
         <ErrorBoundary label="Scene">
           <ThreeUnderwaterMap
+            key={sandboxSceneKey}
             agents={officeState.agents}
+            sandboxes={sandboxesIndex}
             selectedAgent={selectedAgent}
             onSelectAgent={selectAgent}
             onAssignAgentToSandbox={assignAgentToSandbox}

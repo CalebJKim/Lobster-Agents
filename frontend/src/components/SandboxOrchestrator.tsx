@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { SQUADS, type Squad } from "../utils/claws";
 import { SANDBOX_API_TIMEOUT_MS, SANDBOX_POLL_INTERVAL_MS } from "../utils/config";
+import { createSandbox as createSandboxRequest } from "../utils/sandboxApi";
 import { AGENT_COLORS, ROLE_LABELS } from "../utils/sprites";
 import AgentChip from "./sandbox/AgentChip";
 import SandboxCard from "./sandbox/SandboxCard";
@@ -34,7 +35,6 @@ const DEFAULT_TASK =
   "Work as a tiny NemoClaw sandbox team. Inspect your sandbox, propose one useful improvement for the reef demo, and return a concise implementation plan.";
 
 const API_TIMEOUT_MS = SANDBOX_API_TIMEOUT_MS;
-const SPARK_BACKEND_HOST = "10.110.23.141";
 type RunUiStatus = "running" | "stopping" | "cancelled" | "finished" | "error";
 
 type SandboxRunStatus = {
@@ -174,7 +174,6 @@ function apiUrls(path: string): string[] {
   const host = window.location.hostname;
   const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
   if (host && !loopback) urls.push(`http://${host}:8001${path}`);
-  urls.push(`http://${SPARK_BACKEND_HOST}:8001${path}`);
   return Array.from(new Set(urls));
 }
 
@@ -288,6 +287,9 @@ export default function SandboxOrchestrator({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [popError, setPopError] = useState<string | null>(null);
+  const [creatorOpen, setCreatorOpen] = useState(false);
+  const [newSandboxName, setNewSandboxName] = useState("");
+  const [creatingSandbox, setCreatingSandbox] = useState(false);
   // Policy preview — Run Team first opens a confirmation modal so the user
   // sees the cage (enabled policies, deny-by-default everywhere else)
   // before actually firing the task.
@@ -443,6 +445,31 @@ export default function SandboxOrchestrator({
     },
     [agentsByName, load, onSandboxAssignments, onStateRefresh]
   );
+
+  const handleCreateSandbox = useCallback(async () => {
+    const displayName = newSandboxName.trim();
+    if (!displayName) {
+      setNotice("Name the sandbox first.");
+      return;
+    }
+    setCreatingSandbox(true);
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await createSandboxRequest(displayName);
+      const createdName = result.sandbox?.name;
+      setNewSandboxName("");
+      setCreatorOpen(false);
+      if (createdName) setSelectedSandbox(createdName);
+      await Promise.all([load(), onStateRefresh?.()]);
+      setNotice(`${result.sandbox?.display_name ?? displayName} created.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not create sandbox");
+    } finally {
+      setCreatingSandbox(false);
+      setBusy(false);
+    }
+  }, [load, newSandboxName, onStateRefresh]);
 
   const handleDropAgent = useCallback(
     (sandboxName: string, transferredAgent?: string) => {
@@ -908,9 +935,49 @@ export default function SandboxOrchestrator({
 
         <div className="flex min-h-0 min-w-0 flex-col">
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
-            <div className="mb-1.5 text-[11px] font-bold uppercase leading-4 text-white/40">
-              Workspaces
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase leading-4 text-white/40">
+                Workspaces
+              </span>
+              <button
+                type="button"
+                onClick={() => setCreatorOpen((value) => !value)}
+                disabled={creatingSandbox}
+                className="rounded bg-emerald-300/14 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-100 hover:bg-emerald-300/26 disabled:opacity-40"
+              >
+                + Sandbox
+              </button>
             </div>
+            {creatorOpen && (
+              <div className="mb-2 rounded-md border border-emerald-200/18 bg-emerald-200/[0.06] p-2">
+                <div className="flex gap-1.5">
+                  <input
+                    value={newSandboxName}
+                    onChange={(event) => setNewSandboxName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && newSandboxName.trim()) {
+                        event.preventDefault();
+                        handleCreateSandbox();
+                      }
+                    }}
+                    placeholder="Sandbox display name"
+                    maxLength={80}
+                    className="min-w-0 flex-1 rounded-md border border-white/12 bg-slate-950/45 px-2 py-1.5 text-[11px] font-medium text-white outline-none placeholder:text-white/28 focus:border-emerald-200/45"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCreateSandbox}
+                    disabled={creatingSandbox || !newSandboxName.trim()}
+                    className="rounded-md bg-emerald-200 px-2.5 text-[10px] font-bold uppercase text-slate-950 hover:bg-emerald-100 disabled:bg-white/12 disabled:text-white/30"
+                  >
+                    {creatingSandbox ? "Building" : "Create"}
+                  </button>
+                </div>
+                <div className="mt-1 text-[10px] font-medium leading-4 text-white/42">
+                  Creates a NemoClaw/OpenShell sandbox on this backend host.
+                </div>
+              </div>
+            )}
             <div className="space-y-1.5">
               {status ? (
                 sandboxes.map((sandbox) => (

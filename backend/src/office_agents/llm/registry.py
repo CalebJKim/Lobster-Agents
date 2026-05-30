@@ -172,11 +172,11 @@ def default_profile_from_settings() -> ModelProfile:
     base = (settings.llm_base_url or "").rstrip("/")
     kind = KIND_OLLAMA
     # Heuristic: a /v1-ending base_url usually means an OpenAI-compatible
-    # gateway; the Spark's Ollama is served on :11434 with /api/* paths.
+    # gateway; Ollama is usually served on :11434 with /api/* paths.
     if base.endswith("/v1") and "11434" not in base:
         kind = KIND_OPENAI
 
-    label = "Spark Ollama" if kind == KIND_OLLAMA else "Default OpenAI-compatible"
+    label = "Local Ollama" if kind == KIND_OLLAMA else "Default OpenAI-compatible"
     return ModelProfile(
         id=_slugify(label),
         label=label,
@@ -195,7 +195,7 @@ EXTRA_SEED_PROFILES: list[ModelProfile] = [
         id="vllm-qwen36-27b-mtp",
         label="vLLM Qwen3.6 27B MTP",
         kind=KIND_OPENAI,
-        base_url="http://10.173.64.134:8000",
+        base_url="http://127.0.0.1:8000/v1",
         model="qwen3.6-27b-mtp",
         api_key="",
     ),

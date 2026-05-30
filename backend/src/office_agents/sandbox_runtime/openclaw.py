@@ -1,9 +1,9 @@
-"""OpenClaw subprocess wrapper — Spark-only.
+"""OpenClaw subprocess wrapper for NemoClaw/OpenShell hosts.
 
 Every code action runs inside a NemoClaw sandbox via `openshell sandbox exec`.
-There is no host-local fallback: this backend is meant to live on the DGX
-Spark where `openshell` and `nemoclaw` are installed. If those CLIs are
-missing the call fails fast with a clear error so the UI can surface it.
+There is no host-local fallback: this backend is meant to live on the same
+host where `openshell` and `nemoclaw` are installed. If those CLIs are missing
+the call fails fast with a clear error so the UI can surface it.
 
 The previous version had a host-local OpenClaw fallback path that masked
 "missing CLI" errors with subtle subprocess failures on developer Macs. That
@@ -27,7 +27,7 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = settings.openclaw_turn_timeout_seconds
-# Sourced from Settings so non-Spark hosts can override via
+# Sourced from Settings so each demo host can override via
 # OFFICE_AGENTS_SANDBOX_WORKSPACES_DIR / OFFICE_AGENTS_SANDBOX_RUNS_DIR. Kept
 # as module-level constants because manager.py imports them by name.
 DEFAULT_SANDBOX_WORKDIR = settings.sandbox_workspaces_dir
@@ -68,7 +68,7 @@ _OPENCLAW_TIMEOUT_PATCH = (
 
 
 def _which_openshell() -> str | None:
-    """Locate openshell on PATH; this backend is meant for the Spark host."""
+    """Locate openshell on PATH."""
     return shutil.which("openshell")
 
 
@@ -112,7 +112,7 @@ async def run_openclaw(
     if not openshell:
         msg = (
             "openshell CLI not found on PATH. "
-            "This backend must run on the NemoClaw host (DGX Spark)."
+            "This backend must run on the NemoClaw/OpenShell host."
         )
         logger.error(msg)
         return _failure(claw_id, sandbox_name, msg, mode="cli_missing")
@@ -284,7 +284,7 @@ async def ensure_openclaw_agent(
     if not openshell:
         return _failure(
             claw_id, sandbox_name,
-            "openshell CLI not found on PATH. Run the backend on the Spark host.",
+            "openshell CLI not found on PATH. Run the backend on the NemoClaw/OpenShell host.",
             mode="cli_missing",
         )
 

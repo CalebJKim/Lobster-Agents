@@ -8,6 +8,7 @@ import type {
   LobsterAppearance,
   LobsterEyewear,
   LobsterHeadwear,
+  NemoClawSandbox,
 } from "../types";
 import { SANDBOX_WORKSPACES } from "../utils/claws";
 import { SPEECH_BUBBLE_TTL_MS } from "../utils/config";
@@ -21,6 +22,7 @@ const FLOOR_H = MAP_H / WORLD_SCALE;
 
 interface ThreeUnderwaterMapProps {
   agents: AgentInfo[];
+  sandboxes?: NemoClawSandbox[];
   selectedAgent: string | null;
   onSelectAgent: (name: string | null) => void;
   onAssignAgentToSandbox?: (agentName: string, sandboxName: string) => void;
@@ -64,18 +66,15 @@ interface Runtime {
 const VILLAGE_CENTER = new THREE.Vector3(-8, 0, -2);
 
 const AGENT_ORDER = ["Clawdia", "Shelldon", "Coraline", "Reefus", "Pearl", "Snips", "Captain Claw"];
-const SANDBOX_BY_ROOM = Object.fromEntries(
+let SANDBOX_BY_ROOM = Object.fromEntries(
   SANDBOX_WORKSPACES.map((workspace) => [workspace.homeRoom, workspace.name])
-) as Partial<Record<RoomDef["id"], string>>;
-const ROOM_BY_SANDBOX = Object.fromEntries(
+) as Partial<Record<string, string>>;
+let ROOM_BY_SANDBOX = Object.fromEntries(
   SANDBOX_WORKSPACES.map((workspace) => [workspace.name, workspace.homeRoom])
-) as Partial<Record<string, RoomDef["id"]>>;
+) as Partial<Record<string, string>>;
 
 const VISUAL_ROOM_LAYOUT: Partial<
-  Record<
-    RoomDef["id"],
-    { x: number; z: number; rx: number; rz: number; color: number; phase: number }
-  >
+  Record<string, { x: number; z: number; rx: number; rz: number; color: number; phase: number }>
 > = {
   // Four shared sandboxes, scattered organically (not on a ring). The
   // rx/rz here is the size of the kelp pad UNDER each hut — bigger now so
@@ -89,6 +88,79 @@ const VISUAL_ROOM_LAYOUT: Partial<
   lobby: { x: 8, z: -22, rx: 6.4, rz: 4.6, color: 0xdce9ee, phase: 3.7 },
   bulletin_board: { x: 13, z: 16, rx: 5.2, rz: 4.0, color: 0xebd7b1, phase: 1.8 },
 };
+
+const STATIC_SANDBOX_ROOM_IDS = new Set(SANDBOX_WORKSPACES.map((workspace) => workspace.homeRoom));
+const DYNAMIC_SANDBOX_POSITIONS = [
+  { x: -33, z: 1 },
+  { x: 34, z: 3 },
+  { x: 2, z: 23 },
+  { x: -4, z: -27 },
+  { x: -31, z: 22 },
+  { x: 32, z: -22 },
+  { x: 18, z: 24 },
+  { x: -24, z: -25 },
+];
+
+function updateSandboxLookups(sandboxes: NemoClawSandbox[] | undefined): RoomDef[] {
+  const configured = Array.isArray(sandboxes) && sandboxes.length > 0 ? sandboxes : [];
+  const byName = new Map(configured.map((sandbox) => [sandbox.name, sandbox]));
+  const byHomeRoom = new Map(
+    configured
+      .filter((sandbox) => typeof sandbox.home_room === "string")
+      .map((sandbox) => [sandbox.home_room as string, sandbox]),
+  );
+
+  SANDBOX_BY_ROOM = {};
+  ROOM_BY_SANDBOX = {};
+  const rooms: RoomDef[] = [];
+
+  for (const workspace of SANDBOX_WORKSPACES) {
+    const live = byName.get(workspace.name) ?? byHomeRoom.get(workspace.homeRoom);
+    const room = ROOMS.find((item) => item.id === workspace.homeRoom);
+    if (!room) continue;
+    const sandboxName = live?.name ?? workspace.name;
+    const homeRoom = live?.home_room ?? workspace.homeRoom;
+    SANDBOX_BY_ROOM[homeRoom] = sandboxName;
+    ROOM_BY_SANDBOX[sandboxName] = homeRoom;
+    rooms.push({
+      ...room,
+      id: homeRoom,
+      label: live?.display_name || workspace.displayName,
+    });
+  }
+
+  const dynamic = configured.filter((sandbox) => {
+    if (!sandbox.home_room) return false;
+    return !STATIC_SANDBOX_ROOM_IDS.has(sandbox.home_room);
+  });
+
+  dynamic.forEach((sandbox, index) => {
+    const homeRoom = sandbox.home_room as string;
+    const position = DYNAMIC_SANDBOX_POSITIONS[index % DYNAMIC_SANDBOX_POSITIONS.length];
+    const lap = Math.floor(index / DYNAMIC_SANDBOX_POSITIONS.length);
+    VISUAL_ROOM_LAYOUT[homeRoom] = {
+      x: position.x + Math.sin(index * 1.9) * lap * 2.2,
+      z: position.z + Math.cos(index * 1.4) * lap * 2.0,
+      rx: 7.4,
+      rz: 5.6,
+      color: index % 2 ? 0xe3ead1 : 0xdce8cf,
+      phase: 0.8 + index * 0.83,
+    };
+    SANDBOX_BY_ROOM[homeRoom] = sandbox.name;
+    ROOM_BY_SANDBOX[sandbox.name] = homeRoom;
+    rooms.push({
+      id: homeRoom,
+      label: sandbox.display_name || sandbox.name.replace(/^nemoclaw-/, "").replace(/-/g, " "),
+      x: 0,
+      y: 0,
+      w: 8,
+      h: 7,
+      color: 0xf0ddbd,
+    });
+  });
+
+  return rooms;
+}
 
 const IDLE_ROUTE_POINTS = [
   new THREE.Vector3(-30, 0, 6),
@@ -117,6 +189,7 @@ function agentTarget(agent: AgentInfo) {
 }
 
 function sandboxRoomForAgent(agent?: AgentInfo | null): RoomDef["id"] | null {
+  if (agent?.sandbox_home_room) return agent.sandbox_home_room;
   if (!agent?.sandbox_name) return null;
   return ROOM_BY_SANDBOX[agent.sandbox_name] ?? null;
 }
@@ -136,9 +209,12 @@ function roomCenter(room: RoomDef) {
 
 function sandboxLocalToWorld(roomId: RoomDef["id"], localX: number, localZ: number) {
   const room = ROOMS.find((item) => item.id === roomId);
-  if (!room) return pixelToWorld(MAP_W / 2, MAP_H / 2);
-
-  const center = roomCenter(room);
+  const layout = VISUAL_ROOM_LAYOUT[roomId];
+  const center = layout
+    ? new THREE.Vector3(layout.x, 0, layout.z)
+    : room
+      ? roomCenter(room)
+      : pixelToWorld(MAP_W / 2, MAP_H / 2);
   const rotation = angleToward(center);
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
@@ -1793,7 +1869,7 @@ function updateActorSpeech(
   actor.speech.visible = true;
 }
 
-function makeScene(runtime: Runtime) {
+function makeScene(runtime: Runtime, sandboxRooms: RoomDef[]) {
   const { scene } = runtime;
   scene.background = new THREE.Color(0x68cbd2);
   scene.fog = new THREE.Fog(0x68cbd2, 58, 105);
@@ -1819,14 +1895,24 @@ function makeScene(runtime: Runtime) {
 
   makeGround(scene);
   makeVillageCove(scene);
-  ROOMS.forEach((room) => {
-    if (room.id.startsWith("sandbox_")) {
-      const sandbox = makeNemoSandbox(room);
-      scene.add(sandbox);
-      sandbox.traverse((obj) => {
-        if (obj instanceof THREE.Mesh) runtime.clickable.push(obj);
-      });
+  sandboxRooms.forEach((room) => {
+    const layout = VISUAL_ROOM_LAYOUT[room.id];
+    if (layout && !STATIC_SANDBOX_ROOM_IDS.has(room.id)) {
+      makeOrganicPad(
+        scene,
+        new THREE.Vector3(layout.x, 0, layout.z),
+        layout.rx,
+        layout.rz,
+        layout.color,
+        0.3,
+        layout.phase,
+      );
     }
+    const sandbox = makeNemoSandbox(room);
+    scene.add(sandbox);
+    sandbox.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) runtime.clickable.push(obj);
+    });
   });
   scene.add(makeTideTable());
   scene.add(makeShellLounge());
@@ -1935,6 +2021,7 @@ function taggedSandboxName(hits: THREE.Intersection<THREE.Object3D>[]): string |
 
 export default function ThreeUnderwaterMap({
   agents,
+  sandboxes,
   selectedAgent,
   onSelectAgent,
   onAssignAgentToSandbox,
@@ -2007,7 +2094,8 @@ export default function ThreeUnderwaterMap({
       resizeObserver: new ResizeObserver(() => resizeRuntime(runtime, mount)),
       frame: 0,
     };
-    makeScene(runtime);
+    const sandboxRooms = updateSandboxLookups(sandboxes);
+    makeScene(runtime, sandboxRooms);
 
     const ensureActors = () => {
       const liveNames = new Set(agentsRef.current.map((a) => a.name));

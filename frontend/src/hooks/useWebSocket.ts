@@ -206,6 +206,7 @@ function applyAssignmentsToAgents(
         ...agent,
         location: currentQuery ? "war_room" : "break_room",
         sandbox_name: undefined,
+        sandbox_home_room: null,
         connect_command: undefined,
       };
     }
@@ -220,6 +221,7 @@ function applyAssignmentsToAgents(
       ...agent,
       location: homeRoom,
       sandbox_name: sandboxName,
+      sandbox_home_room: homeRoom,
       connect_command: sandboxConnectCommand(sandboxName),
     };
   });
@@ -266,6 +268,8 @@ function normalizeAgentSnapshot(
     claw_id: (raw.claw_id as string | undefined) ?? CLAW_METADATA[name]?.clawId,
     sandbox_name:
       typeof raw.sandbox_name === "string" ? raw.sandbox_name : undefined,
+    sandbox_home_room:
+      typeof raw.sandbox_home_room === "string" ? raw.sandbox_home_room : null,
     connect_command:
       typeof raw.connect_command === "string" ? raw.connect_command : undefined,
     tools,
@@ -342,6 +346,8 @@ export function useWebSocket() {
         } = event;
         const hasSandboxName = "sandbox_name" in event;
         const sandboxName = event.sandbox_name;
+        const hasSandboxHomeRoom = "sandbox_home_room" in event;
+        const sandboxHomeRoom = event.sandbox_home_room;
         const hasConnectCommand = "connect_command" in event;
         const connectCommand = event.connect_command;
 
@@ -355,6 +361,7 @@ export function useWebSocket() {
             ...(current_task !== undefined ? { current_task } : {}),
             ...(clawId ? { claw_id: clawId } : {}),
             ...(hasSandboxName ? { sandbox_name: sandboxName } : {}),
+            ...(hasSandboxHomeRoom ? { sandbox_home_room: sandboxHomeRoom } : {}),
             ...(hasConnectCommand ? { connect_command: connectCommand } : {}),
           };
         });

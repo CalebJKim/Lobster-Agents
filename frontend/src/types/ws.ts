@@ -59,6 +59,7 @@ export interface BackendAgentSnapshot {
   openclaw_capable?: boolean;
   claw_id?: string;
   sandbox_name?: string;
+  sandbox_home_room?: string | null;
   connect_command?: string;
   tools?: string[];
   openclaw_skills?: string[];
@@ -94,6 +95,7 @@ export type WSServerEvent =
       current_task?: string | null;
       claw_id?: string;
       sandbox_name?: string;
+      sandbox_home_room?: string | null;
       connect_command?: string;
     }
 
@@ -163,6 +165,12 @@ export type WSServerEvent =
       type: "sandbox_renamed";
       sandbox_name: string;
       display_name: string | null;
+    }
+  | {
+      type: "sandbox_created";
+      sandbox_name: string;
+      display_name: string | null;
+      home_room?: string | null;
     }
 
   // Misc.

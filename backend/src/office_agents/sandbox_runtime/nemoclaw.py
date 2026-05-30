@@ -22,8 +22,8 @@ _NETWORK_RULE_STATUSES = {"pending", "approved", "rejected", "all"}
 
 def _which(command: str) -> str | None:
     """Locate *command* on PATH, falling back to a configurable list of bin
-    directories. Defaults come from ``settings.extra_bin_paths`` (Spark host's
-    NVIDIA layout); override via ``OFFICE_AGENTS_EXTRA_BIN_PATHS``.
+    directories. Defaults come from ``settings.extra_bin_paths``; override via
+    ``OFFICE_AGENTS_EXTRA_BIN_PATHS``.
     """
     found = shutil.which(command)
     if found:

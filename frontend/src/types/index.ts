@@ -1,13 +1,6 @@
-// Four shared sandbox rooms (was 7, one per lobster) + the common areas.
-export type Room =
-  | "sandbox_cove"
-  | "sandbox_hollow"
-  | "sandbox_bench"
-  | "sandbox_bridge"
-  | "break_room"
-  | "war_room"
-  | "lobby"
-  | "bulletin_board";
+// Starter rooms are well-known, but user-created sandboxes produce dynamic
+// room ids such as sandbox_custom_demo_lab.
+export type Room = string;
 
 export type AgentState =
   | "idle"
@@ -78,6 +71,7 @@ export interface AgentInfo {
   openclaw_capable?: boolean;
   claw_id?: string;
   sandbox_name?: string;
+  sandbox_home_room?: string | null;
   connect_command?: string;
   /** Trait/tool labels (e.g. "web_research", "code_authoring") — soft
    *  prompt biases. Not gated. UI shows them as muted trait chips. */
@@ -165,6 +159,7 @@ export interface NemoClawSandbox {
   assignable?: boolean;
   live?: boolean;
   home_room?: Room;
+  source?: "default" | "user" | string;
   claw_id?: string;
   assigned_agents: string[];
   assigned_agent_details?: AgentInfo[];

@@ -601,6 +601,7 @@ class SandboxManager:
                 "position": {"x": agent.position[0], "y": agent.position[1]},
                 "claw_id": agent.claw_id,
                 "sandbox_name": sandbox_name,
+                "sandbox_home_room": agent.sandbox_home_room,
                 "connect_command": agent.connect_command,
                 "timestamp": datetime.now().isoformat(),
             })
@@ -976,6 +977,7 @@ class SandboxManager:
             "position": {"x": agent.position[0], "y": agent.position[1]},
             "claw_id": agent.claw_id,
             "sandbox_name": sandbox_name,
+            "sandbox_home_room": agent.sandbox_home_room,
             "connect_command": agent.connect_command,
             "timestamp": datetime.now().isoformat(),
         })

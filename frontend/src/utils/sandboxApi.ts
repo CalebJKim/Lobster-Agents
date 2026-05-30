@@ -20,6 +20,34 @@ export async function fetchSandboxes(): Promise<NemoClawStatus> {
   return res.json();
 }
 
+export async function createSandbox(displayName: string): Promise<{
+  status: string;
+  sandbox?: NemoClawStatus["sandboxes"][number];
+  provision?: { ok?: boolean; output?: string; error?: string } | null;
+}> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10 * 60 * 1000);
+  try {
+    const res = await fetch("/sandboxes", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: displayName, provision: true }),
+      signal: controller.signal,
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      status: string;
+      sandbox?: NemoClawStatus["sandboxes"][number];
+      provision?: { ok?: boolean; output?: string; error?: string } | null;
+      detail?: string;
+    };
+    if (!res.ok) throw new Error(body.detail || `Could not create sandbox (${res.status})`);
+    return body;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 /** Throws on non-2xx; otherwise parses JSON. Use when the caller has try/catch. */
 export async function fetchPolicies(sandboxName: string): Promise<NemoClawPolicyStatus> {
   const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/policies`, {

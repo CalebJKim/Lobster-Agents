@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
 
     # Path where the live-editable water-cooler topics file is found.
-    # Override via OFFICE_AGENTS_WATER_COOLER_TOPICS_PATH on non-Spark hosts.
+    # Override via OFFICE_AGENTS_WATER_COOLER_TOPICS_PATH on demo hosts.
     water_cooler_topics_path: str = (
         "/home/nvidia/documents/demo-files/water-cooler-topics.md"
     )
@@ -23,11 +23,11 @@ class Settings(BaseSettings):
     # narration so the canvas keeps moving instead of going silent.
     reef_fallback_on_outage: bool = True
     # Per-call timeout for reef chat — generous because the 35B model on
-    # Spark warms up slowly on first call.
+    # Local demo models can warm up slowly on first call.
     reef_chat_timeout: float = 180.0
 
     # Per-sandbox filesystem layout managed by openshell. These match the
-    # NemoClaw Spark host layout; override for local-dev environments.
+    # NemoClaw/OpenShell host layout; override for local-dev environments.
     sandbox_workspaces_dir: str = "/sandbox/workspaces"
     sandbox_runs_dir: str = "/sandbox/runs"
     # OpenClaw turn timeout for NemoClaw relay runs. The 35B model can take
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     openclaw_profile_timeout_seconds: int = 120
 
     # Extra directories searched by sandbox_runtime._which() when nemoclaw /
-    # openshell aren't on PATH. Defaults are the Spark host's NVIDIA layout.
+    # openshell aren't on PATH. Defaults cover the common NVIDIA demo layout.
     extra_bin_paths: list[str] = [
         "/home/nvidia/.local/bin",
         "/usr/local/bin",

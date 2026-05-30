@@ -98,7 +98,7 @@ SAFE_IDLE_LINES = [
 def load_topics() -> list[str]:
     """Read user-defined idle topics, fall back to defaults if the file is missing.
 
-    Path comes from ``settings.water_cooler_topics_path`` so non-Spark hosts can
+    Path comes from ``settings.water_cooler_topics_path`` so demo hosts can
     override via the ``OFFICE_AGENTS_WATER_COOLER_TOPICS_PATH`` env var.
     """
 
@@ -503,7 +503,7 @@ class IdleChat:
         last_line_callout = ""
         if history:
             # Last 6 turns is enough to see the discussion's arc without
-            # blowing past Spark's prompt-size sweet spot.
+            # blowing past the local model's prompt-size sweet spot.
             recent = history[-6:]
             rendered = []
             for spk, tgt, msg in recent:

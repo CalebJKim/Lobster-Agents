@@ -1,6 +1,6 @@
 """Async LLM client — speaks both Ollama and OpenAI-compatible APIs.
 
-Default Spark setup is Ollama (`http://host:11434/api/chat`), but users can
+Default local setup can be Ollama (`http://host:11434/api/chat`), but users can
 switch the live backend to any vLLM / OpenAI-compatible endpoint via the
 model-registry UI (see ``llm/registry.py`` + ``routes/models.py``). The
 client owns a single mutable configuration so swapping models doesn't

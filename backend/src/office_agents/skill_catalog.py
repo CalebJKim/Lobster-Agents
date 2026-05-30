@@ -1,7 +1,7 @@
 """Curated catalog of ClawHub skills exposed to the lobster builder UI.
 
 This is a hand-picked subset of the 51 bundled skills that are relevant for
-the demo + actually installable on the Spark sandbox. The full
+the demo + actually installable in the NemoClaw sandbox. The full
 `openclaw skills list` catalog is dynamic and includes a lot of host-specific
 integrations (Apple Notes, BluOS, Hue lights, etc.) that don't make sense in
 the demo. The list here is what we'd recommend a reef visitor pick from.

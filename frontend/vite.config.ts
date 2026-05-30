@@ -3,8 +3,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 // Backend target. Override with VITE_BACKEND=http://host:port npm run dev when
-// you want to point at a local backend instead of the Spark.
-const BACKEND = process.env.VITE_BACKEND || "http://10.110.23.141:8001";
+// the backend runs on another demo device.
+const BACKEND = process.env.VITE_BACKEND || "http://127.0.0.1:8001";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

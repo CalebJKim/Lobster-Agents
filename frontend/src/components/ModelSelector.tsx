@@ -329,7 +329,7 @@ export default function ModelSelector({ open, onClose, onActiveChanged }: Props)
             <input
               value={form.base_url}
               onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-              placeholder="http://10.173.64.134:8000"
+              placeholder="http://127.0.0.1:8000/v1"
               className="w-full rounded-md border border-white/14 bg-slate-950/60 px-2.5 py-1.5 font-mono text-[12px] text-white outline-none focus:border-cyan-200/45"
             />
           </Field>
@@ -416,7 +416,7 @@ export default function ModelSelector({ open, onClose, onActiveChanged }: Props)
           </div>
 
           <p className="mt-3 text-[10px] text-white/40">
-            Profiles live in memory until the backend restarts. Spark backend
+            Profiles live in memory until the backend restarts. The backend
             re-seeds the default profile on restart.
           </p>
         </div>
