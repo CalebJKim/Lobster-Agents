@@ -1,260 +1,216 @@
-# Office Agents
+# Lobster Agents
 
-A pixel-art virtual office where 7 AI agents collaborate to solve your problems — research, analysis, fact-checking, code generation — all running **100% locally** on an NVIDIA DGX Spark. Nothing leaves your network.
+NemoClaw Reef is a local demo environment for visible OpenClaw agent profiles
+running inside NemoClaw/OpenShell sandboxes. The frontend renders the reef in
+Three.js; the backend owns the live agent roster, sandbox assignments, policy
+state, and OpenClaw relay runs.
 
-**"That's my research team." / "Those are AIs?" / "Yeah. Running on this box under my desk."**
+The current demo path is:
 
-![Stack](https://img.shields.io/badge/React_19-PixiJS_8-blue) ![Stack](https://img.shields.io/badge/FastAPI-WebSocket-green) ![Stack](https://img.shields.io/badge/Qwen_3.5_35B-Ollama-orange) ![Stack](https://img.shields.io/badge/100%25_Local-Private-red)
+- React/Vite frontend on `:4454`
+- FastAPI backend on `:8001`
+- OpenAI-compatible inference endpoint, usually vLLM on a demo device
+- NemoClaw and OpenShell CLIs available on the backend host
+- NemoClaw sandboxes created on that same backend host
 
-## What It Does
+## New Device Setup
 
-You type a question. 7 AI agents visually move to the War Room, research the web, fact-check each other, and write a structured answer on the whiteboard — all in real-time with a pixel-art office visualization.
+Cloning this repository does not create NemoClaw/OpenShell sandboxes. Sandboxes
+are local runtime objects on the demo device, so a new machine must build its
+own sandboxes after the repo is pulled. Do not hardcode another machine's IP or
+sandbox paths into source; configure them with environment variables.
 
-**Agents:**
-| Agent | Role | What they do |
-|-------|------|-------------|
-| Sam | Lead | Coordinates the team, asks you for clarification |
-| Maya | Researcher | Searches the web via Tavily/DuckDuckGo |
-| Sophie | Critic | Fact-checks Maya's findings with independent searches |
-| Raj | Analyst | Ranks, compares, and structures data |
-| Jordan | Writer | Writes the final deliverable on the whiteboard |
-| Dev | Coder | Writes code via Claude Code CLI |
-| Alex | Planner | Structures complex multi-step tasks |
-
-**Key Features:**
-- Pixel-art office with PixiJS — watch agents walk, talk, and work
-- Pokemon RPG-style dialogue boxes on the canvas
-- Water cooler mode — agents chat about random topics when idle
-- Drag-and-drop files — agents read your private CSVs, docs, etc.
-- Web search (Tavily + DuckDuckGo fallback)
-- Code generation via Claude Code CLI
-- Typewriter whiteboard animation
-- Pokemon-style sound effects
-- Query history persisted in SQLite
-- Parallel agent execution for faster results
-- Docker deployment with one command
-
----
-
-## Quick Start (Docker)
-
-**Prerequisites:** NVIDIA GPU + [Ollama](https://ollama.com) running on the host with `qwen3.5:35b` pulled.
+Recommended flow on a fresh demo device:
 
 ```bash
-# 1. Clone
-git clone https://github.com/kedars-opencode-agent/agent-office.git
-cd agent-office
-
-# 2. Pull the model (if not already done)
-ollama pull qwen3.5:35b
-
-# 3. Start with Docker Compose
-OLLAMA_HOST=$(hostname -I | awk '{print $1}') \
-TAVILY_API_KEY=your-tavily-key \
-docker compose up -d
-
-# 4. Open in browser
-echo "http://$(hostname -I | awk '{print $1}'):4454"
+git clone https://github.com/CalebJKim/Lobster-Agents.git
+cd Lobster-Agents
 ```
 
-That's it. Two containers (backend + frontend) connect to your host Ollama.
-
-### Self-contained (Ollama in Docker too)
-
-For a fresh machine with NVIDIA Container Toolkit:
+Install or verify the runtime tools:
 
 ```bash
-TAVILY_API_KEY=your-key docker compose -f docker-compose.full.yml up -d
+command -v openshell
+command -v nemoclaw
+command -v openclaw
 ```
 
-This pulls Ollama, the model, and everything. First start takes a while.
-
----
-
-## Quick Start (Bare Metal)
+Start or point at an OpenAI-compatible model endpoint. For vLLM, the backend
+expects a `/v1` API root:
 
 ```bash
-# 1. Start Ollama
-OLLAMA_HOST=0.0.0.0 ollama serve &
-ollama pull qwen3.5:35b
+export OFFICE_AGENTS_LLM_BASE_URL="http://<demo-device-ip-or-host>:8000/v1"
+export OFFICE_AGENTS_LLM_MODEL="<served-model-name>"
+export OFFICE_AGENTS_LLM_API_KEY="dummy"
+```
 
-# 2. Backend
+Build the NemoClaw sandboxes on the same host that runs the backend. The four
+default demo workspace names are:
+
+```bash
+for sandbox in \
+  nemoclaw-clawdia-reef \
+  nemoclaw-captain-bridge \
+  nemoclaw-pearl-script \
+  nemoclaw-snips-workbench
+do
+  nemoclaw onboard \
+    --non-interactive \
+    --yes \
+    --yes-i-accept-third-party-software \
+    --name "$sandbox" \
+    --no-sandbox-gpu
+done
+```
+
+Check that NemoClaw sees them:
+
+```bash
+nemoclaw status --json
+```
+
+If the UI says a sandbox is configured but not live, the repo is not the
+missing piece. Create or start that sandbox on the backend host, verify
+`nemoclaw status --json`, then refresh the UI.
+
+## Local Development
+
+Backend:
+
+```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install .
-cp .env.example .env  # edit with your settings
-uvicorn office_agents.main:app --host 0.0.0.0 --port 8001
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+OFFICE_AGENTS_LLM_BASE_URL="http://127.0.0.1:8000/v1" \
+OFFICE_AGENTS_LLM_MODEL="qwen3.6-27b-mtp" \
+OFFICE_AGENTS_LLM_API_KEY="dummy" \
+python -m uvicorn --app-dir src office_agents.main:app --host 0.0.0.0 --port 8001
+```
 
-# 3. Frontend (separate terminal)
+Frontend:
+
+```bash
 cd frontend
 npm install
-npx vite --host 0.0.0.0 --port 4454
+VITE_BACKEND="http://127.0.0.1:8001" npm run dev -- --host 0.0.0.0 --port 4454
 ```
 
-Or use the all-in-one script (designed for DGX Spark):
+Use `VITE_BACKEND=http://<backend-host>:8001` when the frontend runs on a
+different laptop from the backend. The frontend source should not contain a
+machine-specific fallback IP.
 
-```bash
-bash start.sh
-```
+## Policies And Approvals
 
----
+There are two separate policy layers:
 
-## Dev Workflow (Mac laptop ↔ Spark backend)
+- NemoClaw policy presets expose coarse sandbox capability bundles such as
+  `brave`, `github`, `npm`, `pypi`, and `huggingface`.
+- OpenShell network rules are approval-after-deny recommendations. If a sandbox
+  tries an outbound request that is not currently allowed, OpenShell denies it,
+  records the attempted access, and proposes a minimal rule. The Policies tab
+  can approve, reject, revoke, approve all, or clear pending rules through
+  `openshell rule`.
 
-Day-to-day setup: code lives on the laptop at `~/dev/lobster-agents/`, frontend runs locally via Vite at `http://localhost:4454`, backend + Ollama run on the Spark at `10.110.23.141:8001`. The Vite dev server proxies `/state`, `/lobsters`, `/sandboxes`, WebSocket, etc. to the Spark.
+Resetting the reef UI clears app/task state. It does not erase approved
+OpenShell network rules. Change rules only through the explicit rule actions in
+the Policies tab.
 
-### Frontend (local)
+## Skills
 
-Hot-reloads on save. Hard-reload (`Cmd+Shift+R`) only when changing hooks or chunks Vite keeps stale.
+The Build a Claw UI can request OpenClaw skills for a profile. Requested skills
+are not assumed ready just because they appear in the static catalog; run
+status and the Status tab show live OpenClaw readiness, including installed,
+ready, needs-setup, and install-failed states.
 
-```bash
-cd frontend
-npx vite --host 0.0.0.0 --port 4454
-```
+Skills that require credentials or binaries need setup inside the sandbox or
+OpenClaw profile. The UI should surface readiness instead of silently treating
+metadata as truth.
 
-Browser → `http://localhost:4454`.
+## Sandboxes
 
-### Backend (Spark, 10.110.23.141)
+The four default sandboxes are starter workspaces, not a fixed limit. Dynamic
+sandbox creation should use NemoClaw/OpenShell as the source of truth:
 
-The backend runs at `/home/nvidia/lobster-agents/backend/` on the Spark and listens on `:8001`. After editing backend code locally, deploy + restart:
+1. Persist the display name and generated internal sandbox name in the backend
+   SQLite store.
+2. Create the live NemoClaw sandbox on the backend host.
+3. Refresh `/sandboxes`; the frontend renders the new workspace and the Three.js
+   map spawns a new hut.
 
-```bash
-# 1. Push source to the Spark
-rsync -av --delete backend/src/ nvidia@10.110.23.141:/home/nvidia/lobster-agents/backend/src/
+Internal sandbox names should be stable, URL-safe, and machine-agnostic, for
+example `nemoclaw-demo-lab`. Display names can be changed in the UI without
+renaming the underlying sandbox.
 
-# 2. Restart uvicorn (MUST use `bash -lc` so PATH picks up openshell/nemoclaw)
-ssh nvidia@10.110.23.141 '
-  pkill -f "uvicorn.*office_agents" 2>/dev/null;
-  sleep 2;
-  bash -lc "cd /home/nvidia/lobster-agents/backend && \
-            nohup ./.venv/bin/python -m uvicorn --app-dir src office_agents.main:app \
-              --host 0.0.0.0 --port 8001 > /tmp/office-backend.log 2>&1 & disown"
-'
+## Crabs / Hermes Agents
 
-# 3. Confirm everything's green
-curl -s http://10.110.23.141:8001/health | jq
-# expect: llm reachable, openshell+nemoclaw paths populated, sandboxes.available=true
-```
+Crabs are the intended visual and UI representation for Hermes-backed agents.
+They should follow the same philosophy as lobsters:
 
-**Important: the `bash -lc` (login shell) is not optional.** A plain `ssh nvidia@spark 'uvicorn ...'` uses a minimal non-interactive PATH; `openshell` and `nemoclaw` live in `~/.local/bin` which only gets added via `.bashrc`. Without login mode the backend boots but the health endpoint reports "Reef is partially down — CLIs not on PATH".
+- visible profiles in the reef
+- assignable to NemoClaw/OpenShell sandboxes
+- honest runtime metadata in the UI
+- no fake capability claims when the Hermes runtime is unavailable
 
-### Backend logs
-
-```bash
-ssh nvidia@10.110.23.141 'tail -f /tmp/office-backend.log'
-```
-
-### Sanity checks
-
-```bash
-# health (all components)
-curl -s http://10.110.23.141:8001/health | jq
-
-# is uvicorn actually running?
-ssh nvidia@10.110.23.141 'ps aux | grep uvicorn | grep -v grep'
-
-# Ollama up?
-curl -s http://10.110.23.141:11434/api/tags | jq '.models[].name'
-```
-
-### Quick reef-chat tuning knobs
-
-If lobsters get too chatty or too quiet — `backend/src/office_agents/reef/idle_chat.py`:
-- `_ADDRESS_PEER_PROB` — fraction of turns that target a specific lobster (default 0.18; lower = more room-mode).
-- `_RECENT_SPEAKERS_BLOCK` — recent speakers excluded from selection (default 2).
-- `_THREAD_LENGTH` — avg turns per topic before stochastic rotation (default 6).
-- `settings.reef_chat_timeout` (`config.py`) — per-call LLM timeout in seconds, default 180.
-- `settings.reef_fallback_on_outage` — when true, emits templated narration on LLM outage instead of going silent.
-
-Convergence thresholds for query mode — `backend/src/office_agents/agents/orchestrator.py` constants: `NARROW_ROSTER_TICK`, `WRITER_DIRECT_TICK`, `WRITER_NUDGE_TICK`, `QUERY_TIMEOUT_TICK`.
-
----
-
-## Configuration
-
-Copy `.env.example` to `.env` (Docker) or edit `backend/.env` (bare metal):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OLLAMA_HOST` | `127.0.0.1` | Ollama server IP |
-| `LLM_MODEL` | `qwen3.5:35b` | Ollama model name |
-| `TAVILY_API_KEY` | (none) | Tavily API key for web search (optional, falls back to DuckDuckGo) |
-| `TICK_INTERVAL` | `4.0` | Simulation tick interval in seconds |
-| `PORT` | `4454` | Frontend port |
-| `HOST_FILES_PATH` | `/home/nvidia/documents` | Directory to mount for agent file access |
-
----
+The integration should prefer OpenShell/NemoClaw boundaries for filesystem and
+network isolation. If a demo device does not have Hermes installed or configured,
+crab runs should fail with a clear `hermes_not_configured` diagnostic instead of
+falling back silently to a lobster/OpenClaw run.
 
 ## Architecture
 
-```
-Frontend (React 19 + PixiJS 8 + Tailwind)
-    | WebSocket
+```text
+Frontend (React + Three.js + Vite)
+    | REST + WebSocket
     v
-Backend (FastAPI + Python 3.12)
+Backend (FastAPI)
     | OpenAI-compatible API
     v
-Ollama (Qwen 3.5 35B on GPU)
-    |
+vLLM / other local model server
+
+Backend
+    | nemoclaw / openshell / openclaw CLIs
     v
-SQLite (agent memory + deliverables)
+NemoClaw sandboxes backed by OpenShell policy enforcement
+
+Backend
+    | SQLite
+    v
+Agent memory, history, sandbox display names, dynamic sandbox registry
 ```
 
-**Frontend** (`frontend/`): React SPA with PixiJS pixel-art canvas, chat panel, whiteboard, activity feed, query history. Served by Nginx in Docker.
+Important backend packages:
 
-**Backend** (`backend/`): FastAPI server with WebSocket for real-time updates. Orchestrates 7 agents in a tick-based simulation loop. Agents run in parallel batches for speed.
+- `office_agents.agents`: visible agent profiles, prompts, memory, orchestrator
+- `office_agents.sandbox_runtime`: NemoClaw/OpenShell/OpenClaw integrations
+- `office_agents.office`: SQLite persistence and shared reef state
+- `office_agents.routes`: FastAPI REST and WebSocket routes
 
-**Agents** think via LLM calls and can: move between rooms, speak to each other, search the web, read local files, write code, and write to the whiteboard.
+Important frontend packages:
 
----
+- `components/ThreeUnderwaterMap.tsx`: reef scene and sandbox huts
+- `components/SandboxOrchestrator.tsx`: sandbox/team dock
+- `components/SandboxRunPanel.tsx`: run diagnostics, policies, OpenShell rules
+- `components/LobsterBuilder.tsx`: OpenClaw profile builder
 
-## Demo Files
+## Validation
 
-Sample files are included in `demo-files/` for showcasing the private file analysis features:
+After code changes:
 
-- `expenses-q1-2025.csv` — 95 personal transactions (groceries, subscriptions, dining, travel)
-- `offer-aurora-tech.md` — Job offer from a Series C startup ($205k + RSUs)
-- `offer-meridian-ai.md` — Job offer from a Series B AI company ($235k + options)
-- `perf-review-notes.md` — Performance review self-assessment with peer feedback
-- `water-cooler-topics.md` — Editable list of idle chat topics for agents
+```bash
+cd backend
+python -m compileall src
 
----
-
-## Water Cooler Mode
-
-When no query is active, agents pair up in the break room and chat about random topics. Topics are loaded from `demo-files/water-cooler-topics.md` — edit this file to change what they talk about.
-
-**GUI controls** (header "Idle Chat" button):
-- Toggle on/off
-- Quick topic buttons (Weekend plans, Hot takes, etc.)
-- Custom topic input — type anything and agents will discuss it
-
----
-
-## Project Structure
-
+cd ../frontend
+npm run build
 ```
-office-agents/
-├── backend/
-│   ├── src/office_agents/
-│   │   ├── agents/          # Agent logic, roles, memory, orchestrator
-│   │   ├── office/          # Layout, state, SQLite store
-│   │   ├── tools/           # Web search, file reader, code gen
-│   │   ├── llm/             # LLM client (OpenAI-compatible)
-│   │   ├── main.py          # FastAPI + WebSocket server
-│   │   └── config.py        # Settings
-│   ├── Dockerfile
-│   └── pyproject.toml
-├── frontend/
-│   ├── src/
-│   │   ├── components/      # React components (canvas, chat, whiteboard, etc.)
-│   │   ├── hooks/           # WebSocket + state management
-│   │   ├── utils/           # Sprites, sounds, helpers
-│   │   └── App.tsx          # Main layout
-│   ├── Dockerfile
-│   └── nginx.conf
-├── docker-compose.yml       # Docker (uses host Ollama)
-├── docker-compose.full.yml  # Docker (includes Ollama)
-├── start.sh                 # Bare metal start script
-└── test_e2e.py              # End-to-end WebSocket test
-```
+
+Manual demo checks:
+
+- `/health` reports the model, NemoClaw, and OpenShell as available.
+- `/sandboxes` shows configured and live sandboxes separately.
+- A newly created sandbox appears in the dock and on the Three.js map.
+- Build a Claw spawns a visible profile with color/accessories intact.
+- Assigning a profile to a sandbox moves it into the matching hut.
+- A denied outbound request creates an OpenShell network-rule recommendation in
+  the Policies tab.
