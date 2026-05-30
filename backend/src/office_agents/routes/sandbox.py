@@ -83,6 +83,12 @@ def _sync_orchestrator_workspaces(workspaces: list[SandboxWorkspace]) -> None:
         orch.sandboxes.sync_sandbox_workspaces(workspaces)
 
 
+async def _refresh_orchestrator_workspaces() -> list[SandboxWorkspace]:
+    workspaces = await _configured_workspaces()
+    _sync_orchestrator_workspaces(workspaces)
+    return workspaces
+
+
 def _sanitize_cli_message(value: object, *, limit: int = 1200) -> str:
     text = str(value or "").strip()
     text = _SECRET_OUTPUT_RE.sub(r"\1<redacted>", text)
@@ -380,6 +386,7 @@ async def set_sandbox_display_name(sandbox_name: str, req: dict) -> dict[str, ob
 @router.post("/sandboxes/{sandbox_name}/team")
 async def assign_sandbox_team(sandbox_name: str, req: SandboxTeamRequest) -> dict[str, object]:
     orch = app_state.require_orchestrator()
+    await _refresh_orchestrator_workspaces()
     try:
         assignments = await orch.assign_sandbox_team(
             sandbox_name=sandbox_name,
@@ -396,6 +403,7 @@ async def assign_sandbox_team(sandbox_name: str, req: SandboxTeamRequest) -> dic
 @router.post("/sandboxes/{sandbox_name}/task")
 async def run_sandbox_task(sandbox_name: str, req: SandboxTaskRequest) -> dict[str, object]:
     orch = app_state.require_orchestrator()
+    await _refresh_orchestrator_workspaces()
 
     status = await get_nemoclaw_status()
     live_names = {
