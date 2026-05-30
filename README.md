@@ -44,6 +44,25 @@ export OFFICE_AGENTS_LLM_MODEL="<served-model-name>"
 export OFFICE_AGENTS_LLM_API_KEY="dummy"
 ```
 
+The backend model route and the NemoClaw sandbox route can be different. The
+backend can use a host-loopback endpoint, but OpenShell sandboxes must use a
+NemoClaw-supported provider that is reachable through `inference.local`.
+Override these when the sandbox should use a different provider/model:
+
+```bash
+export OFFICE_AGENTS_NEMOCLAW_PROVIDER="custom"   # or "ollama" on Spark-style hosts
+export OFFICE_AGENTS_NEMOCLAW_ENDPOINT_URL="http://<sandbox-reachable-model-host>:8000/v1"
+export OFFICE_AGENTS_NEMOCLAW_MODEL="<sandbox-routed-model-name>"
+export OFFICE_AGENTS_NEMOCLAW_API_KEY="dummy"
+```
+
+On Spark hosts with Ollama already exposed through OpenShell, a working pair is
+usually `OFFICE_AGENTS_NEMOCLAW_PROVIDER=ollama` and
+`OFFICE_AGENTS_NEMOCLAW_MODEL=qwen3.6:35b-a3b`. Verify from a sandbox with
+`curl -sk https://inference.local/v1/models`; if that returns
+`inference service unavailable`, fix the OpenShell/NemoClaw inference route
+before running agent tasks.
+
 Build the NemoClaw sandboxes on the same host that runs the backend. The four
 default demo workspace names are:
 
@@ -59,6 +78,7 @@ do
     --yes \
     --yes-i-accept-third-party-software \
     --name "$sandbox" \
+    --no-gpu \
     --no-sandbox-gpu
 done
 ```

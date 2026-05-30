@@ -831,7 +831,7 @@ class SandboxManager:
             sandbox_name=sandbox_name,
             claw_id=agent.claw_id,
             display_name=agent.name,
-            model=f"inference/{settings.llm_model}",
+            model=f"inference/{settings.nemoclaw_model or settings.llm_model}",
             skills=list(agent.openclaw_skills),
             working_dir=f"{DEFAULT_RUNS_WORKDIR}/{run_id}/{agent.claw_id}",
             timeout_seconds=settings.openclaw_profile_timeout_seconds,

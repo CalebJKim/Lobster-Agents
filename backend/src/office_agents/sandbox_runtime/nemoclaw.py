@@ -113,18 +113,25 @@ async def create_nemoclaw_sandbox(
     if not nemoclaw_cmd:
         return {"ok": False, "error": "NemoClaw CLI was not found on PATH."}
 
+    provider = (settings.nemoclaw_provider or "custom").strip()
+    model = (settings.nemoclaw_model or settings.llm_model).strip()
+    endpoint_url = (settings.nemoclaw_endpoint_url or settings.llm_base_url).strip()
+    api_key = settings.nemoclaw_api_key or settings.llm_api_key or "dummy"
+
     env = os.environ.copy()
     env.update({
-        "NEMOCLAW_PROVIDER": "custom",
-        "NEMOCLAW_ENDPOINT_URL": settings.llm_base_url,
-        "NEMOCLAW_MODEL": settings.llm_model,
-        "COMPATIBLE_API_KEY": settings.llm_api_key or "dummy",
+        "NEMOCLAW_PROVIDER": provider,
+        "NEMOCLAW_MODEL": model,
         "NEMOCLAW_POLICY_TIER": "balanced",
         "NEMOCLAW_YES": "1",
         "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE": "1",
         "NEMOCLAW_PREFERRED_API": "openai-completions",
         "NEMOCLAW_AGENT_TIMEOUT": str(settings.openclaw_turn_timeout_seconds),
     })
+    if provider == "custom" or settings.nemoclaw_endpoint_url:
+        env["NEMOCLAW_ENDPOINT_URL"] = endpoint_url
+    if provider == "custom":
+        env["COMPATIBLE_API_KEY"] = api_key
 
     run = await run_capture(
         nemoclaw_cmd,

@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o"
     llm_api_key: str = ""
+    nemoclaw_provider: str = "custom"
+    nemoclaw_endpoint_url: str = ""
+    nemoclaw_model: str = ""
+    nemoclaw_api_key: str = ""
     tick_interval: float = 4.0
     db_path: str = "office_agents.db"
     allowed_file_paths: Annotated[list[str], NoDecode] = []
