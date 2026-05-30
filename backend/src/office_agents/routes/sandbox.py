@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import logging
+import re
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from office_agents.claw_config import SANDBOX_WORKSPACES
+from office_agents.claw_config import SANDBOX_WORKSPACES, SandboxWorkspace
 from office_agents.infra.app_state import app_state
 from office_agents.models import (
     NetworkRuleApproveAllRequest,
     NetworkRuleDecisionRequest,
+    SandboxCreateRequest,
     SandboxPolicyRequest,
     SandboxTaskRequest,
     SandboxTeamRequest,
 )
 from office_agents.sandbox_runtime.nemoclaw import (
     approve_all_network_rules,
+    create_nemoclaw_sandbox,
     clear_sandbox_state,
     clear_pending_network_rules,
     decide_network_rule,
@@ -31,11 +35,83 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_SAFE_SANDBOX_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _slugify_label(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug[:48].strip("-") or "sandbox"
+
+
+async def _configured_workspaces() -> list[SandboxWorkspace]:
+    """Starter workspaces plus user-created registry rows from SQLite."""
+    workspaces = list(SANDBOX_WORKSPACES)
+    seen = {workspace.name for workspace in workspaces}
+    office = app_state.office_state
+    store = office.get_store() if office else None
+    if not store:
+        return workspaces
+    try:
+        rows = await store.list_sandbox_workspaces()
+    except Exception:
+        logger.exception("Could not load dynamic sandbox workspaces")
+        return workspaces
+    for row in rows:
+        name = str(row.get("sandbox_name") or "").strip()
+        home_room = str(row.get("home_room") or "").strip()
+        display_name = str(row.get("display_name") or "").strip()
+        if not name or not home_room or not display_name or name in seen:
+            continue
+        workspaces.append(
+            SandboxWorkspace(
+                name=name,
+                home_room=home_room,
+                display_name=display_name,
+                source=str(row.get("source") or "user"),
+            )
+        )
+        seen.add(name)
+    return workspaces
+
+
+def _sync_orchestrator_workspaces(workspaces: list[SandboxWorkspace]) -> None:
+    orch = app_state.orchestrator
+    if orch:
+        orch.sandboxes.sync_sandbox_workspaces(workspaces)
+
+
+def _next_sandbox_name(
+    display_name: str,
+    *,
+    requested_name: str | None,
+    reserved: set[str],
+) -> str:
+    if requested_name:
+        cleaned = requested_name.strip()
+        if not cleaned.startswith("nemoclaw-"):
+            cleaned = f"nemoclaw-{cleaned}"
+        cleaned = cleaned.lower().replace("_", "-")
+        if not _SAFE_SANDBOX_NAME.match(cleaned):
+            raise HTTPException(status_code=400, detail="sandbox_name contains invalid characters")
+        if cleaned in reserved:
+            raise HTTPException(status_code=409, detail=f"Sandbox {cleaned} already exists")
+        return cleaned
+
+    base = f"nemoclaw-{_slugify_label(display_name)}"
+    name = base
+    suffix = 2
+    while name in reserved:
+        name = f"{base}-{suffix}"
+        suffix += 1
+    return name
+
 
 @router.get("/sandboxes")
 async def get_sandboxes() -> dict[str, object]:
     """Merge configured workspaces with live nemoclaw status + run/team state."""
 
+    workspaces = await _configured_workspaces()
+    _sync_orchestrator_workspaces(workspaces)
     status = await get_nemoclaw_status()
 
     orch = app_state.orchestrator
@@ -62,7 +138,7 @@ async def get_sandboxes() -> dict[str, object]:
         live_inference = {}
 
     sandboxes = []
-    for workspace in SANDBOX_WORKSPACES:
+    for workspace in workspaces:
         name = workspace.name
         live = live_by_name.get(name, {})
         assigned_names = assignments.get(name, [])
@@ -80,6 +156,7 @@ async def get_sandboxes() -> dict[str, object]:
             "assignable": True,
             "live": bool(live),
             "home_room": workspace.home_room,
+            "source": workspace.source,
             "assigned_agents": assigned_names,
             "assigned_agent_details": [
                 agents_by_name[a]
@@ -117,6 +194,78 @@ async def get_sandboxes() -> dict[str, object]:
     }
 
 
+@router.post("/sandboxes")
+async def create_sandbox(req: SandboxCreateRequest) -> dict[str, object]:
+    """Create/register a new NemoClaw sandbox workspace for this demo device."""
+    display_name = req.display_name.strip()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="display_name cannot be empty")
+
+    office = app_state.require_office_state()
+    store = office.get_store()
+    if not store:
+        raise HTTPException(status_code=503, detail="Persistent store not initialized")
+
+    workspaces = await _configured_workspaces()
+    status = await get_nemoclaw_status()
+    live_names = {
+        sandbox.get("name")
+        for sandbox in status.get("sandboxes", [])
+        if isinstance(sandbox.get("name"), str)
+    }
+    reserved = {workspace.name for workspace in workspaces}
+    reserved.update(name for name in live_names if isinstance(name, str))
+    sandbox_name = _next_sandbox_name(
+        display_name,
+        requested_name=req.sandbox_name,
+        reserved=reserved,
+    )
+    home_room = f"sandbox_custom_{_slugify_label(sandbox_name.removeprefix('nemoclaw-'))}"
+
+    provision_result: dict[str, object] | None = None
+    if req.provision:
+        provision_result = await create_nemoclaw_sandbox(sandbox_name)
+        if not provision_result.get("ok"):
+            raise HTTPException(
+                status_code=400,
+                detail=provision_result.get("error") or "NemoClaw sandbox creation failed",
+            )
+
+    await store.add_sandbox_workspace(
+        sandbox_name=sandbox_name,
+        display_name=display_name,
+        home_room=home_room,
+    )
+    workspaces = await _configured_workspaces()
+    _sync_orchestrator_workspaces(workspaces)
+
+    broadcaster = app_state.broadcaster
+    if broadcaster:
+        await broadcaster.broadcast({
+            "type": "sandbox_created",
+            "sandbox_name": sandbox_name,
+            "display_name": display_name,
+            "home_room": home_room,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    return {
+        "status": "ok",
+        "sandbox": {
+            "name": sandbox_name,
+            "display_name": display_name,
+            "default_display_name": display_name,
+            "home_room": home_room,
+            "configured": True,
+            "assignable": True,
+            "live": bool(req.provision),
+            "source": "user",
+            "assigned_agents": [],
+        },
+        "provision": provision_result,
+    }
+
+
 @router.post("/sandboxes/{sandbox_name}/display-name")
 async def set_sandbox_display_name(sandbox_name: str, req: dict) -> dict[str, object]:
     """Persist a user-supplied display name for one sandbox.
@@ -129,7 +278,9 @@ async def set_sandbox_display_name(sandbox_name: str, req: dict) -> dict[str, ob
     if raw is not None and not isinstance(raw, str):
         raise HTTPException(status_code=400, detail="display_name must be a string")
 
-    workspace = next((w for w in SANDBOX_WORKSPACES if w.name == sandbox_name), None)
+    workspaces = await _configured_workspaces()
+    _sync_orchestrator_workspaces(workspaces)
+    workspace = next((w for w in workspaces if w.name == sandbox_name), None)
     if workspace is None:
         raise HTTPException(status_code=404, detail=f"Unknown sandbox {sandbox_name}")
 
@@ -190,8 +341,8 @@ async def run_sandbox_task(sandbox_name: str, req: SandboxTaskRequest) -> dict[s
             status_code=409,
             detail=(
                 f"{sandbox_name} is configured for the demo but the NemoClaw CLI does not "
-                "show it as a live sandbox. Run the backend on the Spark host and verify "
-                "nemoclaw is on PATH."
+                "show it as a live sandbox. Create/start this sandbox on the backend host "
+                "and verify nemoclaw is on PATH."
             ),
         )
 

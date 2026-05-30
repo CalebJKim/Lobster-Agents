@@ -100,6 +100,61 @@ async def get_nemoclaw_status(timeout_seconds: int = 12) -> dict[str, Any]:
     return data
 
 
+async def create_nemoclaw_sandbox(
+    sandbox_name: str,
+    *,
+    timeout_seconds: int = 600,
+) -> dict[str, Any]:
+    """Provision a live NemoClaw/OpenShell sandbox on the backend host."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+
+    nemoclaw_cmd = _which("nemoclaw")
+    if not nemoclaw_cmd:
+        return {"ok": False, "error": "NemoClaw CLI was not found on PATH."}
+
+    env = os.environ.copy()
+    env.update({
+        "NEMOCLAW_PROVIDER": "custom",
+        "NEMOCLAW_ENDPOINT_URL": settings.llm_base_url,
+        "NEMOCLAW_MODEL": settings.llm_model,
+        "COMPATIBLE_API_KEY": settings.llm_api_key or "dummy",
+        "NEMOCLAW_POLICY_TIER": "balanced",
+        "NEMOCLAW_YES": "1",
+        "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE": "1",
+        "NEMOCLAW_PREFERRED_API": "openai-completions",
+        "NEMOCLAW_AGENT_TIMEOUT": str(settings.openclaw_turn_timeout_seconds),
+    })
+
+    run = await run_capture(
+        nemoclaw_cmd,
+        "onboard",
+        "--non-interactive",
+        "--yes",
+        "--yes-i-accept-third-party-software",
+        "--name",
+        sandbox_name,
+        "--no-sandbox-gpu",
+        timeout_seconds=timeout_seconds,
+        env=env,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "output": output,
+            "error": f"nemoclaw onboard timed out after {timeout_seconds}s",
+        }
+
+    return {
+        "ok": run.returncode == 0,
+        "sandbox_name": sandbox_name,
+        "output": output,
+        "error": None if run.returncode == 0 else output,
+    }
+
+
 async def get_policy_presets(
     sandbox_name: str,
     timeout_seconds: int = 12,

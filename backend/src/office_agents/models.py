@@ -87,6 +87,12 @@ class SandboxTeamRequest(BaseModel):
     agent_names: list[str] = Field(default_factory=list)
 
 
+class SandboxCreateRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+    sandbox_name: str | None = Field(default=None, min_length=3, max_length=80)
+    provision: bool = True
+
+
 class SandboxTaskRequest(BaseModel):
     task: str
     agent_names: list[str] | None = None

@@ -64,6 +64,7 @@ async def run_capture(
     *cmd: str,
     timeout_seconds: float,
     cwd: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> CapturedRun:
     """Run a command to completion (or timeout), capturing UTF-8 output.
 
@@ -77,6 +78,7 @@ async def run_capture(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=cwd,
+        env=env,
     )
     try:
         stdout_bytes, stderr_bytes = await asyncio.wait_for(

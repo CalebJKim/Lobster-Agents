@@ -23,6 +23,7 @@ class SandboxWorkspace:
     name: str
     home_room: str
     display_name: str
+    source: str = "default"
 
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -59,10 +60,10 @@ CLAW_IDENTITIES: dict[str, ClawIdentity] = {
     ),
 }
 
-# Four shared workspaces — lobsters team up in any of them as needed. The
-# original 1-sandbox-per-lobster design is gone; these are communal spaces.
-# Internal sandbox names are unchanged so the live NemoClaw sandboxes on the
-# Spark don't need to be re-provisioned.
+# Four shared starter workspaces — lobsters team up in any of them as needed.
+# Dynamic workspaces are stored in SQLite and merged with these defaults at
+# runtime. Internal names are machine-agnostic; every new demo device must
+# create its own live NemoClaw/OpenShell sandboxes with these names.
 SANDBOX_WORKSPACES: tuple[SandboxWorkspace, ...] = (
     SandboxWorkspace("nemoclaw-clawdia-reef",    "sandbox_cove", "Coral Cove"),
     SandboxWorkspace("nemoclaw-captain-bridge",  "sandbox_bridge",       "The Bridge"),

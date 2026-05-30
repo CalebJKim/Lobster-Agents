@@ -131,6 +131,7 @@ async def _reset_simulation(orch, office, broadcaster) -> None:
         agent.state = AgentState.idle
         release_room_seat(agent.location, agent.name)
         agent.sandbox_name = None
+        agent.sandbox_home_room = None
         agent.connect_command = None
         agent.location = "war_room"
         agent.position = get_room_position("war_room", agent.name)
@@ -140,6 +141,7 @@ async def _reset_simulation(orch, office, broadcaster) -> None:
         state["position"] = {"x": agent.position[0], "y": agent.position[1]}
         state["current_task"] = None
         state["sandbox_name"] = None
+        state["sandbox_home_room"] = None
         state["connect_command"] = None
     await broadcaster.broadcast({
         "type": "sandbox_team_updated",

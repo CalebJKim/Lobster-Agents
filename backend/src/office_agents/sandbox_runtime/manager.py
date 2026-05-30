@@ -26,7 +26,7 @@ from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from office_agents.agents.base import Agent
-from office_agents.claw_config import get_home_room_for_sandbox
+from office_agents.claw_config import SANDBOX_WORKSPACES, SandboxWorkspace
 from office_agents.config import settings
 from office_agents.models import AgentState
 from office_agents.office.layout import get_room_position, release_room_seat
@@ -72,6 +72,9 @@ class SandboxManager:
         self.assignments: dict[str, list[str]] = {}
         self._run_tasks: dict[str, asyncio.Task[None]] = {}
         self._run_meta: dict[str, dict[str, Any]] = {}
+        self._sandbox_home_rooms: dict[str, str] = {
+            workspace.name: workspace.home_room for workspace in SANDBOX_WORKSPACES
+        }
 
     # ------------------------------------------------------------------
     # Read helpers (used by the tick loop and the routes)
@@ -103,6 +106,20 @@ class SandboxManager:
             if not existing or str(item.get("started_at", "")) >= str(existing.get("started_at", "")):
                 by_sandbox[sandbox_name] = item
         return by_sandbox
+
+    def sync_sandbox_workspaces(self, workspaces: list[SandboxWorkspace]) -> None:
+        """Refresh the dynamic sandbox-name to reef-room mapping.
+
+        The FastAPI route layer owns persistence; the manager only needs the
+        current mapping so assignment and run movement can treat user-created
+        sandboxes exactly like the starter four.
+        """
+        self._sandbox_home_rooms = {
+            workspace.name: workspace.home_room for workspace in workspaces
+        }
+
+    def _home_room_for_sandbox(self, sandbox_name: str) -> str | None:
+        return self._sandbox_home_rooms.get(sandbox_name)
 
     def get_run_diagnostics(self, sandbox_name: str, run_id: str) -> dict[str, Any] | None:
         """Return the detailed, per-run diagnostic record retained in memory."""
@@ -226,7 +243,7 @@ class SandboxManager:
             raise ValueError(f"Unknown lobster profile(s): {', '.join(unknown)}")
 
         unique = [n for n in requested if n in known]
-        if not get_home_room_for_sandbox(sandbox_name):
+        if not self._home_room_for_sandbox(sandbox_name):
             logger.warning(
                 "Rejected sandbox assignment without physical room: sandbox=%s agents=%s",
                 sandbox_name, unique,
@@ -281,8 +298,9 @@ class SandboxManager:
         return self.get_assignments()
 
     def _place_agent(self, agent: Agent, sandbox_name: str) -> None:
-        target_room = get_home_room_for_sandbox(sandbox_name)
+        target_room = self._home_room_for_sandbox(sandbox_name)
         agent.sandbox_name = sandbox_name
+        agent.sandbox_home_room = target_room
         agent.connect_command = f"nemoclaw {sandbox_name} connect"
         if not target_room:
             return
@@ -297,12 +315,14 @@ class SandboxManager:
         state["state"] = AgentState.idle.value
         state["current_task"] = None
         state["sandbox_name"] = sandbox_name
+        state["sandbox_home_room"] = target_room
         state["connect_command"] = agent.connect_command
 
     def _release_agent(self, agent: Agent) -> None:
         next_room = "war_room" if self._office_state.current_query else "break_room"
         release_room_seat(agent.location, agent.name)
         agent.sandbox_name = None
+        agent.sandbox_home_room = None
         agent.connect_command = None
         agent.position = get_room_position(next_room, agent.name)
         agent.location = next_room
@@ -314,6 +334,7 @@ class SandboxManager:
         state["state"] = agent.state.value
         state["current_task"] = agent.current_task
         state["sandbox_name"] = None
+        state["sandbox_home_room"] = None
         state["connect_command"] = None
 
     # ------------------------------------------------------------------
@@ -737,7 +758,7 @@ class SandboxManager:
         await self._broadcast_full_state()
 
     def _move_agent_into_sandbox(self, agent: Agent, sandbox_name: str, task: str) -> None:
-        target_room = get_home_room_for_sandbox(sandbox_name)
+        target_room = self._home_room_for_sandbox(sandbox_name)
         if target_room:
             release_room_seat(agent.location, agent.name)
             agent.position = get_room_position(target_room, agent.name)
@@ -746,6 +767,7 @@ class SandboxManager:
             self._office_state.update_agent_position(agent.name, target_room, agent.position)
 
         agent.sandbox_name = sandbox_name
+        agent.sandbox_home_room = target_room
         agent.connect_command = f"nemoclaw {sandbox_name} connect"
         agent.current_task = task
         agent.state = AgentState.coding
@@ -753,6 +775,7 @@ class SandboxManager:
         state["state"] = AgentState.coding.value
         state["current_task"] = task
         state["sandbox_name"] = sandbox_name
+        state["sandbox_home_room"] = target_room
         state["connect_command"] = agent.connect_command
 
     async def _run_one_agent(

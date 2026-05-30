@@ -65,6 +65,7 @@ class Agent:
         self.claw_metadata = get_claw_metadata(self.name)
         self.claw_id = self.claw_metadata["claw_id"]
         self.sandbox_name: str | None = None
+        self.sandbox_home_room: str | None = None
         self.connect_command: str | None = None
         self.state = AgentState.idle
         self.location = _GENERAL_START_ROOMS.get(self.name, "war_room")
@@ -181,7 +182,10 @@ class Agent:
         elif action.type == ActionType.move_to:
             target_room = action.target or action.content
             if target_room in ROOM_POSITIONS:
-                sandbox_room = get_home_room_for_sandbox(self.sandbox_name) if self.sandbox_name else None
+                sandbox_room = (
+                    self.sandbox_home_room
+                    or (get_home_room_for_sandbox(self.sandbox_name) if self.sandbox_name else None)
+                )
                 if sandbox_room and target_room != sandbox_room:
                     result["destination"] = self.location
                     result["blocked"] = True
@@ -252,6 +256,7 @@ class Agent:
             "openclaw_capable": True,
             "claw_id": self.claw_id,
             "sandbox_name": self.sandbox_name,
+            "sandbox_home_room": self.sandbox_home_room,
             "connect_command": self.connect_command,
             "tools": list(self.tools),
             "openclaw_skills": list(self.openclaw_skills),
@@ -299,7 +304,10 @@ class Agent:
         been idling — keeps the prompt compact for short-lived ticks.
         """
         has_query = bool(office_state.get("current_query"))
-        sandbox_room = get_home_room_for_sandbox(self.sandbox_name) if self.sandbox_name else None
+        sandbox_room = (
+            self.sandbox_home_room
+            or (get_home_room_for_sandbox(self.sandbox_name) if self.sandbox_name else None)
+        )
         assigned_to_sandbox = bool(sandbox_room and self.location == sandbox_room)
         lines: list[str] = []
 

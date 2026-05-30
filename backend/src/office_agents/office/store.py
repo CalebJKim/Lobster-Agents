@@ -43,6 +43,16 @@ class PersistentStore:
                     updated_at TEXT NOT NULL
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS sandbox_workspaces (
+                    sandbox_name TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    home_room TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'user',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
             await db.commit()
         logger.info("Persistent store initialized at %s", self.db_path)
 
@@ -76,6 +86,52 @@ class PersistentStore:
                 (sandbox_name,),
             )
             await db.commit()
+
+    async def list_sandbox_workspaces(self) -> list[dict[str, Any]]:
+        """User-created sandbox workspaces persisted across backend restarts."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT sandbox_name, display_name, home_room, source, created_at, updated_at "
+                "FROM sandbox_workspaces ORDER BY created_at ASC"
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                "sandbox_name": row["sandbox_name"],
+                "display_name": row["display_name"],
+                "home_room": row["home_room"],
+                "source": row["source"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    async def add_sandbox_workspace(
+        self,
+        *,
+        sandbox_name: str,
+        display_name: str,
+        home_room: str,
+        source: str = "user",
+    ) -> None:
+        """Persist one dynamic NemoClaw workspace."""
+        ts = datetime.now().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO sandbox_workspaces "
+                "(sandbox_name, display_name, home_room, source, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(sandbox_name) DO UPDATE SET "
+                "display_name=excluded.display_name, "
+                "home_room=excluded.home_room, "
+                "source=excluded.source, "
+                "updated_at=excluded.updated_at",
+                (sandbox_name, display_name, home_room, source, ts, ts),
+            )
+            await db.commit()
+        logger.info("Registered sandbox workspace %s (%s)", sandbox_name, display_name)
 
     async def save_deliverable(
         self, query: str, agent: str, content: str
