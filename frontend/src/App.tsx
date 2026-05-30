@@ -268,6 +268,12 @@ export default function App() {
   }, [openSandboxName, refreshSandboxesIndex]);
 
   useEffect(() => {
+    if (!sandboxesIndex.some((sandbox) => sandbox.configured && !sandbox.live)) return;
+    const id = window.setInterval(refreshSandboxesIndex, 5000);
+    return () => window.clearInterval(id);
+  }, [refreshSandboxesIndex, sandboxesIndex]);
+
+  useEffect(() => {
     if (!sandboxNotice) return;
     const id = window.setTimeout(() => setSandboxNotice(null), 5000);
     return () => window.clearTimeout(id);

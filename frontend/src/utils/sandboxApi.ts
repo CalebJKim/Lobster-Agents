@@ -23,10 +23,10 @@ export async function fetchSandboxes(): Promise<NemoClawStatus> {
 export async function createSandbox(displayName: string): Promise<{
   status: string;
   sandbox?: NemoClawStatus["sandboxes"][number];
-  provision?: { ok?: boolean; output?: string; error?: string } | null;
+  provision?: { ok?: boolean | null; status?: string; output?: string; error?: string; background?: boolean } | null;
 }> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 10 * 60 * 1000);
+  const timeout = window.setTimeout(() => controller.abort(), 30 * 1000);
   try {
     const res = await fetch("/sandboxes", {
       method: "POST",
@@ -38,7 +38,7 @@ export async function createSandbox(displayName: string): Promise<{
     const body = (await res.json().catch(() => ({}))) as {
       status: string;
       sandbox?: NemoClawStatus["sandboxes"][number];
-      provision?: { ok?: boolean; output?: string; error?: string } | null;
+      provision?: { ok?: boolean | null; status?: string; output?: string; error?: string; background?: boolean } | null;
       detail?: string;
     };
     if (!res.ok) throw new Error(body.detail || `Could not create sandbox (${res.status})`);

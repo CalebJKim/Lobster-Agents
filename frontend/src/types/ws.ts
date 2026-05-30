@@ -175,6 +175,21 @@ export type WSServerEvent =
       sandbox_name: string;
       display_name: string | null;
       home_room?: string | null;
+      provisioning?: boolean;
+    }
+  | {
+      type: "sandbox_provision_started";
+      sandbox_name: string;
+      display_name: string | null;
+      home_room?: string | null;
+    }
+  | {
+      type: "sandbox_provision_finished";
+      sandbox_name: string;
+      display_name: string | null;
+      home_room?: string | null;
+      ok: boolean;
+      error?: string | null;
     }
 
   // Misc.

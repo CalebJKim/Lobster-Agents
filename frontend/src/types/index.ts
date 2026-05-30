@@ -163,6 +163,7 @@ export interface NemoClawSandbox {
   configured?: boolean;
   assignable?: boolean;
   live?: boolean;
+  provisioning?: boolean;
   home_room?: Room;
   source?: "default" | "user" | string;
   claw_id?: string;

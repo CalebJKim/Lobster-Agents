@@ -462,7 +462,11 @@ export default function SandboxOrchestrator({
       setCreatorOpen(false);
       if (createdName) setSelectedSandbox(createdName);
       await Promise.all([load(), onStateRefresh?.()]);
-      setNotice(`${result.sandbox?.display_name ?? displayName} created.`);
+      setNotice(
+        result.status === "provisioning"
+          ? `${result.sandbox?.display_name ?? displayName} created. Provisioning in background.`
+          : `${result.sandbox?.display_name ?? displayName} created.`
+      );
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Could not create sandbox");
     } finally {

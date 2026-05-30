@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from office_agents.claw_config import SANDBOX_WORKSPACES, SandboxWorkspace
 from office_agents.infra.app_state import app_state
@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _SAFE_SANDBOX_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+_SECRET_OUTPUT_RE = re.compile(
+    r"(?i)((?:api[_-]?key|token|secret|password|credential)\s*(?:=|:|\s)\s*)\S+"
+)
 
 
 def _slugify_label(value: str) -> str:
@@ -78,6 +81,62 @@ def _sync_orchestrator_workspaces(workspaces: list[SandboxWorkspace]) -> None:
     orch = app_state.orchestrator
     if orch:
         orch.sandboxes.sync_sandbox_workspaces(workspaces)
+
+
+def _sanitize_cli_message(value: object, *, limit: int = 1200) -> str:
+    text = str(value or "").strip()
+    text = _SECRET_OUTPUT_RE.sub(r"\1<redacted>", text)
+    return text[:limit].rstrip()
+
+
+async def _provision_created_sandbox(
+    sandbox_name: str,
+    display_name: str,
+    home_room: str,
+) -> None:
+    broadcaster = app_state.broadcaster
+    if broadcaster:
+        await broadcaster.broadcast({
+            "type": "sandbox_provision_started",
+            "sandbox_name": sandbox_name,
+            "display_name": display_name,
+            "home_room": home_room,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    logger.info("Provisioning dynamic NemoClaw sandbox %s", sandbox_name)
+    result = await create_nemoclaw_sandbox(sandbox_name)
+    ok = bool(result.get("ok"))
+    if ok:
+        logger.info("Provisioned dynamic NemoClaw sandbox %s", sandbox_name)
+    else:
+        logger.warning(
+            "Dynamic NemoClaw sandbox %s provisioning failed: %s",
+            sandbox_name,
+            _sanitize_cli_message(result.get("error") or result.get("output")),
+        )
+
+    try:
+        _sync_orchestrator_workspaces(await _configured_workspaces())
+    except Exception:
+        logger.exception("Could not resync workspaces after provisioning %s", sandbox_name)
+
+    if broadcaster:
+        error = None if ok else _sanitize_cli_message(result.get("error") or result.get("output"))
+        await broadcaster.broadcast({
+            "type": "sandbox_provision_finished",
+            "sandbox_name": sandbox_name,
+            "display_name": display_name,
+            "home_room": home_room,
+            "ok": ok,
+            "error": error,
+            "timestamp": datetime.now().isoformat(),
+        })
+        if error:
+            await broadcaster.broadcast({
+                "type": "system_warning",
+                "message": f"{display_name} provisioning failed: {error}",
+            })
 
 
 def _next_sandbox_name(
@@ -195,7 +254,10 @@ async def get_sandboxes() -> dict[str, object]:
 
 
 @router.post("/sandboxes")
-async def create_sandbox(req: SandboxCreateRequest) -> dict[str, object]:
+async def create_sandbox(
+    req: SandboxCreateRequest,
+    background_tasks: BackgroundTasks,
+) -> dict[str, object]:
     """Create/register a new NemoClaw sandbox workspace for this demo device."""
     display_name = req.display_name.strip()
     if not display_name:
@@ -222,15 +284,6 @@ async def create_sandbox(req: SandboxCreateRequest) -> dict[str, object]:
     )
     home_room = f"sandbox_custom_{_slugify_label(sandbox_name.removeprefix('nemoclaw-'))}"
 
-    provision_result: dict[str, object] | None = None
-    if req.provision:
-        provision_result = await create_nemoclaw_sandbox(sandbox_name)
-        if not provision_result.get("ok"):
-            raise HTTPException(
-                status_code=400,
-                detail=provision_result.get("error") or "NemoClaw sandbox creation failed",
-            )
-
     await store.add_sandbox_workspace(
         sandbox_name=sandbox_name,
         display_name=display_name,
@@ -246,11 +299,20 @@ async def create_sandbox(req: SandboxCreateRequest) -> dict[str, object]:
             "sandbox_name": sandbox_name,
             "display_name": display_name,
             "home_room": home_room,
+            "provisioning": bool(req.provision),
             "timestamp": datetime.now().isoformat(),
         })
 
+    if req.provision:
+        background_tasks.add_task(
+            _provision_created_sandbox,
+            sandbox_name,
+            display_name,
+            home_room,
+        )
+
     return {
-        "status": "ok",
+        "status": "provisioning" if req.provision else "ok",
         "sandbox": {
             "name": sandbox_name,
             "display_name": display_name,
@@ -258,11 +320,16 @@ async def create_sandbox(req: SandboxCreateRequest) -> dict[str, object]:
             "home_room": home_room,
             "configured": True,
             "assignable": True,
-            "live": bool(req.provision),
+            "live": False,
+            "provisioning": bool(req.provision),
             "source": "user",
             "assigned_agents": [],
         },
-        "provision": provision_result,
+        "provision": (
+            {"ok": None, "status": "started", "background": True}
+            if req.provision
+            else None
+        ),
     }
 
 
