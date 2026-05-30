@@ -34,10 +34,6 @@ class Settings(BaseSettings):
     # about two minutes even for a tiny first turn, so web/tool relay turns
     # need a wider window than the old hard-coded 90s timeout.
     openclaw_turn_timeout_seconds: int = 300
-    # OpenClaw also has an internal LLM idle timeout: if no token arrives
-    # within this window, it aborts even when the outer turn timeout is still
-    # open. Disable that idle guard and rely on the bounded turn timeout above.
-    openclaw_llm_idle_timeout_seconds: int = 0
     # Profile preparation installs/filters skills before a turn starts.
     openclaw_profile_timeout_seconds: int = 120
 

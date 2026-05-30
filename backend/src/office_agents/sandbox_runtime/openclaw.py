@@ -32,21 +32,29 @@ DEFAULT_TIMEOUT_SECONDS = settings.openclaw_turn_timeout_seconds
 # as module-level constants because manager.py imports them by name.
 DEFAULT_SANDBOX_WORKDIR = settings.sandbox_workspaces_dir
 DEFAULT_RUNS_WORKDIR = settings.sandbox_runs_dir
-_OPENCLAW_IDLE_TIMEOUT_PATCH = (
+_OPENCLAW_TIMEOUT_PATCH = (
     "import hashlib,json,pathlib,sys;"
     "p=pathlib.Path('/sandbox/.openclaw/openclaw.json');"
     "sys.exit(0) if not p.exists() else None;"
     "cfg=json.loads(p.read_text());"
-    "llm=cfg.setdefault('agents',{}).setdefault('defaults',{}).setdefault('llm',{});"
     "value=int(sys.argv[1]);"
-    "changed=llm.get('idleTimeoutSeconds')!=value;"
-    "llm['idleTimeoutSeconds']=value;"
+    "changed=False;"
+    "defaults=cfg.setdefault('agents',{}).setdefault('defaults',{});"
+    "changed=changed or defaults.get('timeoutSeconds')!=value;"
+    "defaults['timeoutSeconds']=value;"
+    "changed=changed or ('llm' in defaults);"
+    "defaults.pop('llm',None);"
+    "providers=cfg.setdefault('models',{}).setdefault('providers',{});"
+    "provider_changed=any(isinstance(v,dict) and v.get('timeoutSeconds')!=value for v in providers.values());"
+    "changed=changed or provider_changed;"
+    "[(providers[k].__setitem__('timeoutSeconds',value)) for k in providers "
+    "if isinstance(providers.get(k),dict) and providers[k].get('timeoutSeconds')!=value];"
     "text=json.dumps(cfg,indent=2)+'\\n';"
     "p.write_text(text) if changed else None;"
     "h=hashlib.sha256(p.read_bytes()).hexdigest();"
     "hp=p.with_name('.config-hash');"
     "hp.write_text(f'{h}  openclaw.json\\n') if changed or hp.exists() else None;"
-    "marker=p.with_name('.lobster-openclaw-idle-timeout');"
+    "marker=p.with_name('.lobster-openclaw-timeout');"
     "desired=str(value)+'\\n';"
     "restart=changed or (not marker.exists()) or marker.read_text()!=desired;"
     "print('restart' if restart else 'ok')"
@@ -134,7 +142,7 @@ async def run_openclaw(
                 'if [ "$patch_status" = restart ]; then '
                 'openclaw gateway restart >/tmp/openclaw-gateway-restart.log 2>&1 '
                 '|| cat /tmp/openclaw-gateway-restart.log >&2; '
-                'printf "%s\\n" "$6" >/sandbox/.openclaw/.lobster-openclaw-idle-timeout; '
+                'printf "%s\\n" "$6" >/sandbox/.openclaw/.lobster-openclaw-timeout; '
                 'sleep 2; '
                 'fi; '
                 'mkdir -p "$1" && cd "$1" && exec openclaw agent '
@@ -146,8 +154,8 @@ async def run_openclaw(
             str(timeout_seconds),
             message,
             openclaw_session_id,
-            str(settings.openclaw_llm_idle_timeout_seconds),
-            _OPENCLAW_IDLE_TIMEOUT_PATCH,
+            str(timeout_seconds),
+            _OPENCLAW_TIMEOUT_PATCH,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
