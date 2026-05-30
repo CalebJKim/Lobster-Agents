@@ -134,11 +134,12 @@ async def create_nemoclaw_sandbox(
         "--yes-i-accept-third-party-software",
         "--name",
         sandbox_name,
+        "--no-gpu",
         "--no-sandbox-gpu",
         timeout_seconds=timeout_seconds,
         env=env,
     )
-    output = _strip_ansi(run.stdout or run.stderr).strip()
+    output = _strip_ansi("\n".join(part for part in (run.stdout, run.stderr) if part)).strip()
     if run.timed_out:
         return {
             "ok": False,
