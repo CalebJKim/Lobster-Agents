@@ -572,7 +572,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                 className="mt-1 w-full resize-y rounded-md border border-white/14 bg-slate-950/60 px-3 py-2 text-[12px] leading-5 text-white outline-none placeholder:text-white/30 focus:border-cyan-200/45"
               />
               <p className="mt-1 text-[10px] text-white/35">
-                Flows into every OpenClaw turn AND the in-reef LLM prompt.
+                Flows into every sandbox runtime turn AND the in-reef LLM prompt.
                 Leave empty for archetype defaults.
               </p>
             </div>
