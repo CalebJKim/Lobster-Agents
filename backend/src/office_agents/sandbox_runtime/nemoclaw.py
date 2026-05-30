@@ -118,9 +118,23 @@ async def create_nemoclaw_sandbox(
     endpoint_url = (settings.nemoclaw_endpoint_url or settings.llm_base_url).strip()
     api_key = settings.nemoclaw_api_key or settings.llm_api_key or "dummy"
 
+    # NemoClaw's onboard provider selector uses menu keys, not the persisted
+    # OpenShell provider name. The live route reports "compatible-endpoint",
+    # while non-interactive onboard expects "custom" for that same provider.
+    # On demo hosts, env can drift to "ollama" even after the gateway route is
+    # switched to compatible-endpoint; prefer the active route when it is clear.
+    onboard_provider = provider
+    active_route = await _get_active_inference_route(nemoclaw_cmd)
+    if active_route.get("provider") == "compatible-endpoint":
+        onboard_provider = "custom"
+        if isinstance(active_route.get("model"), str) and active_route["model"].strip():
+            model = active_route["model"].strip()
+    elif onboard_provider == "compatible-endpoint":
+        onboard_provider = "custom"
+
     env = os.environ.copy()
     env.update({
-        "NEMOCLAW_PROVIDER": provider,
+        "NEMOCLAW_PROVIDER": onboard_provider,
         "NEMOCLAW_MODEL": model,
         "NEMOCLAW_POLICY_TIER": "balanced",
         "NEMOCLAW_YES": "1",
@@ -128,9 +142,9 @@ async def create_nemoclaw_sandbox(
         "NEMOCLAW_PREFERRED_API": "openai-completions",
         "NEMOCLAW_AGENT_TIMEOUT": str(settings.openclaw_turn_timeout_seconds),
     })
-    if provider == "custom" or settings.nemoclaw_endpoint_url:
+    if onboard_provider == "custom" or settings.nemoclaw_endpoint_url:
         env["NEMOCLAW_ENDPOINT_URL"] = endpoint_url
-    if provider == "custom":
+    if onboard_provider == "custom":
         env["COMPATIBLE_API_KEY"] = api_key
 
     run = await run_capture(
@@ -161,6 +175,24 @@ async def create_nemoclaw_sandbox(
         "output": output,
         "error": None if run.returncode == 0 else output,
     }
+
+
+async def _get_active_inference_route(nemoclaw_cmd: str) -> dict[str, Any]:
+    """Best-effort read of the active NemoClaw inference route."""
+    run = await run_capture(
+        nemoclaw_cmd,
+        "inference",
+        "get",
+        "--json",
+        timeout_seconds=8,
+    )
+    if run.returncode != 0 or not run.stdout.strip():
+        return {}
+    try:
+        data = json.loads(run.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 async def get_policy_presets(
