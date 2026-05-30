@@ -8,6 +8,7 @@ interface AgentChipProps {
   picked: boolean;
   onPick: (agentName: string) => void;
   onRemove?: (agentName: string) => void;
+  hermesConfigured?: boolean | null;
 }
 
 export default function AgentChip({
@@ -16,10 +17,12 @@ export default function AgentChip({
   picked,
   onPick,
   onRemove,
+  hermesConfigured,
 }: AgentChipProps) {
   const color = AGENT_COLORS[agent.name] ?? "#94a3b8";
   const speciesLabel = agent.species === "crab" ? "Crab" : "Lobster";
   const runtimeLabel = agent.runtime === "hermes" ? "Hermes" : "OpenClaw";
+  const isCrab = agent.species === "crab" || agent.runtime === "hermes";
 
   return (
     <div
@@ -56,6 +59,19 @@ export default function AgentChip({
               ? `In ${sandboxNameLabel(assignedTo)}`
               : `${speciesLabel} · ${ROLE_LABELS[agent.role]} · ${runtimeLabel}`}
           </span>
+          {isCrab && (
+            <span
+              className={`mt-0.5 inline-flex rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+                hermesConfigured === true
+                  ? "bg-emerald-300/16 text-emerald-100"
+                  : hermesConfigured === false
+                    ? "bg-amber-300/16 text-amber-100"
+                    : "bg-white/[0.08] text-white/45"
+              }`}
+            >
+              Hermes {hermesConfigured === true ? "configured" : hermesConfigured === false ? "not configured" : "checking"}
+            </span>
+          )}
           {(agent.openclaw_skills && agent.openclaw_skills.length > 0) && (
             <span className="mt-0.5 flex flex-wrap gap-0.5">
               {agent.openclaw_skills.slice(0, 3).map((slug) => (

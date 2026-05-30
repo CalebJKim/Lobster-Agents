@@ -309,15 +309,26 @@ def run_flow(ctx: Context) -> None:
         "name": ctx.lobster_b,
         "species": "lobster",
         "color": "#059669",
-        "appearance": {"headwear": "cowboy_hat", "eyewear": "none"},
+        "appearance": {
+            "headwear": "generated",
+            "eyewear": "none",
+            "generated_headwear": {
+                "kind": "wizard_hat",
+                "label": "Wizard hat",
+                "primary": "#6d28d9",
+                "accent": "#facc15",
+                "decorations": [{"type": "star", "color": "#facc15", "count": 5}],
+            },
+        },
         "skills": [],
         "mission": "For demo validation, answer briefly and avoid web search unless explicitly asked.",
     }, "create accessorized lobster profile B")
     require(
         ctx,
-        "second lobster preserves color/accessory",
+        "second lobster preserves generated headwear preset",
         lobster_b.get("color") == "#059669"
-        and lobster_b.get("appearance", {}).get("headwear") == "cowboy_hat",
+        and lobster_b.get("appearance", {}).get("headwear") == "generated"
+        and lobster_b.get("appearance", {}).get("generated_headwear", {}).get("kind") == "wizard_hat",
         lobster_b,
     )
 
@@ -326,7 +337,17 @@ def run_flow(ctx: Context) -> None:
         "name": ctx.crab,
         "species": "crab",
         "color": "#2563eb",
-        "appearance": {"headwear": "cowboy_hat", "eyewear": "none"},
+        "appearance": {
+            "headwear": "generated",
+            "eyewear": "none",
+            "generated_headwear": {
+                "kind": "crown",
+                "label": "Crown",
+                "primary": "#f59e0b",
+                "accent": "#38bdf8",
+                "decorations": [{"type": "gem", "color": "#38bdf8", "count": 4}],
+            },
+        },
         "skills": [],
         "mission": "For demo validation, be concise. If Hermes is unavailable, report that clearly.",
     }, "create Hermes crab profile")
@@ -336,7 +357,8 @@ def run_flow(ctx: Context) -> None:
         crab.get("species") == "crab"
         and crab.get("runtime") == "hermes"
         and crab.get("color") == "#2563eb"
-        and crab.get("appearance", {}).get("headwear") == "cowboy_hat",
+        and crab.get("appearance", {}).get("headwear") == "generated"
+        and crab.get("appearance", {}).get("generated_headwear", {}).get("kind") == "crown",
         crab,
     )
 

@@ -1653,7 +1653,7 @@ function makeCrab(agent: AgentInfo) {
   const whiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
   const group = new THREE.Group();
-  group.name = `lobster-${agent.name}`;
+  group.name = `crab-${agent.name}`;
 
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.78, 20, 12), shellMat);
   body.scale.set(1.28, 0.42, 0.9);

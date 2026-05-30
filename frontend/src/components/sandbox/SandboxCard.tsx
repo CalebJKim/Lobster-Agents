@@ -11,6 +11,7 @@ interface SandboxCardProps {
   onRemoveAgent: (sandboxName: string, agentName: string) => void;
   onCarryAgent: (agentName: string | null) => void;
   onOpenMonitor?: (sandboxName: string) => void;
+  hermesConfigured?: boolean | null;
 }
 
 export default function SandboxCard({
@@ -22,6 +23,7 @@ export default function SandboxCard({
   onRemoveAgent,
   onCarryAgent,
   onOpenMonitor,
+  hermesConfigured,
 }: SandboxCardProps) {
   const team = sandbox.assigned_agent_details ?? [];
   const canDrop = Boolean(carriedAgent);
@@ -135,6 +137,26 @@ export default function SandboxCard({
                 style={{ backgroundColor: AGENT_COLORS[agent.name] ?? "#94a3b8" }}
               />
               <span className="truncate">{agent.name}</span>
+              {(agent.species === "crab" || agent.runtime === "hermes") && (
+                <span
+                  className={`shrink-0 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+                    hermesConfigured === true
+                      ? "bg-emerald-300/16 text-emerald-100"
+                      : hermesConfigured === false
+                        ? "bg-amber-300/16 text-amber-100"
+                        : "bg-white/[0.08] text-white/45"
+                  }`}
+                  title={
+                    hermesConfigured === true
+                      ? "Hermes configured"
+                      : hermesConfigured === false
+                        ? "Hermes not configured"
+                        : "Checking Hermes runtime"
+                  }
+                >
+                  Hermes {hermesConfigured === true ? "ready" : hermesConfigured === false ? "off" : "..."}
+                </span>
+              )}
               <button
                 type="button"
                 draggable={false}
@@ -160,7 +182,7 @@ export default function SandboxCard({
           ))
         ) : (
           <span className="text-[10px] font-medium leading-8 text-white/28">
-            Drop lobsters here
+            Drop profiles here
           </span>
         )}
       </div>

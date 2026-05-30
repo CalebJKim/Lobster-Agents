@@ -10,7 +10,7 @@ import type {
 } from "../types";
 import { SQUADS, type Squad } from "../utils/claws";
 import { SANDBOX_API_TIMEOUT_MS, SANDBOX_POLL_INTERVAL_MS } from "../utils/config";
-import { createSandbox as createSandboxRequest } from "../utils/sandboxApi";
+import { createSandbox as createSandboxRequest, fetchDemoReadiness } from "../utils/sandboxApi";
 import { AGENT_COLORS, ROLE_LABELS } from "../utils/sprites";
 import AgentChip from "./sandbox/AgentChip";
 import SandboxCard from "./sandbox/SandboxCard";
@@ -290,6 +290,7 @@ export default function SandboxOrchestrator({
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [newSandboxName, setNewSandboxName] = useState("");
   const [creatingSandbox, setCreatingSandbox] = useState(false);
+  const [hermesConfigured, setHermesConfigured] = useState<boolean | null>(null);
   // Policy preview — Run Team first opens a confirmation modal so the user
   // sees the cage (enabled policies, deny-by-default everywhere else)
   // before actually firing the task.
@@ -357,6 +358,24 @@ export default function SandboxOrchestrator({
     const id = window.setInterval(load, SANDBOX_POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHermesReadiness = async () => {
+      try {
+        const readiness = await fetchDemoReadiness();
+        if (!cancelled) setHermesConfigured(readiness.hermes?.configured === true);
+      } catch {
+        if (!cancelled) setHermesConfigured(null);
+      }
+    };
+    loadHermesReadiness();
+    const id = window.setInterval(loadHermesReadiness, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   const loadSelectedDetails = useCallback(async (sandboxName: string | null) => {
     if (!sandboxName) return;
@@ -906,7 +925,7 @@ export default function SandboxOrchestrator({
         <div className="min-h-0 min-w-0 overflow-y-auto pr-1">
           <div className="mb-1.5 flex items-center justify-between gap-1">
             <span className="text-[11px] font-bold uppercase leading-4 text-white/40">
-              OpenClaw Profiles
+              Sandbox Profiles
             </span>
             <button
               type="button"
@@ -932,6 +951,7 @@ export default function SandboxOrchestrator({
                 picked={draggedAgent === agent.name}
                 onPick={setDraggedAgent}
                 onRemove={removeLobster}
+                hermesConfigured={hermesConfigured}
               />
             ))}
           </div>
@@ -995,6 +1015,7 @@ export default function SandboxOrchestrator({
                     onRemoveAgent={handleRemoveAgent}
                     onCarryAgent={setDraggedAgent}
                     onOpenMonitor={onOpenMonitor}
+                    hermesConfigured={hermesConfigured}
                   />
                 ))
               ) : (

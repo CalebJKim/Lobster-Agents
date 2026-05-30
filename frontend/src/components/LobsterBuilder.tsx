@@ -10,6 +10,7 @@ import type {
   LobsterEyewear,
   LobsterHeadwear,
 } from "../types";
+import { fetchDemoReadiness } from "../utils/sandboxApi";
 
 // Reef-tasteful palette for the shell-color picker. Eight presets cover the
 // obvious crustacean reds + complementary kelp/tide/sand hues so the user
@@ -30,6 +31,44 @@ const HEADWEAR_OPTIONS: { value: LobsterHeadwear; label: string }[] = [
   { value: "none", label: "None" },
   { value: "cowboy_hat", label: "Cowboy hat" },
   { value: "baseball_cap", label: "Baseball cap" },
+];
+
+const HEADWEAR_PRESETS: GeneratedHeadwear[] = [
+  {
+    kind: "party_hat",
+    label: "Party hat",
+    primary: "#7c3aed",
+    accent: "#facc15",
+    decorations: [{ type: "dot", color: "#facc15", count: 5 }],
+  },
+  {
+    kind: "wizard_hat",
+    label: "Wizard hat",
+    primary: "#6d28d9",
+    accent: "#facc15",
+    decorations: [{ type: "star", color: "#facc15", count: 5 }],
+  },
+  {
+    kind: "crown",
+    label: "Crown",
+    primary: "#f59e0b",
+    accent: "#38bdf8",
+    decorations: [{ type: "gem", color: "#38bdf8", count: 4 }],
+  },
+  {
+    kind: "top_hat",
+    label: "Top hat",
+    primary: "#111827",
+    accent: "#e5e7eb",
+    decorations: [{ type: "band", color: "#e5e7eb", count: 1 }],
+  },
+  {
+    kind: "beanie",
+    label: "Beanie",
+    primary: "#2563eb",
+    accent: "#f8fafc",
+    decorations: [{ type: "pom", color: "#f8fafc", count: 1 }],
+  },
 ];
 
 const EYEWEAR_OPTIONS: { value: LobsterEyewear; label: string }[] = [
@@ -88,6 +127,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [generatingAccessory, setGeneratingAccessory] = useState(false);
+  const [hermesConfigured, setHermesConfigured] = useState<boolean | null>(null);
 
   // Load catalogs once when first opened.
   useEffect(() => {
@@ -96,11 +136,13 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     Promise.all([
       fetch("/archetypes", { cache: "no-store", signal: controller.signal }).then((r) => r.json()),
       fetch("/skills/catalog", { cache: "no-store", signal: controller.signal }).then((r) => r.json()),
+      fetchDemoReadiness().catch(() => null),
     ])
-      .then(([arch, cat]) => {
+      .then(([arch, cat, readiness]) => {
         if (controller.signal.aborted) return;
         setArchetypes(arch.archetypes ?? []);
         setCatalog(cat.skills ?? []);
+        setHermesConfigured(readiness ? readiness.hermes?.configured === true : null);
         if (!archetype && arch.archetypes?.length) {
           setArchetype(arch.archetypes[0].role);
         }
@@ -174,6 +216,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     setError(null);
     setBusy(false);
     setGeneratingAccessory(false);
+    setHermesConfigured(null);
   }, [open]);
 
   const toggleSkill = useCallback((slug: string) => {
@@ -181,6 +224,16 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     setSelectedSkills((prev) =>
       prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
     );
+  }, []);
+
+  const applyHeadwearPreset = useCallback((preset: GeneratedHeadwear) => {
+    setGeneratedHeadwear({
+      ...preset,
+      decorations: preset.decorations?.map((decoration) => ({ ...decoration })) ?? [],
+    });
+    setHeadwear("generated");
+    setAccessoryPrompt("");
+    setError(null);
   }, []);
 
   const generateAccessory = useCallback(async () => {
@@ -309,6 +362,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                   { value: "crab" as AgentSpecies, label: "Crab", runtime: "Hermes" },
                 ].map((option) => {
                   const on = species === option.value;
+                  const crabRuntime = option.value === "crab";
                   return (
                     <button
                       key={option.value}
@@ -320,7 +374,26 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                           : "border-white/10 bg-white/[0.045] text-white/72 hover:border-white/22 hover:bg-white/[0.08] hover:text-white"
                       }`}
                     >
-                      <div className="font-semibold">{option.label}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">{option.label}</span>
+                        {crabRuntime && (
+                          <span
+                            className={`rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+                              hermesConfigured === true
+                                ? "bg-emerald-300/18 text-emerald-100"
+                                : hermesConfigured === false
+                                  ? "bg-amber-300/18 text-amber-100"
+                                  : "bg-white/[0.08] text-white/45"
+                            }`}
+                          >
+                            {hermesConfigured === true
+                              ? "configured"
+                              : hermesConfigured === false
+                                ? "not configured"
+                                : "checking"}
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-white/40">
                         {option.runtime}
                       </div>
@@ -491,7 +564,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
               <div className="mt-3 rounded-md border border-white/10 bg-white/[0.035] p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-white/35">
-                    Generate headwear
+                    Custom headwear
                   </div>
                   {generatedHeadwear && (
                     <button
@@ -505,6 +578,30 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                       Clear generated
                     </button>
                   )}
+                </div>
+                <div className="mt-2">
+                  <div className="text-[9px] font-bold uppercase tracking-wide text-white/30">
+                    Presets
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {HEADWEAR_PRESETS.map((preset) => {
+                      const on = headwear === "generated" && generatedHeadwear?.kind === preset.kind;
+                      return (
+                        <button
+                          key={preset.kind}
+                          type="button"
+                          onClick={() => applyHeadwearPreset(preset)}
+                          className={`rounded-md border px-2 py-1 text-[10px] font-semibold transition ${
+                            on
+                              ? "border-cyan-300/50 bg-cyan-300/12 text-white"
+                              : "border-white/10 bg-white/[0.04] text-white/60 hover:border-white/22 hover:text-white"
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="mt-1.5 flex gap-1.5">
                   <input
