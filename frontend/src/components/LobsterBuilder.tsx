@@ -62,9 +62,9 @@ interface LobsterBuilderProps {
 }
 
 /**
- * Modal for crafting a new lobster — name + archetype + hand-picked skill set.
+ * Modal for crafting a new sandbox profile — name + archetype + hand-picked skill set.
  * Replaces the cramped inline + form in the dock. Live preview pane on the
- * right shows what the lobster will become before you spawn it.
+ * right shows what the profile will become before you spawn it.
  */
 export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuilderProps) {
   const [archetypes, setArchetypes] = useState<Archetype[]>([]);
@@ -141,6 +141,8 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     }),
     [name, species, archetype, color, headwear, eyewear, generatedHeadwear, selectedSkills, currentArch?.tools],
   );
+  const speciesLabel = species === "crab" ? "crab" : "lobster";
+  const speciesTitle = species === "crab" ? "Crab" : "Lobster";
 
   useEffect(() => {
     if (!currentArch) return;
@@ -581,7 +583,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
             <div className="mt-4">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
-                  {species === "crab" ? "Skills (OpenClaw only)" : "Installed OpenClaw skills"}
+                  {species === "crab" ? "Hermes profile traits" : "Installed OpenClaw skills"}
                 </span>
                 {skillsDirty && currentArch && (
                   <button
@@ -648,7 +650,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
           </div>
 
           {/* Preview pane — character-creation style. Top half is a live
-              rotating 3D lobster (reacts to name/archetype/color/skills),
+              rotating 3D crustacean (reacts to name/archetype/color/skills),
               bottom half is the trait + skill summary. */}
           <div className="flex min-h-0 flex-col bg-slate-950/30">
             <div className="relative h-64 shrink-0 border-b border-white/8 bg-[#9cd6e0]">
@@ -662,7 +664,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                   style={{ color: color ?? "#ffffff" }}
                 >
                   {name.trim() || (
-                    <span className="text-white/40">Untitled lobster</span>
+                    <span className="text-white/40">Untitled {speciesLabel}</span>
                   )}
                 </div>
               </div>
@@ -703,8 +705,8 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
               </div>
               {selectedSkills.length === 0 ? (
                 <div className="mt-1 text-[11px] text-white/45">
-                  No skills selected — this lobster will spawn without any
-                  ClawHub skills installed.
+                  No skills selected — this {speciesLabel} will spawn without any
+                  ClawHub skills attached.
                 </div>
               ) : (
                 <div className="mt-1 flex flex-wrap gap-1.5">
@@ -732,7 +734,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/8 bg-slate-900/40 px-6 py-3">
           <div className="text-[11px] text-white/45">
-            Lobsters live in memory until backend restart. Restart re-seeds the starter 7.
+            Profiles live in memory until backend restart. Restart re-seeds the starter crew.
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -748,7 +750,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
               onClick={submit}
               className="rounded-md bg-cyan-300/30 px-4 py-1.5 text-[12px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
             >
-              {busy ? "Building…" : "🦞 Build Claw"}
+              {busy ? "Building…" : `Build ${speciesTitle}`}
             </button>
           </div>
         </div>

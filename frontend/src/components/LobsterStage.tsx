@@ -18,15 +18,19 @@ interface Props {
 
 /**
  * Standalone three.js mini-scene that renders one slowly-rotating 3D
- * lobster with a few pieces of reef decor — coral, seaweed, an anemone,
+ * agent with a few pieces of reef decor — coral, seaweed, an anemone,
  * and drifting bubbles. Used by both LobsterDetailModal and LobsterBuilder
  * so the character-select-style preview stays in lockstep with how the
- * lobster looks in-world.
+ * agent looks in-world.
  */
 export default function LobsterStage({ agent, className }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const generated = agent.appearance?.generated_headwear;
   const stageKey = [
+    agent.species ?? "lobster",
+    agent.runtime ?? "",
+    agent.name ?? "",
+    agent.role ?? "",
     agent.color ?? "",
     agent.appearance?.headwear ?? "none",
     agent.appearance?.eyewear ?? "none",
@@ -51,7 +55,7 @@ export default function LobsterStage({ agent, className }: Props) {
 
     const scene = new THREE.Scene();
     // Bright shallow-reef background — pale tide blue with a brighter floor
-    // so the lobster pops instead of disappearing into the dark.
+    // so the agent pops instead of disappearing into the dark.
     scene.background = new THREE.Color(0x9cd6e0);
     scene.fog = new THREE.Fog(0xb6e1e6, 6, 16);
 
@@ -71,7 +75,7 @@ export default function LobsterStage({ agent, className }: Props) {
     rim.position.set(-3, 4, -3);
     scene.add(rim);
 
-    // Soft sandy floor disc so the lobster casts a readable shadow.
+    // Soft sandy floor disc so the agent casts a readable shadow.
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(3.2, 48),
       new THREE.MeshStandardMaterial({ color: 0xe7d6a3, roughness: 0.92 }),
@@ -81,7 +85,7 @@ export default function LobsterStage({ agent, className }: Props) {
     floor.receiveShadow = true;
     scene.add(floor);
 
-    // Cute reef decor. Positioned behind and to the sides of the lobster
+    // Cute reef decor. Positioned behind and to the sides of the agent
     // (which sits at origin), tuned to the floor disc's footprint so
     // nothing clips off the edge. Same building blocks as the main map
     // so the modal looks consistent with the world.
@@ -109,14 +113,14 @@ export default function LobsterStage({ agent, className }: Props) {
     anemone.scale.set(0.55, 0.6, 0.55);
     scene.add(anemone);
 
-    // Ambient bubble cloud — separate from the lobster's per-actor bubbles
+    // Ambient bubble cloud — separate from the agent's per-actor bubbles
     // so the rotation doesn't drag them in a circle.
     const ambientBubbles = makeBubbles(14, 4.2);
     ambientBubbles.position.set(0, 0, 0);
     scene.add(ambientBubbles);
 
-    // The lobster itself — reuses the production mesh so the preview is
-    // faithful to how the lobster will look in-world.
+    // The agent itself — reuses the production mesh so the preview is
+    // faithful to how the profile will look in-world.
     const actor = makeLobster(agent);
     actor.group.position.set(0, 0, 0);
     actor.label.visible = false;
@@ -133,7 +137,7 @@ export default function LobsterStage({ agent, className }: Props) {
       // Slow turntable rotation so every side comes into view.
       actor.group.rotation.y += dt * 0.32;
       // Video-game-character-select bob — bigger amplitude than the in-world
-      // lobsters' twitch, with a hint of forward lean as it rises so it
+      // actors' twitch, with a hint of forward lean as it rises so it
       // feels alive instead of mechanical.
       const t = now * 0.002;
       actor.group.position.y = Math.sin(t) * 0.22 + 0.05;

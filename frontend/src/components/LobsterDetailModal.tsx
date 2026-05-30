@@ -43,6 +43,8 @@ export default function LobsterDetailModal({
   const clawId = agent.claw_id ?? claw?.clawId;
   const sandboxName = agent.sandbox_name;
   const connectCommand = agent.connect_command;
+  const speciesLabel = agent.species === "crab" ? "Crab" : "Lobster";
+  const runtimeLabel = agent.runtime === "hermes" ? "Hermes" : "OpenClaw";
 
   // Esc closes the modal.
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function LobsterDetailModal({
         onClick={(e) => e.stopPropagation()}
         className="grid w-[min(960px,92vw)] max-h-[88vh] grid-cols-1 overflow-hidden rounded-2xl border border-white/14 bg-slate-950/96 text-white shadow-[0_60px_120px_-40px_rgba(0,0,0,0.7)] md:grid-cols-[44%_56%]"
       >
-        {/* Left — rotating 3D lobster */}
+        {/* Left — rotating 3D profile */}
         <div className="relative h-72 md:h-[560px]">
           <LobsterStage agent={agent} className="h-full w-full bg-[#9cd6e0]" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/85 to-transparent px-5 pb-4 pt-12">
@@ -112,12 +114,20 @@ export default function LobsterDetailModal({
               </section>
             )}
 
-            {(clawId || sandboxName || connectCommand) && (
+            {(agent.species || agent.runtime || clawId || sandboxName || connectCommand) && (
               <section className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-white/45">
                   Runtime
                 </p>
                 <div className="space-y-2 text-[12px]">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-white/40">
+                      Profile
+                    </p>
+                    <p className="font-mono text-white/85">
+                      {speciesLabel} / {runtimeLabel}
+                    </p>
+                  </div>
                   {clawId && (
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-white/40">
