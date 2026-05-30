@@ -13,6 +13,21 @@ export function formatTime(ts: string | undefined): string {
   }
 }
 
+export function formatDuration(startTs: string | undefined, endTs?: string | undefined): string {
+  if (!startTs) return "";
+  const start = new Date(startTs).getTime();
+  const end = endTs ? new Date(endTs).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "";
+  const totalSeconds = Math.max(0, Math.round((end - start) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours <= 0) return `${minutes}m ${seconds}s`;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
 export function statusDot(status?: string | null, outcome?: string | null): string {
   if (status === "finished") {
     if (outcome === "partial") return "bg-amber-300";

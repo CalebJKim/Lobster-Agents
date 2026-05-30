@@ -1,10 +1,11 @@
 import type {
   NemoClawSandbox,
+  NemoClawRunStatus,
   OpenClawSkillStatus,
   SandboxRunDiagnostics,
 } from "../../types";
 import { AGENT_COLORS } from "../../utils/sprites";
-import { formatTime } from "./format";
+import { formatDuration, formatTime } from "./format";
 
 interface StatusTabProps {
   run: NemoClawSandbox["run_status"] | null | undefined;
@@ -12,6 +13,164 @@ interface StatusTabProps {
   errors: [string, string][];
   team: NonNullable<NemoClawSandbox["assigned_agent_details"]>;
   diagnostics?: SandboxRunDiagnostics | null;
+}
+
+type TimelineState = "done" | "active" | "failed" | "partial" | "pending";
+
+interface TimelineStep {
+  id: string;
+  label: string;
+  detail: string;
+  state: TimelineState;
+  meta?: string;
+}
+
+function timelineTone(state: TimelineState): string {
+  if (state === "done") return "border-emerald-300/24 bg-emerald-300/[0.07] text-emerald-50";
+  if (state === "active") return "border-cyan-300/28 bg-cyan-300/[0.08] text-cyan-50";
+  if (state === "partial") return "border-amber-300/28 bg-amber-300/[0.08] text-amber-50";
+  if (state === "failed") return "border-rose-300/28 bg-rose-300/[0.08] text-rose-50";
+  return "border-white/10 bg-white/[0.035] text-white/55";
+}
+
+function timelineDot(state: TimelineState): string {
+  if (state === "done") return "bg-emerald-200";
+  if (state === "active") return "bg-cyan-200 shadow-[0_0_18px_rgba(125,211,252,0.55)]";
+  if (state === "partial") return "bg-amber-200";
+  if (state === "failed") return "bg-rose-200";
+  return "bg-white/28";
+}
+
+function buildTimeline(
+  run: NemoClawRunStatus,
+  skillStatus: Record<string, OpenClawSkillStatus>,
+): TimelineStep[] {
+  const agentRuns = run.agent_runs ?? {};
+  const agents = run.agents?.length ? run.agents : Object.keys(agentRuns);
+  const outputs = run.outputs ?? {};
+  const errors = run.errors ?? {};
+  const skillEntries = Object.entries(skillStatus);
+  const finished = run.status === "finished";
+
+  const profileState: TimelineState =
+    run.phase === "profile"
+      ? "active"
+      : skillEntries.length > 0 || run.phase === "openclaw" || finished
+        ? "done"
+        : "pending";
+  const skillProblems = skillEntries.filter(([, status]) => status.success === false).length;
+  const readySkillCount = skillEntries.reduce(
+    (sum, [, status]) => sum + (status.ready?.length ?? 0),
+    0,
+  );
+
+  const steps: TimelineStep[] = [
+    {
+      id: "profile",
+      label: "Profile setup",
+      detail:
+        profileState === "active"
+          ? `Preparing ${run.current_agent ?? "the first agent"} in OpenClaw.`
+          : profileState === "done"
+            ? `${skillEntries.length || agents.length} profile${(skillEntries.length || agents.length) === 1 ? "" : "s"} prepared.`
+            : "Waiting for OpenClaw profile setup.",
+      state: profileState,
+      meta: run.phase === "profile" ? "active" : undefined,
+    },
+    {
+      id: "skills",
+      label: "Skill readiness",
+      detail:
+        skillEntries.length > 0
+          ? `${readySkillCount} ready skill${readySkillCount === 1 ? "" : "s"} reported${skillProblems ? `; ${skillProblems} profile issue${skillProblems === 1 ? "" : "s"}` : ""}.`
+          : "Skill readiness will appear after profile setup.",
+      state: skillProblems > 0 ? "partial" : skillEntries.length > 0 ? "done" : "pending",
+    },
+  ];
+
+  for (const agent of agents) {
+    const agentRun = agentRuns[agent];
+    const output = outputs[agent];
+    const error = errors[agent] || agentRun?.failure_detail || agentRun?.partial_output;
+    const isActive = run.current_agent === agent && run.phase === "openclaw" && !finished;
+    const state: TimelineState =
+      agentRun?.success === true || output
+        ? "done"
+        : agentRun?.success === false || error
+          ? "failed"
+          : isActive
+            ? "active"
+            : "pending";
+    steps.push({
+      id: `agent-${agent}`,
+      label: agent,
+      detail:
+        state === "done"
+          ? "OpenClaw turn finished."
+          : state === "failed"
+            ? String(error || "OpenClaw turn failed.")
+            : state === "active"
+              ? "OpenClaw turn is running; timeout guard is active."
+              : "Waiting for relay turn.",
+      state,
+      meta: agentRun?.execution_mode || (isActive ? "active turn" : undefined),
+    });
+  }
+
+  steps.push({
+    id: "result",
+    label: "Result",
+    detail:
+      finished
+        ? run.last_message || "Run finished."
+        : run.last_message || "Waiting for final relay result.",
+    state:
+      finished && run.outcome === "success"
+        ? "done"
+        : finished && run.outcome === "partial"
+          ? "partial"
+          : finished
+            ? "failed"
+            : run.phase === "result"
+              ? "active"
+              : "pending",
+  });
+  steps.push({
+    id: "diagnostics",
+    label: "Diagnostics",
+    detail:
+      finished
+        ? "Run diagnostics, partial output, and tool errors are preserved below."
+        : "Diagnostics will be available when the run finishes.",
+    state: finished ? "done" : "pending",
+  });
+  return steps;
+}
+
+function TimelineRow({ step }: { step: TimelineStep }) {
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${timelineTone(step.state)}`}>
+      <div className="flex items-start gap-2.5">
+        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${timelineDot(step.state)}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[12px] font-semibold text-white/92">{step.label}</span>
+            <span className="rounded-full bg-white/[0.10] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white/64">
+              {step.state}
+            </span>
+            {step.meta && (
+              <span className="rounded-full bg-slate-950/28 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/45">
+                {step.meta}
+              </span>
+            )}
+          </div>
+          <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-white/68">
+            {step.detail}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function StatusTab({
@@ -45,7 +204,11 @@ export default function StatusTab({
           ? "Run failed"
           : outcome === "empty"
             ? "Run finished with no agents"
-            : null;
+          : null;
+  const elapsed = run
+    ? formatDuration(run.started_at, run.finished_at || run.last_update_at)
+    : "";
+  const timeline = run ? buildTimeline(run, skillStatus) : [];
 
   return (
     <div className="space-y-4">
@@ -114,6 +277,7 @@ export default function StatusTab({
             {run.current_agent && <span>active: {run.current_agent}</span>}
             {run.started_at && <span>started: {formatTime(run.started_at)}</span>}
             {run.finished_at && <span>finished: {formatTime(run.finished_at)}</span>}
+            {elapsed && <span>elapsed: {elapsed}</span>}
             {timedOut && <span>timed_out: true</span>}
           </div>
           {outcomeLabel && run.status === "finished" && (
@@ -146,11 +310,36 @@ export default function StatusTab({
           <div className="mt-1.5 max-w-xs text-[12px] leading-5 text-white/55">
             Drop lobsters in and click{" "}
             <span className="rounded bg-white/[0.10] px-1.5 py-0.5 font-semibold text-white/85">
-              Run Team
+              Run
             </span>{" "}
-            in the dock to start one.
+            in the Task Monitor to start one.
           </div>
         </div>
+      )}
+
+      {run && (
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-white/40">
+              Run timeline
+            </div>
+            {run.running && (
+              <div className="rounded-full bg-cyan-300/12 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100">
+                active agent: {run.current_agent ?? "starting"}
+              </div>
+            )}
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {timeline.map((step) => (
+              <TimelineRow key={step.id} step={step} />
+            ))}
+          </div>
+          {run.running && (
+            <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-[11px] leading-4 text-white/55">
+              Timeout hint: OpenClaw turn timeout is controlled by the backend; the sandbox config disables LLM idle timeout so slow first tokens do not falsely fail.
+            </div>
+          )}
+        </section>
       )}
 
       {(failureKind || failureDetail || toolErrors.length > 0) && (
