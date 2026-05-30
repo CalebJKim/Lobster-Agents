@@ -153,11 +153,16 @@ class Orchestrator:
             metadata=get_claw_metadata(agent.name),
             color=agent.color,
             appearance=agent.appearance,
+            species=agent.species,
+            runtime=agent.runtime,
         )
         await self.broadcast({
             "type": "lobster_added",
+            "lobster": agent.to_info(),
             "name": agent.name,
             "role": agent.role,
+            "species": agent.species,
+            "runtime": agent.runtime,
             "timestamp": datetime.now().isoformat(),
         })
         await self._broadcast_full_state()

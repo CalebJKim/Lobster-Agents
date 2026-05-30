@@ -18,6 +18,8 @@ export default function AgentChip({
   onRemove,
 }: AgentChipProps) {
   const color = AGENT_COLORS[agent.name] ?? "#94a3b8";
+  const speciesLabel = agent.species === "crab" ? "Crab" : "Lobster";
+  const runtimeLabel = agent.runtime === "hermes" ? "Hermes" : "OpenClaw";
 
   return (
     <div
@@ -50,7 +52,9 @@ export default function AgentChip({
             {agent.name}
           </span>
           <span className="block truncate text-[10px] font-medium leading-4 text-white/38">
-            {assignedTo ? `In ${sandboxNameLabel(assignedTo)}` : ROLE_LABELS[agent.role]}
+            {assignedTo
+              ? `In ${sandboxNameLabel(assignedTo)}`
+              : `${speciesLabel} · ${ROLE_LABELS[agent.role]} · ${runtimeLabel}`}
           </span>
           {(agent.openclaw_skills && agent.openclaw_skills.length > 0) && (
             <span className="mt-0.5 flex flex-wrap gap-0.5">

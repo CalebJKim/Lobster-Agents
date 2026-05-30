@@ -29,13 +29,13 @@ const WS_URL = "ws://" + window.location.host + "/ws";
 
 function createInitialState(): OfficeState {
   const defaultAgents: AgentInfo[] = [
-    { name: "Clawdia", role: "researcher", state: "idle", location: "break_room", position: DEFAULT_AGENT_POSITIONS.Clawdia, current_task: null, claw_id: CLAW_METADATA.Clawdia.clawId },
-    { name: "Shelldon", role: "analyst", state: "idle", location: "war_room", position: DEFAULT_AGENT_POSITIONS.Shelldon, current_task: null, claw_id: CLAW_METADATA.Shelldon.clawId },
-    { name: "Coraline", role: "critic", state: "idle", location: "lobby", position: DEFAULT_AGENT_POSITIONS.Coraline, current_task: null, claw_id: CLAW_METADATA.Coraline.clawId },
-    { name: "Reefus", role: "planner", state: "idle", location: "break_room", position: DEFAULT_AGENT_POSITIONS.Reefus, current_task: null, claw_id: CLAW_METADATA.Reefus.clawId },
-    { name: "Pearl", role: "writer", state: "idle", location: "lobby", position: DEFAULT_AGENT_POSITIONS.Pearl, current_task: null, claw_id: CLAW_METADATA.Pearl.clawId },
-    { name: "Snips", role: "coder", state: "idle", location: "war_room", position: DEFAULT_AGENT_POSITIONS.Snips, current_task: null, claw_id: CLAW_METADATA.Snips.clawId },
-    { name: "Captain Claw", role: "lead", state: "idle", location: "war_room", position: DEFAULT_AGENT_POSITIONS["Captain Claw"], current_task: null, claw_id: CLAW_METADATA["Captain Claw"].clawId },
+    { name: "Clawdia", role: "researcher", species: "lobster", runtime: "openclaw", state: "idle", location: "break_room", position: DEFAULT_AGENT_POSITIONS.Clawdia, current_task: null, claw_id: CLAW_METADATA.Clawdia.clawId },
+    { name: "Shelldon", role: "analyst", species: "lobster", runtime: "openclaw", state: "idle", location: "war_room", position: DEFAULT_AGENT_POSITIONS.Shelldon, current_task: null, claw_id: CLAW_METADATA.Shelldon.clawId },
+    { name: "Coraline", role: "critic", species: "lobster", runtime: "openclaw", state: "idle", location: "lobby", position: DEFAULT_AGENT_POSITIONS.Coraline, current_task: null, claw_id: CLAW_METADATA.Coraline.clawId },
+    { name: "Reefus", role: "planner", species: "lobster", runtime: "openclaw", state: "idle", location: "break_room", position: DEFAULT_AGENT_POSITIONS.Reefus, current_task: null, claw_id: CLAW_METADATA.Reefus.clawId },
+    { name: "Pearl", role: "writer", species: "lobster", runtime: "openclaw", state: "idle", location: "lobby", position: DEFAULT_AGENT_POSITIONS.Pearl, current_task: null, claw_id: CLAW_METADATA.Pearl.clawId },
+    { name: "Snips", role: "coder", species: "lobster", runtime: "openclaw", state: "idle", location: "war_room", position: DEFAULT_AGENT_POSITIONS.Snips, current_task: null, claw_id: CLAW_METADATA.Snips.clawId },
+    { name: "Captain Claw", role: "lead", species: "lobster", runtime: "openclaw", state: "idle", location: "war_room", position: DEFAULT_AGENT_POSITIONS["Captain Claw"], current_task: null, claw_id: CLAW_METADATA["Captain Claw"].clawId },
   ];
 
   return {
@@ -260,6 +260,8 @@ function normalizeAgentSnapshot(
   return {
     name,
     role,
+    species: raw.species === "crab" ? "crab" : "lobster",
+    runtime: typeof raw.runtime === "string" ? raw.runtime : "openclaw",
     state,
     location,
     position,
@@ -343,6 +345,8 @@ export function useWebSocket() {
           location,
           claw_id: clawId,
           current_task,
+          species,
+          runtime,
         } = event;
         const hasSandboxName = "sandbox_name" in event;
         const sandboxName = event.sandbox_name;
@@ -359,6 +363,8 @@ export function useWebSocket() {
             ...(state ? { state } : {}),
             ...(location ? { location } : {}),
             ...(current_task !== undefined ? { current_task } : {}),
+            ...(species ? { species } : {}),
+            ...(runtime ? { runtime } : {}),
             ...(clawId ? { claw_id: clawId } : {}),
             ...(hasSandboxName ? { sandbox_name: sandboxName } : {}),
             ...(hasSandboxHomeRoom ? { sandbox_home_room: sandboxHomeRoom } : {}),

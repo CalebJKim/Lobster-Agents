@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # Profile preparation installs/filters skills before a turn starts.
     openclaw_profile_timeout_seconds: int = 120
 
+    # Optional Hermes runner for crab agents. The command is executed inside
+    # the OpenShell sandbox with HERMES_TASK, HERMES_AGENT_NAME, HERMES_ROLE,
+    # and HERMES_PERSONALITY in the environment. Leave empty to surface an
+    # honest hermes_not_configured diagnostic.
+    hermes_command: str = ""
+    hermes_timeout_seconds: int = 300
+
     # Extra directories searched by sandbox_runtime._which() when nemoclaw /
     # openshell aren't on PATH. Defaults cover the common NVIDIA demo layout.
     extra_bin_paths: list[str] = [

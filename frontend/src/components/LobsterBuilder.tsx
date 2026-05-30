@@ -3,6 +3,7 @@ import LobsterStage from "./LobsterStage";
 import type {
   AgentInfo,
   AgentRole,
+  AgentSpecies,
   Room,
   AgentState,
   GeneratedHeadwear,
@@ -43,6 +44,8 @@ interface Archetype {
   personality: string;
   tools: string[];
   openclaw_skills: string[];
+  species?: AgentSpecies;
+  runtime?: string;
 }
 
 interface SkillEntry {
@@ -67,6 +70,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
   const [archetypes, setArchetypes] = useState<Archetype[]>([]);
   const [catalog, setCatalog] = useState<SkillEntry[]>([]);
   const [name, setName] = useState("");
+  const [species, setSpecies] = useState<AgentSpecies>("lobster");
   const [archetype, setArchetype] = useState<string>("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   // null = inherit archetype defaults; non-null = user has touched the picker
@@ -122,8 +126,10 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
   // to avoid pointless scene rebuilds.
   const previewAgent: AgentInfo = useMemo(
     () => ({
-      name: name.trim() || "New Lobster",
+      name: name.trim() || (species === "crab" ? "New Crab" : "New Lobster"),
       role: (archetype || "researcher") as AgentRole,
+      species,
+      runtime: species === "crab" ? "hermes" : "openclaw",
       state: "idle" as AgentState,
       location: "break_room" as Room,
       position: { x: 0, y: 0 },
@@ -133,7 +139,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
       color,
       appearance: { headwear, eyewear, generated_headwear: generatedHeadwear },
     }),
-    [name, archetype, color, headwear, eyewear, generatedHeadwear, selectedSkills, currentArch?.tools],
+    [name, species, archetype, color, headwear, eyewear, generatedHeadwear, selectedSkills, currentArch?.tools],
   );
 
   useEffect(() => {
@@ -154,6 +160,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
   useEffect(() => {
     if (open) return;
     setName("");
+    setSpecies("lobster");
     setSelectedSkills([]);
     setSkillsDirty(false);
     setColor(null);
@@ -215,6 +222,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
         body: JSON.stringify({
           archetype,
           name: name.trim(),
+          species,
           // Only send a skills override if user actually changed from defaults
           skills: skillsDirty ? selectedSkills : undefined,
           color: color ?? undefined,
@@ -235,7 +243,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     } finally {
       setBusy(false);
     }
-  }, [name, archetype, selectedSkills, skillsDirty, color, headwear, eyewear, generatedHeadwear, mission, onSpawned, onClose]);
+  }, [name, species, archetype, selectedSkills, skillsDirty, color, headwear, eyewear, generatedHeadwear, mission, onSpawned, onClose]);
 
   if (!open) return null;
 
@@ -252,10 +260,10 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/8 bg-slate-900/40 px-6 py-3.5">
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">
-              🦞 New OpenClaw profile
+              New sandbox profile
             </div>
             <div className="mt-0.5 text-[17px] font-semibold leading-6 text-white">
-              Build a Claw
+              {species === "crab" ? "Build a Crab" : "Build a Claw"}
             </div>
           </div>
           <button
@@ -288,6 +296,37 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
                 className="mt-1 w-full rounded-md border border-white/14 bg-slate-950/60 px-3 py-2 text-[14px] font-medium text-white outline-none placeholder:text-white/30 focus:border-cyan-200/45"
               />
             </label>
+
+            <div className="mt-4">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
+                Runtime
+              </span>
+              <div className="mt-1 grid grid-cols-2 gap-1.5">
+                {[
+                  { value: "lobster" as AgentSpecies, label: "Lobster", runtime: "OpenClaw" },
+                  { value: "crab" as AgentSpecies, label: "Crab", runtime: "Hermes" },
+                ].map((option) => {
+                  const on = species === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setSpecies(option.value)}
+                      className={`rounded-md border px-3 py-2 text-left text-[12px] font-medium transition ${
+                        on
+                          ? "border-cyan-300/50 bg-cyan-300/12 text-white"
+                          : "border-white/10 bg-white/[0.045] text-white/72 hover:border-white/22 hover:bg-white/[0.08] hover:text-white"
+                      }`}
+                    >
+                      <div className="font-semibold">{option.label}</div>
+                      <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-white/40">
+                        {option.runtime}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Archetype */}
             <div className="mt-4">
@@ -542,7 +581,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
             <div className="mt-4">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
-                  Installed OpenClaw skills
+                  {species === "crab" ? "Skills (OpenClaw only)" : "Installed OpenClaw skills"}
                 </span>
                 {skillsDirty && currentArch && (
                   <button

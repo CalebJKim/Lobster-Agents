@@ -49,6 +49,8 @@ class Agent:
     ) -> None:
         self.name = role_config.name
         self.role = role_config.role
+        self.species = role_config.species
+        self.runtime = role_config.runtime
         self.default_desk = role_config.default_desk
         self.system_prompt = role_config.system_prompt
         self.personality = role_config.personality
@@ -249,11 +251,13 @@ class Agent:
         return {
             "name": self.name,
             "role": self.role,
+            "species": self.species,
+            "runtime": self.runtime,
             "state": self.state.value,
             "location": self.location,
             "position": {"x": self.position[0], "y": self.position[1]},
             "current_task": self.current_task,
-            "openclaw_capable": True,
+            "openclaw_capable": self.runtime == "openclaw",
             "claw_id": self.claw_id,
             "sandbox_name": self.sandbox_name,
             "sandbox_home_room": self.sandbox_home_room,

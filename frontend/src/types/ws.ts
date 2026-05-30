@@ -52,6 +52,8 @@ export interface BackendOfficeSnapshot {
 export interface BackendAgentSnapshot {
   name: string;
   role: AgentInfo["role"];
+  species?: AgentInfo["species"];
+  runtime?: AgentInfo["runtime"];
   state?: AgentState;
   location?: Room;
   position?: Position;
@@ -93,6 +95,8 @@ export type WSServerEvent =
       state?: AgentState;
       location?: Room;
       current_task?: string | null;
+      species?: AgentInfo["species"];
+      runtime?: AgentInfo["runtime"];
       claw_id?: string;
       sandbox_name?: string;
       sandbox_home_room?: string | null;

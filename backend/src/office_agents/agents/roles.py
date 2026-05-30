@@ -30,6 +30,8 @@ class AgentRole:
     default_desk: str
     personality: str
     system_prompt: str
+    species: str = "lobster"
+    runtime: str = "openclaw"
     # Soft trait labels. The UI shows them as chips; the sandbox prompt is
     # biased by them. Not enforced — purely descriptive.
     tools: tuple[str, ...] = field(default_factory=tuple)
@@ -336,6 +338,8 @@ def list_archetypes() -> list[dict[str, object]]:
             "personality": role.personality,
             "tools": list(role.tools),
             "openclaw_skills": list(role.openclaw_skills),
+            "species": role.species,
+            "runtime": role.runtime,
         }
         for role in ALL_ROLES
     ]
@@ -347,6 +351,7 @@ def make_lobster(
     *,
     skills_override: tuple[str, ...] | None = None,
     mission: str | None = None,
+    species: str = "lobster",
 ) -> AgentRole:
     """Spawn a new AgentRole from an archetype with a custom name.
 
@@ -376,17 +381,39 @@ def make_lobster(
         )
     name = name.strip()
     if not name:
-        raise ValueError("Lobster name cannot be empty.")
+        raise ValueError("Agent name cannot be empty.")
+    species = species.strip().lower()
+    if species not in {"lobster", "crab"}:
+        raise ValueError("species must be lobster or crab.")
     mission = (mission or "").strip() or None
     effective_skills = (
         tuple(skills_override) if skills_override is not None else template.openclaw_skills
     )
+    runtime = "hermes" if species == "crab" else "openclaw"
     # No-op path: same name, no skill change, no mission — return the
     # template unchanged so memory isn't wasted on identical roles.
-    if name == template.name and skills_override is None and mission is None:
+    if (
+        name == template.name
+        and skills_override is None
+        and mission is None
+        and species == template.species
+    ):
         return template
     base_personality = template.personality.replace(template.name, name)
     base_prompt = template.system_prompt.replace(template.name, name)
+    if species == "crab":
+        base_personality = f"Hermes crab profile. {base_personality}"
+        base_prompt = (
+            base_prompt
+            .replace("lobster-shaped OpenClaw worker", "crab-shaped Hermes worker")
+            .replace("other lobster agents", "lobster and crab agents")
+        )
+        base_prompt = (
+            f"{base_prompt}\n\n"
+            "RUNTIME NOTE: You are represented as a crab and are intended to run through "
+            "Hermes inside the assigned NemoClaw/OpenShell sandbox. If Hermes is not "
+            "available, report that clearly instead of pretending to have run."
+        )
     if mission:
         personality = f"{base_personality}\n\nMission (user-supplied): {mission}"
         # Also inject the mission into the system_prompt so the reef-tick
@@ -404,6 +431,8 @@ def make_lobster(
         default_desk=template.default_desk,
         personality=personality,
         system_prompt=system_prompt,
+        species=species,
+        runtime=runtime,
         tools=template.tools,
         openclaw_skills=effective_skills,
     )

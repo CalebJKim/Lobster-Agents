@@ -100,6 +100,8 @@ async def lifespan(app: FastAPI):
             location=agent.location,
             position=agent.position,
             metadata=get_claw_metadata(role.name),
+            species=agent.species,
+            runtime=agent.runtime,
         )
 
     # 4. Broadcaster + Orchestrator.

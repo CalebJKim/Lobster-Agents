@@ -88,9 +88,13 @@ class OfficeState:
         metadata: dict[str, Any] | None = None,
         color: str | None = None,
         appearance: dict[str, str] | None = None,
+        species: str = "lobster",
+        runtime: str = "openclaw",
     ) -> None:
         self.agent_states[name] = {
             "role": role,
+            "species": species,
+            "runtime": runtime,
             "state": AgentState.idle.value,
             "location": location,
             "position": {"x": position[0], "y": position[1]},

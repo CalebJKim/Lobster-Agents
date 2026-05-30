@@ -36,6 +36,7 @@ from office_agents.sandbox_runtime.openclaw import (
     ensure_openclaw_agent,
     run_openclaw,
 )
+from office_agents.sandbox_runtime.hermes import run_hermes
 from office_agents.sandbox_runtime.nemoclaw import get_policy_presets
 
 logger = logging.getLogger(__name__)
@@ -595,7 +596,10 @@ class SandboxManager:
                 "action": "code",
                 "content": task,
                 "target": sandbox_name,
-                "reasoning": f"Running OpenClaw profile {agent.claw_id} inside NemoClaw sandbox {sandbox_name}",
+                "reasoning": (
+                    f"Running {agent.runtime} profile {agent.claw_id} inside "
+                    f"NemoClaw sandbox {sandbox_name}"
+                ),
                 "state": "coding",
                 "location": agent.location,
                 "position": {"x": agent.position[0], "y": agent.position[1]},
@@ -787,6 +791,35 @@ class SandboxManager:
         agent: Agent,
         prior_turns: list[dict[str, str]] | None = None,
     ) -> tuple[Agent, dict[str, Any]]:
+        if agent.runtime == "hermes":
+            meta = self._run_meta.get(run_id)
+            if meta is not None:
+                skill_status = meta.setdefault("skill_status", {})
+                skill_status[agent.name] = {
+                    "runtime": "hermes",
+                    "success": bool(settings.hermes_command.strip()),
+                    "requested": [],
+                    "ready": ["hermes"] if settings.hermes_command.strip() else [],
+                    "missing": [] if settings.hermes_command.strip() else ["hermes_command"],
+                }
+            await self._broadcast_progress(
+                run_id=run_id,
+                sandbox_name=sandbox_name,
+                agent=agent.name,
+                phase="hermes",
+                message=f"Running {agent.name}'s Hermes crab turn in {short_sandbox_name(sandbox_name)}.",
+            )
+            result = await run_hermes(
+                task,
+                sandbox_name=sandbox_name,
+                agent_name=agent.name,
+                role_label=agent.role,
+                personality=getattr(agent, "personality", None),
+                working_dir=f"{DEFAULT_RUNS_WORKDIR}/{run_id}/{agent.claw_id}",
+                timeout_seconds=settings.hermes_timeout_seconds,
+            )
+            return agent, result
+
         await self._broadcast_progress(
             run_id=run_id,
             sandbox_name=sandbox_name,
@@ -990,6 +1023,7 @@ class SandboxManager:
             "success": bool(result.get("success")),
             "session_id": result.get("session_id"),
             "execution_mode": result.get("execution_mode"),
+            "runtime": agent.runtime,
             "failure_kind": result.get("failure_kind") or diagnostics.get("failure_kind"),
             "failure_detail": result.get("failure_detail") or diagnostics.get("failure_detail"),
             "timed_out": bool(result.get("timed_out") or diagnostics.get("timed_out")),

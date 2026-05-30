@@ -20,6 +20,9 @@ export type AgentRole =
   | "coder"
   | "lead";
 
+export type AgentSpecies = "lobster" | "crab";
+export type AgentRuntime = "openclaw" | "hermes" | string;
+
 export type LobsterHeadwear = "none" | "cowboy_hat" | "baseball_cap" | "generated";
 export type LobsterEyewear = "none" | "sunglasses";
 export type GeneratedHeadwearKind =
@@ -64,6 +67,8 @@ export interface Position {
 export interface AgentInfo {
   name: string;
   role: AgentRole;
+  species?: AgentSpecies;
+  runtime?: AgentRuntime;
   state: AgentState;
   location: Room;
   position: Position;

@@ -100,6 +100,7 @@ class LobsterAppearanceRequest(BaseModel):
 class AddLobsterRequest(BaseModel):
     archetype: str
     name: str
+    species: Literal["lobster", "crab"] = "lobster"
     # Optional override — when the builder UI lets the user hand-pick skills,
     # we pass them in here. None means "inherit archetype defaults".
     skills: list[str] | None = None
@@ -280,6 +281,7 @@ async def add_lobster(req: AddLobsterRequest) -> dict[str, object]:
             req.archetype,
             skills_override=tuple(req.skills) if req.skills is not None else None,
             mission=req.mission,
+            species=req.species,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -308,8 +310,8 @@ async def add_lobster(req: AddLobsterRequest) -> dict[str, object]:
     agent.position = get_room_position("break_room", agent.name)
 
     await orch.add_lobster(agent)
-    logger.info("Spawned lobster %r (archetype=%s)", req.name, req.archetype)
-    return {"status": "ok", "lobster": agent.to_info()}
+    logger.info("Spawned %s %r (archetype=%s)", req.species, req.name, req.archetype)
+    return {"status": "ok", "lobster": agent.to_info(), "agent": agent.to_info()}
 
 
 @router.delete("/lobsters/{name}")

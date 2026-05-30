@@ -1260,6 +1260,7 @@ function agentVisualKey(agent: AgentInfo) {
       ].join(",")
     : "";
   return [
+    agent.species ?? "lobster",
     agent.color ?? "",
     appearance.headwear,
     appearance.eyewear,
@@ -1642,7 +1643,153 @@ function makeSunglasses() {
   return group;
 }
 
+function makeCrab(agent: AgentInfo) {
+  const accent = AGENT_COLORS_HEX[agent.name] ?? 0xffc857;
+  const shellColor = lobsterShell(agent.name, agent.color);
+  const shellMat = new THREE.MeshStandardMaterial({ color: shellColor, roughness: 0.62, metalness: 0.02 });
+  const clawMat = new THREE.MeshStandardMaterial({ color: darkenNumber(shellColor, 0.74), roughness: 0.58 });
+  const legMat = new THREE.MeshStandardMaterial({ color: darkenNumber(shellColor, 0.62), roughness: 0.74 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.25 });
+  const whiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+  const group = new THREE.Group();
+  group.name = `lobster-${agent.name}`;
+
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.78, 20, 12), shellMat);
+  body.scale.set(1.28, 0.42, 0.9);
+  body.position.y = 0.52;
+  body.castShadow = true;
+  group.add(body);
+
+  const face = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 8), shellMat);
+  face.scale.set(1.05, 0.28, 0.48);
+  face.position.set(0, 0.62, 0.58);
+  face.castShadow = true;
+  group.add(face);
+
+  const claws: THREE.Group[] = [];
+  [-1, 1].forEach((side) => {
+    const clawGroup = new THREE.Group();
+    clawGroup.position.set(side * 1.0, 0.52, 0.52);
+
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 0.72, 7), legMat);
+    arm.rotation.z = Math.PI / 2.5 * -side;
+    arm.rotation.x = Math.PI / 2;
+    arm.position.set(side * 0.22, 0, 0.02);
+    clawGroup.add(arm);
+
+    const pad = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), clawMat);
+    pad.scale.set(1.08, 0.62, 1.0);
+    pad.position.set(side * 0.52, 0.03, 0.24);
+    pad.castShadow = true;
+    clawGroup.add(pad);
+
+    const upper = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.36, 6), clawMat);
+    upper.rotation.x = Math.PI / 2;
+    upper.rotation.z = side * 0.5;
+    upper.position.set(side * 0.64, 0.13, 0.43);
+    clawGroup.add(upper);
+
+    const lower = upper.clone();
+    lower.position.y = -0.08;
+    lower.rotation.z = side * -0.36;
+    clawGroup.add(lower);
+
+    claws.push(clawGroup);
+    group.add(clawGroup);
+  });
+
+  const legs: THREE.Mesh[] = [];
+  for (let i = 0; i < 4; i++) {
+    [-1, 1].forEach((side) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.044, 0.78, 6), legMat);
+      leg.rotation.z = Math.PI / 2;
+      leg.rotation.y = side * (0.32 + i * 0.06);
+      leg.position.set(side * 0.78, 0.3, -0.48 + i * 0.26);
+      leg.castShadow = true;
+      legs.push(leg);
+      group.add(leg);
+    });
+  }
+
+  [-1, 1].forEach((side) => {
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.033, 0.34, 6), legMat);
+    stalk.position.set(side * 0.24, 0.95, 0.54);
+    stalk.rotation.x = 0.25;
+    stalk.rotation.z = side * 0.12;
+    group.add(stalk);
+
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), eyeMat);
+    eye.position.set(side * 0.28, 1.1, 0.68);
+    group.add(eye);
+
+    const sparkle = new THREE.Mesh(new THREE.SphereGeometry(0.024, 6, 4), whiteMat);
+    sparkle.position.set(side * 0.25, 1.13, 0.75);
+    group.add(sparkle);
+  });
+
+  const accessories = makeLobsterAccessories(agent);
+  accessories.position.z = 0.08;
+  group.add(accessories);
+
+  const label = makeTextSprite(agent.name, AGENT_COLORS[agent.name] ?? "#ffffff", "rgba(6, 26, 35, 0.72)");
+  label.position.set(0, 2.25, 0);
+  group.add(label);
+
+  const speech = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeSpeechTexture(agent.name, "all", ""),
+      transparent: true,
+      depthWrite: false,
+    })
+  );
+  speech.position.set(0, 4.25, 0);
+  speech.scale.set(8.0, 3.0, 1);
+  speech.visible = false;
+  group.add(speech);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1.02, 0.035, 8, 48),
+    new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.85 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.05;
+  ring.visible = false;
+  group.add(ring);
+
+  const bubbles = makeBubbles(5);
+  bubbles.visible = false;
+  group.add(bubbles);
+
+  group.traverse((obj) => {
+    obj.userData.agentName = agent.name;
+  });
+
+  const start = agentTarget(agent);
+  group.position.copy(start);
+
+  return {
+    group,
+    body,
+    claws,
+    legs,
+    bubbles,
+    label,
+    speech,
+    speechKey: null,
+    ring,
+    target: start.clone(),
+    roamTarget: start.clone(),
+    nextRoamAt: 0,
+    anchorKey: agentAnchorKey(agent),
+    sandboxSettled: Boolean(sandboxRoomForAgent(agent)),
+    visualKey: agentVisualKey(agent),
+  };
+}
+
 export function makeLobster(agent: AgentInfo) {
+  if (agent.species === "crab") return makeCrab(agent);
+
   const accent = AGENT_COLORS_HEX[agent.name] ?? 0x6ed7cf;
   const shellColor = lobsterShell(agent.name, agent.color);
   const shellMat = new THREE.MeshStandardMaterial({ color: shellColor, roughness: 0.58, metalness: 0.02 });
