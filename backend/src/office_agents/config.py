@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # about two minutes even for a tiny first turn, so web/tool relay turns
     # need a wider window than the old hard-coded 90s timeout.
     openclaw_turn_timeout_seconds: int = 300
+    # The current GB300 vLLM server is not launched with OpenAI tool-call
+    # parsing flags, so OpenClaw must not send model-facing tool schemas.
+    openclaw_model_tools_enabled: bool = False
     # Profile preparation installs/filters skills before a turn starts.
     openclaw_profile_timeout_seconds: int = 120
 

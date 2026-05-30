@@ -38,6 +38,7 @@ _OPENCLAW_TIMEOUT_PATCH = (
     "sys.exit(0) if not p.exists() else None;"
     "cfg=json.loads(p.read_text());"
     "value=int(sys.argv[1]);"
+    "tools_enabled=str(sys.argv[2]).lower() in ('1','true','yes','on');"
     "changed=False;"
     "defaults=cfg.setdefault('agents',{}).setdefault('defaults',{});"
     "changed=changed or defaults.get('timeoutSeconds')!=value;"
@@ -49,6 +50,11 @@ _OPENCLAW_TIMEOUT_PATCH = (
     "changed=changed or provider_changed;"
     "[(providers[k].__setitem__('timeoutSeconds',value)) for k in providers "
     "if isinstance(providers.get(k),dict) and providers[k].get('timeoutSeconds')!=value];"
+    "tools=cfg.setdefault('tools',{});"
+    "changed=changed or ((not tools_enabled) and tools.get('allow')!=[]);"
+    "tools.__setitem__('allow',[]) if not tools_enabled else None;"
+    "changed=changed or ((not tools_enabled) and tools.get('toolSearch') is not False);"
+    "tools.__setitem__('toolSearch',False) if not tools_enabled else None;"
     "text=json.dumps(cfg,indent=2)+'\\n';"
     "p.write_text(text) if changed else None;"
     "h=hashlib.sha256(p.read_bytes()).hexdigest();"
@@ -138,7 +144,7 @@ async def run_openclaw(
             "--",
             "sh", "-lc",
             (
-                'patch_status=$(python3 -c "$7" "$6") && '
+                'patch_status=$(python3 -c "$8" "$6" "$7") && '
                 'if [ "$patch_status" = restart ]; then '
                 'openclaw gateway restart >/tmp/openclaw-gateway-restart.log 2>&1 '
                 '|| cat /tmp/openclaw-gateway-restart.log >&2; '
@@ -155,6 +161,7 @@ async def run_openclaw(
             message,
             openclaw_session_id,
             str(timeout_seconds),
+            "1" if settings.openclaw_model_tools_enabled else "0",
             _OPENCLAW_TIMEOUT_PATCH,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
