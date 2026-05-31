@@ -145,6 +145,41 @@ Use `VITE_BACKEND=http://<backend-host>:8001` when the frontend runs on a
 different laptop from the backend. The frontend source should not contain a
 machine-specific fallback IP.
 
+## Demo Operator Checklist
+
+Before a live demo, open `http://localhost:4454` and click **Demo Ready**.
+The panel is the source of truth for demo health:
+
+- **Blockers** must be zero.
+- **Warnings** are allowed if you can explain them. Common expected warnings
+  are missing `BRAVE_API_KEY`, pending OpenShell network-rule recommendations,
+  and Hermes not configured.
+- **Hermes not configured** means crabs are visual/build/assign only. Use the
+  Task Monitor's lobster-only run path for executable demos.
+- **Pending network rules** mean OpenShell denied an outbound attempt and has a
+  proposed approval ready in the Policies tab.
+
+Recommended live flow:
+
+1. Click **Demo Ready** and copy the readiness summary if you need a proof note.
+2. Build one lobster with a generated or preset headwear item.
+3. Build one crab and point out the Hermes readiness badge.
+4. Create or select a live sandbox.
+5. Drag the lobster and crab into the sandbox to show mixed teams.
+6. Run the **Relay Check** quick-start with two OpenClaw lobsters.
+7. Open **Run + Outputs** to show the timeline and copyable run summary.
+8. Open **Policies** to show NemoClaw presets and OpenShell network rules.
+9. Open **Console** and use filters to show agent/stdout/stderr traces.
+10. Use the E2E harness for a machine-verifiable check:
+
+```bash
+./scripts/demo_e2e.py --sandbox nemoclaw-demo-e2e-0530182359 --json
+```
+
+The E2E harness creates temporary profiles, validates accessories and crabs,
+toggles/restores a policy, loads network rules, runs a two-lobster OpenClaw
+relay, checks diagnostics, and cleans up. It should pass before demo time.
+
 ## Policies And Approvals
 
 There are two separate policy layers:

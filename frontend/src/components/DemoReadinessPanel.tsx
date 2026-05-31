@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DemoReadiness, DemoReadinessCheck, DemoReadinessStatus } from "../types";
 import { fetchDemoReadiness } from "../utils/sandboxApi";
+import { DEMO_SCENARIOS } from "../utils/demoScenarios";
 
 interface DemoReadinessPanelProps {
   open: boolean;
@@ -218,6 +219,45 @@ export default function DemoReadinessPanel({
                 {copyNotice}
               </div>
             )}
+          </div>
+
+          <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wide text-white/42">
+                  Demo runbook
+                </div>
+                <div className="mt-1 text-[12px] leading-5 text-white/58">
+                  Use these in the Task Monitor quick-start row.
+                </div>
+              </div>
+              <span className="rounded-full bg-cyan-300/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-50">
+                {DEMO_SCENARIOS.length} scenarios
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {DEMO_SCENARIOS.map((scenario, index) => (
+                <div
+                  key={scenario.id}
+                  className="rounded-lg border border-white/10 bg-slate-950/30 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-5 w-5 place-items-center rounded-full bg-cyan-300/14 text-[10px] font-bold text-cyan-50">
+                      {index + 1}
+                    </span>
+                    <span className="text-[12px] font-semibold text-white/88">
+                      {scenario.label}
+                    </span>
+                    <span className="rounded bg-white/[0.08] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/45">
+                      {scenario.badge}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px] leading-4 text-white/58">
+                    {scenario.description}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {error && (
