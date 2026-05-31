@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  AgentInfo,
   ChatMessage,
   DemoReadiness,
   DemoReadinessCheck,
@@ -79,6 +80,25 @@ function issueFromCheck(check: DemoReadinessCheck): PreflightIssue {
     label: check.label,
     detail: check.detail || check.status,
   };
+}
+
+function isHermesAgent(agent: AgentInfo): boolean {
+  return agent.runtime === "hermes" || agent.species === "crab";
+}
+
+function accessoryLabel(agent: AgentInfo): string {
+  const appearance = agent.appearance;
+  const generated = appearance?.generated_headwear;
+  const headwear =
+    appearance?.headwear === "generated"
+      ? generated?.label || generated?.kind?.replace(/_/g, " ")
+      : appearance?.headwear && appearance.headwear !== "none"
+        ? appearance.headwear.replace(/_/g, " ")
+        : "";
+  const eyewear = appearance?.eyewear && appearance.eyewear !== "none"
+    ? appearance.eyewear.replace(/_/g, " ")
+    : "";
+  return [headwear, eyewear].filter(Boolean).join(" + ") || "no accessories";
 }
 
 /**
@@ -290,16 +310,14 @@ export default function SandboxRunPanel({
     () =>
       team.length > 0
         ? team
-            .filter((agent) => agent.runtime !== "hermes" && agent.species !== "crab")
+            .filter((agent) => !isHermesAgent(agent))
             .map((agent) => agent.name)
         : [...(sandbox.assigned_agents ?? [])],
     [sandbox.assigned_agents, team],
   );
   const hermesAssigned = useMemo(
     () =>
-      team.some(
-        (agent) => agent.runtime === "hermes" || agent.species === "crab",
-      ),
+      team.some((agent) => isHermesAgent(agent)),
     [team],
   );
   const localMessages = useMemo(
@@ -862,6 +880,59 @@ export default function SandboxRunPanel({
               </span>
             ))}
           </div>
+          {team.length > 0 && (
+            <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[9px] font-bold uppercase tracking-wide text-white/35">
+                  Stage crew
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-white/38">
+                  {executableNames.length} executable / {team.length} assigned
+                </span>
+              </div>
+              <div className="grid gap-1.5 md:grid-cols-2">
+                {team.map((agent) => {
+                  const hermes = isHermesAgent(agent);
+                  return (
+                    <div
+                      key={agent.name}
+                      className="min-w-0 rounded-md border border-white/8 bg-slate-950/32 px-2.5 py-2"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: agent.color || (hermes ? "#f59e0b" : "#67e8f9") }}
+                        />
+                        <span className="truncate text-[12px] font-semibold text-white/86">
+                          {agent.name}
+                        </span>
+                        <span
+                          className={`shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+                            hermes
+                              ? "bg-amber-300/12 text-amber-100"
+                              : "bg-emerald-300/12 text-emerald-100"
+                          }`}
+                        >
+                          {hermes ? "visual crab" : "runs"}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1 text-[9px] font-semibold uppercase tracking-wide">
+                        <span className="rounded bg-white/[0.07] px-1.5 py-0.5 text-white/45">
+                          {agent.runtime || "openclaw"}
+                        </span>
+                        <span className="rounded bg-white/[0.07] px-1.5 py-0.5 text-white/45">
+                          {agent.role}
+                        </span>
+                        <span className="rounded bg-cyan-300/10 px-1.5 py-0.5 text-cyan-100/70">
+                          {accessoryLabel(agent)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {runPreflight && (
