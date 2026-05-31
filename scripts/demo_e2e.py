@@ -167,6 +167,53 @@ def rules_brief(rules: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def profile_brief(profile: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not profile:
+        return None
+    appearance = profile.get("appearance") if isinstance(profile.get("appearance"), dict) else {}
+    generated = appearance.get("generated_headwear") if isinstance(appearance.get("generated_headwear"), dict) else {}
+    return {
+        "name": profile.get("name"),
+        "species": profile.get("species"),
+        "runtime": profile.get("runtime"),
+        "role": profile.get("role"),
+        "color": profile.get("color"),
+        "headwear": appearance.get("headwear"),
+        "eyewear": appearance.get("eyewear"),
+        "generated_headwear_kind": generated.get("kind"),
+        "openclaw_capable": profile.get("openclaw_capable"),
+        "skills": profile.get("openclaw_skills") or [],
+    }
+
+
+def diagnostics_brief(diag: dict[str, Any]) -> dict[str, Any]:
+    run_status = diag.get("run_status") if isinstance(diag.get("run_status"), dict) else {}
+    per_agent = diag.get("per_agent_results") or diag.get("agent_runs") or {}
+    partial = diag.get("partial_output") if isinstance(diag.get("partial_output"), dict) else {}
+    tool_errors = diag.get("tool_errors") if isinstance(diag.get("tool_errors"), list) else []
+    console = diag.get("console") if isinstance(diag.get("console"), list) else []
+    violations = diag.get("violations") if isinstance(diag.get("violations"), list) else []
+    agent_statuses: dict[str, str] = {}
+    if isinstance(per_agent, dict):
+        for name, result in per_agent.items():
+            if isinstance(result, dict):
+                agent_statuses[str(name)] = "success" if result.get("success") is True else str(result.get("status") or "unknown")
+            else:
+                agent_statuses[str(name)] = "unknown"
+    return {
+        "run_id": diag.get("run_id"),
+        "phase": run_status.get("phase"),
+        "outcome": run_status.get("outcome"),
+        "failure_kind": diag.get("failure_kind"),
+        "timed_out": diag.get("timed_out"),
+        "agents": agent_statuses,
+        "partial_output_agents": sorted(str(name) for name in partial.keys()),
+        "tool_error_count": len(tool_errors),
+        "console_line_count": len(console),
+        "violation_count": len(violations),
+    }
+
+
 def active_run_for_sandbox(ctx: Context) -> dict[str, Any] | None:
     sandbox = find_sandbox(ctx, ctx.sandbox)
     run = (sandbox or {}).get("run_status")
@@ -223,10 +270,11 @@ def enabled_policy_names(ctx: Context, sandbox_name: str) -> list[str]:
 
 def create_profile(ctx: Context, payload: dict[str, Any], label: str) -> dict[str, Any]:
     code, body = http(ctx, "POST", "/lobsters", payload)
-    require(ctx, label, code == 200, body)
+    agent = body.get("agent") or body.get("lobster") or {}
+    require(ctx, label, code == 200, profile_brief(agent) or body)
     name = str(payload["name"])
     ctx.created_agents.append(name)
-    return body.get("agent") or body.get("lobster") or {}
+    return agent
 
 
 def wait_for_live_sandbox(ctx: Context) -> dict[str, Any] | None:
@@ -302,7 +350,7 @@ def run_flow(ctx: Context) -> None:
         lobster.get("color") == "#7c3aed"
         and lobster.get("appearance", {}).get("headwear") == "baseball_cap"
         and lobster.get("appearance", {}).get("eyewear") == "sunglasses",
-        lobster,
+        profile_brief(lobster),
     )
 
     lobster_b = create_profile(ctx, {
@@ -330,7 +378,7 @@ def run_flow(ctx: Context) -> None:
         lobster_b.get("color") == "#059669"
         and lobster_b.get("appearance", {}).get("headwear") == "generated"
         and lobster_b.get("appearance", {}).get("generated_headwear", {}).get("kind") == "wizard_hat",
-        lobster_b,
+        profile_brief(lobster_b),
     )
 
     crab = create_profile(ctx, {
@@ -360,7 +408,7 @@ def run_flow(ctx: Context) -> None:
         and crab.get("color") == "#2563eb"
         and crab.get("appearance", {}).get("headwear") == "generated"
         and crab.get("appearance", {}).get("generated_headwear", {}).get("kind") == "crown",
-        crab,
+        profile_brief(crab),
     )
 
     if ctx.create_sandbox:
@@ -449,9 +497,9 @@ def run_flow(ctx: Context) -> None:
     require(ctx, "sandbox team task reaches result phase", finished, run_brief(final_run))
 
     code, diag = http(ctx, "GET", f"/sandboxes/{q(ctx.sandbox)}/tasks/{q(ctx.run_id)}/diagnostics", timeout=30)
-    require(ctx, "diagnostics endpoint returns run", code == 200 and diag.get("run_id") == ctx.run_id, diag)
+    require(ctx, "diagnostics endpoint returns run", code == 200 and diag.get("run_id") == ctx.run_id, diagnostics_brief(diag))
     per_agent = diag.get("per_agent_results") or diag.get("agent_runs") or {}
-    require(ctx, "diagnostics include both assigned profiles", ctx.lobster_a in per_agent and ctx.lobster_b in per_agent, per_agent.keys())
+    require(ctx, "diagnostics include both assigned profiles", ctx.lobster_a in per_agent and ctx.lobster_b in per_agent, sorted(per_agent.keys()))
     require(ctx, "OpenClaw lobster A completed", per_agent.get(ctx.lobster_a, {}).get("success") is True, per_agent.get(ctx.lobster_a))
     require(ctx, "OpenClaw lobster B completed", per_agent.get(ctx.lobster_b, {}).get("success") is True, per_agent.get(ctx.lobster_b))
 

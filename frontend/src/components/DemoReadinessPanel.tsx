@@ -67,6 +67,19 @@ function readinessSummaryText(readiness: DemoReadiness) {
   return lines.join("\n");
 }
 
+function warningAction(check: DemoReadinessCheck) {
+  if (check.id === "network_rules") {
+    return "Open Policies, inspect pending OpenShell rules, then approve/reject or retry the task after approval.";
+  }
+  if (check.id === "credentials") {
+    return "Avoid scenarios that need the missing credential, or configure it before asking agents to use that service.";
+  }
+  if (check.id === "hermes") {
+    return "Show crabs visually, then use Lobsters only for executable OpenClaw task runs.";
+  }
+  return "Proceed only if this warning is expected for the demo path.";
+}
+
 export default function DemoReadinessPanel({
   open,
   sandboxName,
@@ -220,6 +233,47 @@ export default function DemoReadinessPanel({
               </div>
             )}
           </div>
+
+          {grouped.warn.length > 0 && (
+            <div className="mb-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-amber-100/75">
+                    Known warnings
+                  </div>
+                  <div className="mt-1 text-[12px] leading-5 text-white/62">
+                    These do not block the demo, but they change which story to tell.
+                  </div>
+                </div>
+                <span className="rounded-full bg-amber-300/12 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-50">
+                  {grouped.warn.length}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {grouped.warn.map((check) => (
+                  <div
+                    key={`operator-${check.id}`}
+                    className="rounded-lg border border-white/10 bg-slate-950/30 px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[12px] font-semibold text-white/88">
+                        {check.label}
+                      </span>
+                      <span className="rounded bg-amber-300/12 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-50">
+                        warn
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] leading-4 text-white/58">
+                      {check.detail}
+                    </div>
+                    <div className="mt-1.5 text-[11px] leading-4 text-amber-50/82">
+                      {warningAction(check)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
             <div className="flex items-center justify-between gap-2">
