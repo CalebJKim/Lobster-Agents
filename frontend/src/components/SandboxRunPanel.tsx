@@ -23,6 +23,7 @@ import {
   fetchRunDiagnostics,
   setPolicy,
 } from "../utils/sandboxApi";
+import { DEMO_SCENARIOS } from "../utils/demoScenarios";
 import { statusDot } from "./sandbox/format";
 import StatusTab from "./sandbox/StatusTab";
 import PoliciesTab from "./sandbox/PoliciesTab";
@@ -285,6 +286,15 @@ export default function SandboxRunPanel({
         : [...(sandbox.assigned_agents ?? [])],
     [sandbox.assigned_agents, team],
   );
+  const executableNames = useMemo(
+    () =>
+      team.length > 0
+        ? team
+            .filter((agent) => agent.runtime !== "hermes" && agent.species !== "crab")
+            .map((agent) => agent.name)
+        : [...(sandbox.assigned_agents ?? [])],
+    [sandbox.assigned_agents, team],
+  );
   const hermesAssigned = useMemo(
     () =>
       team.some(
@@ -383,17 +393,20 @@ export default function SandboxRunPanel({
     setRunPreflight(null);
   }, [sandbox.name]);
 
-  const startTask = useCallback(async (task: string) => {
+  const startTask = useCallback(async (task: string, agentNamesOverride?: string[]) => {
     if (!task || taskBusy) return;
     setTaskBusy(true);
     setTaskNotice(null);
+    const runAgents = agentNamesOverride && agentNamesOverride.length > 0
+      ? agentNamesOverride
+      : assignedNames;
     try {
       const res = await fetch(
         `/sandboxes/${encodeURIComponent(sandbox.name)}/task`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ task }),
+          body: JSON.stringify({ task, agent_names: runAgents }),
         },
       );
       const body = await res.json().catch(() => ({}));
@@ -409,25 +422,25 @@ export default function SandboxRunPanel({
         setOptimisticRun({
           run_id: runId,
           sandbox_name: sandbox.name,
-          agents: assignedNames,
+          agents: runAgents,
           task,
           status: "running",
           started_at: now,
           phase: "openclaw",
-          current_agent: assignedNames[0],
-          last_message: assignedNames[0]
-            ? `Starting ${assignedNames[0]}'s OpenClaw turn in this sandbox.`
+          current_agent: runAgents[0],
+          last_message: runAgents[0]
+            ? `Starting ${runAgents[0]}'s OpenClaw turn in this sandbox.`
             : "Starting NemoClaw run.",
           last_update_at: now,
           outputs: {},
           errors: {},
           running: true,
-          mode: assignedNames.length > 1 ? "coordinated" : "single",
+          mode: runAgents.length > 1 ? "coordinated" : "single",
           policies: sandbox.policies ?? [],
           policy_snapshot: sandbox.policies ?? [],
           success_count: 0,
           error_count: 0,
-          total_count: assignedNames.length,
+          total_count: runAgents.length,
         });
       }
       setTaskNotice(runId ? `Run started: ${runId.slice(0, 8)}…` : "Run started.");
@@ -516,6 +529,13 @@ export default function SandboxRunPanel({
     setRunPreflight(null);
     await startTask(task);
   }, [runPreflight, startTask]);
+
+  const confirmRunWithoutCrabs = useCallback(async () => {
+    if (!runPreflight || runPreflight.blockers.length > 0 || executableNames.length === 0) return;
+    const task = runPreflight.task;
+    setRunPreflight(null);
+    await startTask(task, executableNames);
+  }, [executableNames, runPreflight, startTask]);
 
   const cancelRun = useCallback(async () => {
     if (!run?.run_id) return;
@@ -738,6 +758,36 @@ export default function SandboxRunPanel({
 
         {/* Run prompt bar — always visible, drives the sandbox directly. */}
         <div className="shrink-0 border-b border-white/8 bg-slate-900/25 px-6 py-3">
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[10px] font-bold uppercase tracking-wide text-white/35">
+              Quick starts
+            </span>
+            {DEMO_SCENARIOS.map((scenario) => (
+              <button
+                key={scenario.id}
+                type="button"
+                onClick={() => setTaskDraft(scenario.task)}
+                disabled={taskBusy || preflightBusy || runActive}
+                className="rounded-md border border-white/10 bg-white/[0.045] px-2 py-1 text-[10px] font-semibold text-white/62 transition hover:border-cyan-200/28 hover:bg-cyan-300/[0.08] hover:text-cyan-50 disabled:opacity-40"
+                title={scenario.description}
+              >
+                {scenario.label}
+                <span className="ml-1 rounded bg-white/[0.08] px-1 py-0.5 text-[8px] uppercase tracking-wide text-white/42">
+                  {scenario.badge}
+                </span>
+              </button>
+            ))}
+            {run?.task && !runActive && (
+              <button
+                type="button"
+                onClick={() => setTaskDraft(run.task)}
+                className="rounded-md border border-emerald-300/16 bg-emerald-300/[0.08] px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-50/85 hover:bg-emerald-300/[0.14]"
+                title="Copy the last run task into the task box"
+              >
+                Retry last
+              </button>
+            )}
+          </div>
           <div className="flex items-end gap-2">
             <div className="min-w-0 flex-1">
               <label className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-white/40">
@@ -791,6 +841,27 @@ export default function SandboxRunPanel({
               {taskNotice}
             </div>
           )}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide">
+            <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-white/45">
+              assigned {assignedNames.length}
+            </span>
+            <span className="rounded-full bg-emerald-300/12 px-2 py-0.5 text-emerald-100/82">
+              executable {executableNames.length}
+            </span>
+            {hermesAssigned && (
+              <span className="rounded-full bg-amber-300/12 px-2 py-0.5 text-amber-100/82">
+                crab present
+              </span>
+            )}
+            {(sandbox.policies ?? []).slice(0, 5).map((policy) => (
+              <span
+                key={policy}
+                className="rounded-full bg-cyan-300/10 px-2 py-0.5 text-cyan-100/72"
+              >
+                {policy}
+              </span>
+            ))}
+          </div>
         </div>
 
         {runPreflight && (
@@ -901,6 +972,17 @@ export default function SandboxRunPanel({
                 >
                   {taskBusy ? "Starting" : "Start Run"}
                 </button>
+                {hermesAssigned && executableNames.length > 0 && runPreflight.blockers.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={confirmRunWithoutCrabs}
+                    disabled={taskBusy}
+                    className="h-9 rounded-lg border border-amber-300/24 bg-amber-300/[0.10] px-3 text-[11px] font-bold uppercase tracking-wide text-amber-50 hover:bg-amber-300/[0.16] disabled:opacity-45"
+                    title="Run only OpenClaw lobsters and leave Hermes crabs visual-only"
+                  >
+                    Lobsters only
+                  </button>
+                )}
               </div>
             </div>
           </div>

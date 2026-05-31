@@ -46,6 +46,7 @@ class Context:
     after_policies: list[str] = field(default_factory=list)
     brave_original: bool | None = None
     run_id: str | None = None
+    started_at: float = field(default_factory=time.monotonic)
 
     @property
     def lobster_a(self) -> str:
@@ -456,12 +457,17 @@ def run_flow(ctx: Context) -> None:
 
 
 def emit_json(ctx: Context, ok: bool) -> None:
+    passed = sum(1 for check in ctx.checks if check.ok)
+    failed = sum(1 for check in ctx.checks if not check.ok)
     print(json.dumps({
         "ok": ok,
         "base": ctx.base,
         "sandbox": ctx.sandbox,
         "run_id": ctx.run_id,
         "created_agents": ctx.created_agents,
+        "duration_seconds": round(time.monotonic() - ctx.started_at, 2),
+        "passed": passed,
+        "failed": failed,
         "checks": [
             {"label": check.label, "ok": check.ok, "detail": json_detail(check.detail)}
             for check in ctx.checks

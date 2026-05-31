@@ -291,6 +291,8 @@ export default function SandboxOrchestrator({
   const [newSandboxName, setNewSandboxName] = useState("");
   const [creatingSandbox, setCreatingSandbox] = useState(false);
   const [hermesConfigured, setHermesConfigured] = useState<boolean | null>(null);
+  const [profileQuery, setProfileQuery] = useState("");
+  const [profileFilter, setProfileFilter] = useState<"all" | "lobster" | "crab" | "unassigned">("all");
   // Policy preview — Run Team first opens a confirmation modal so the user
   // sees the cage (enabled policies, deny-by-default everywhere else)
   // before actually firing the task.
@@ -425,6 +427,26 @@ export default function SandboxOrchestrator({
     }
     return map;
   }, [sandboxes]);
+
+  const filteredAgents = useMemo(() => {
+    const q = profileQuery.trim().toLowerCase();
+    return agents.filter((agent) => {
+      const isCrab = agent.species === "crab" || agent.runtime === "hermes";
+      if (profileFilter === "lobster" && isCrab) return false;
+      if (profileFilter === "crab" && !isCrab) return false;
+      if (profileFilter === "unassigned" && agentAssignments[agent.name]) return false;
+      if (!q) return true;
+      const haystack = [
+        agent.name,
+        agent.role,
+        agent.runtime,
+        agent.species,
+        ...(agent.tools ?? []),
+        ...(agent.openclaw_skills ?? []),
+      ].join(" ").toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [agentAssignments, agents, profileFilter, profileQuery]);
 
   const selected = useMemo(
     () => sandboxes.find((sandbox) => sandbox.name === selectedSandbox) ?? null,
@@ -942,18 +964,53 @@ export default function SandboxOrchestrator({
               {popError}
             </div>
           )}
+          <div className="mb-2 space-y-1.5">
+            <input
+              value={profileQuery}
+              onChange={(event) => setProfileQuery(event.target.value)}
+              placeholder="Search profiles..."
+              className="h-8 w-full rounded-md border border-white/10 bg-slate-950/45 px-2 text-[11px] text-white outline-none placeholder:text-white/28 focus:border-cyan-200/35"
+            />
+            <div className="grid grid-cols-4 gap-1">
+              {[
+                ["all", "All"],
+                ["lobster", "Lobs"],
+                ["crab", "Crabs"],
+                ["unassigned", "Free"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setProfileFilter(value as typeof profileFilter)}
+                  className={`rounded border px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide ${
+                    profileFilter === value
+                      ? "border-cyan-200/45 bg-cyan-300/[0.12] text-cyan-50"
+                      : "border-white/10 bg-white/[0.04] text-white/45 hover:bg-white/[0.08] hover:text-white/70"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="space-y-1.5">
-            {agents.map((agent) => (
-              <AgentChip
-                key={agent.name}
-                agent={agent}
-                assignedTo={agentAssignments[agent.name]}
-                picked={draggedAgent === agent.name}
-                onPick={setDraggedAgent}
-                onRemove={removeLobster}
-                hermesConfigured={hermesConfigured}
-              />
-            ))}
+            {filteredAgents.length > 0 ? (
+              filteredAgents.map((agent) => (
+                <AgentChip
+                  key={agent.name}
+                  agent={agent}
+                  assignedTo={agentAssignments[agent.name]}
+                  picked={draggedAgent === agent.name}
+                  onPick={setDraggedAgent}
+                  onRemove={removeLobster}
+                  hermesConfigured={hermesConfigured}
+                />
+              ))
+            ) : (
+              <div className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-4 text-center text-[11px] leading-4 text-white/42">
+                No profiles match this filter.
+              </div>
+            )}
           </div>
         </div>
 

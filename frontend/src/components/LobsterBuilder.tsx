@@ -27,6 +27,24 @@ const COLOR_SWATCHES: { label: string; hex: string }[] = [
   { label: "Sea purple", hex: "#a168c8" },
 ];
 
+const LOBSTER_NAMES = [
+  "Circuit Claw",
+  "Blue Byte",
+  "Coral Prime",
+  "Driftline",
+  "Shellstack",
+  "Tideframe",
+];
+
+const CRAB_NAMES = [
+  "Hermes Harbor",
+  "Crabwise",
+  "Pinch Protocol",
+  "Blue Hermes",
+  "Cobalt Courier",
+  "Tide Runner",
+];
+
 const HEADWEAR_OPTIONS: { value: LobsterHeadwear; label: string }[] = [
   { value: "none", label: "None" },
   { value: "cowboy_hat", label: "Cowboy hat" },
@@ -236,6 +254,17 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
     setError(null);
   }, []);
 
+  const randomizeProfile = useCallback(() => {
+    const names = species === "crab" ? CRAB_NAMES : LOBSTER_NAMES;
+    const nextName = names[Math.floor(Math.random() * names.length)];
+    const nextColor = COLOR_SWATCHES[Math.floor(Math.random() * COLOR_SWATCHES.length)]?.hex ?? "#76b900";
+    const nextPreset = HEADWEAR_PRESETS[Math.floor(Math.random() * HEADWEAR_PRESETS.length)];
+    setName(`${nextName} ${Math.floor(100 + Math.random() * 900)}`);
+    setColor(nextColor);
+    if (nextPreset) applyHeadwearPreset(nextPreset);
+    setEyewear(Math.random() > 0.55 ? "sunglasses" : "none");
+  }, [applyHeadwearPreset, species]);
+
   const generateAccessory = useCallback(async () => {
     const description = accessoryPrompt.trim();
     if (!description) {
@@ -337,8 +366,17 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
           <div className="min-h-0 overflow-y-auto border-r border-white/8 px-6 py-4">
             {/* Name */}
             <label className="block">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
-                Name
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-white/45">
+                  Name
+                </span>
+                <button
+                  type="button"
+                  onClick={randomizeProfile}
+                  className="rounded bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white/45 hover:bg-cyan-300/[0.10] hover:text-cyan-50"
+                >
+                  Randomize
+                </button>
               </span>
               <input
                 value={name}

@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type {
   NemoClawSandbox,
   NemoClawRunStatus,
@@ -173,6 +174,49 @@ function TimelineRow({ step }: { step: TimelineStep }) {
   );
 }
 
+function buildRunSummaryText({
+  run,
+  outputs,
+  errors,
+  team,
+  failureKind,
+  failureDetail,
+  timedOut,
+}: {
+  run: NemoClawRunStatus;
+  outputs: [string, string][];
+  errors: [string, string][];
+  team: NonNullable<NemoClawSandbox["assigned_agent_details"]>;
+  failureKind?: string | null;
+  failureDetail?: string | null;
+  timedOut: boolean;
+}) {
+  const lines = [
+    "NemoClaw demo run summary",
+    `sandbox: ${run.sandbox_name}`,
+    `run_id: ${run.run_id}`,
+    `status: ${run.status}${run.outcome ? ` / ${run.outcome}` : ""}`,
+    `mode: ${run.mode ?? "unknown"}`,
+    `agents: ${(run.agents ?? team.map((agent) => agent.name)).join(", ") || "none"}`,
+    `policies: ${(run.policies ?? run.policy_snapshot ?? []).join(", ") || "none"}`,
+    `task: ${run.task || "none"}`,
+  ];
+  if (run.started_at) lines.push(`started: ${run.started_at}`);
+  if (run.finished_at) lines.push(`finished: ${run.finished_at}`);
+  if (timedOut) lines.push("timed_out: true");
+  if (failureKind) lines.push(`failure_kind: ${failureKind}`);
+  if (failureDetail) lines.push(`failure_detail: ${failureDetail}`);
+  if (outputs.length > 0) {
+    lines.push("", "outputs:");
+    for (const [agent, text] of outputs) lines.push(`- ${agent}: ${text}`);
+  }
+  if (errors.length > 0) {
+    lines.push("", "errors:");
+    for (const [agent, text] of errors) lines.push(`- ${agent}: ${text}`);
+  }
+  return lines.join("\n");
+}
+
 export default function StatusTab({
   run,
   outputs,
@@ -180,6 +224,7 @@ export default function StatusTab({
   team,
   diagnostics,
 }: StatusTabProps) {
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const skillStatus = diagnostics?.skill_status ?? run?.skill_status ?? {};
   const toolErrors = diagnostics?.tool_errors ?? run?.tool_errors ?? [];
   const failureKind = diagnostics?.failure_kind ?? run?.failure_kind;
@@ -209,6 +254,32 @@ export default function StatusTab({
     ? formatDuration(run.started_at, run.finished_at || run.last_update_at)
     : "";
   const timeline = run ? buildTimeline(run, skillStatus) : [];
+  const runSummaryText = useMemo(
+    () =>
+      run
+        ? buildRunSummaryText({
+            run,
+            outputs,
+            errors,
+            team,
+            failureKind,
+            failureDetail,
+            timedOut,
+          })
+        : "",
+    [errors, failureDetail, failureKind, outputs, run, team, timedOut],
+  );
+
+  const copyRunSummary = async () => {
+    if (!runSummaryText) return;
+    try {
+      await navigator.clipboard.writeText(runSummaryText);
+      setCopyNotice("Summary copied.");
+    } catch {
+      setCopyNotice("Could not copy automatically.");
+    }
+    window.setTimeout(() => setCopyNotice(null), 2200);
+  };
 
   return (
     <div className="space-y-4">
@@ -251,7 +322,20 @@ export default function StatusTab({
                 phase: {run.phase}
               </span>
             )}
+            <button
+              type="button"
+              onClick={copyRunSummary}
+              className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white/62 hover:border-cyan-200/30 hover:bg-cyan-300/[0.10] hover:text-cyan-50"
+              title="Copy a secret-free run summary"
+            >
+              Copy summary
+            </button>
           </div>
+          {copyNotice && (
+            <div className="mt-2 text-[11px] font-medium text-cyan-100/75">
+              {copyNotice}
+            </div>
+          )}
           {run.task && (
             <div className="mt-3">
               <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">

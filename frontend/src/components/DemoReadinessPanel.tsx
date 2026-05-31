@@ -45,6 +45,27 @@ function CheckRow({ check }: { check: DemoReadinessCheck }) {
   );
 }
 
+function readinessSummaryText(readiness: DemoReadiness) {
+  const lines = [
+    "Lobster Agents demo readiness",
+    `sandbox: ${readiness.selected_sandbox ?? "default"}`,
+    `ok: ${readiness.summary.ok}`,
+    `warnings: ${readiness.summary.warn}`,
+    `blockers: ${readiness.summary.fail}`,
+    "",
+    "checks:",
+  ];
+  for (const check of readiness.checks) {
+    lines.push(`- ${check.status}: ${check.label} - ${check.detail}`);
+  }
+  const enabled = readiness.policy_snapshot?.enabled ?? [];
+  lines.push("", `enabled policies: ${enabled.join(", ") || "none"}`);
+  const pending = readiness.network_rules?.counts?.pending ?? 0;
+  lines.push(`pending OpenShell rules: ${pending}`);
+  lines.push(`Hermes configured: ${readiness.hermes?.configured === true ? "yes" : "no"}`);
+  return lines.join("\n");
+}
+
 export default function DemoReadinessPanel({
   open,
   sandboxName,
@@ -53,6 +74,7 @@ export default function DemoReadinessPanel({
   const [readiness, setReadiness] = useState<DemoReadiness | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -94,6 +116,27 @@ export default function DemoReadinessPanel({
 
   const summary = readiness?.summary;
   const selected = readiness?.selected_sandbox ?? sandboxName ?? "default sandbox";
+  const nextAction =
+    !readiness
+      ? "Run a readiness check."
+      : grouped.fail.length > 0
+        ? `Fix ${grouped.fail[0].label}: ${grouped.fail[0].detail}`
+        : grouped.warn.some((check) => check.id === "hermes")
+          ? "Demo OpenClaw lobsters first; crabs are visual until Hermes is configured."
+          : grouped.warn.length > 0
+            ? "Proceed, but call out the listed warnings during the demo."
+            : "Start with Relay Check, then show policies and generated accessories.";
+
+  const copyReadiness = async () => {
+    if (!readiness) return;
+    try {
+      await navigator.clipboard.writeText(readinessSummaryText(readiness));
+      setCopyNotice("Readiness summary copied.");
+    } catch {
+      setCopyNotice("Could not copy automatically.");
+    }
+    window.setTimeout(() => setCopyNotice(null), 2200);
+  };
 
   return (
     <div
@@ -127,6 +170,14 @@ export default function DemoReadinessPanel({
             </button>
             <button
               type="button"
+              onClick={copyReadiness}
+              disabled={!readiness}
+              className="h-8 rounded-lg bg-cyan-300/12 px-3 text-[11px] font-bold uppercase tracking-wide text-cyan-50 hover:bg-cyan-300/20 disabled:opacity-45"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
               onClick={onClose}
               className="grid h-8 w-8 place-items-center rounded-lg bg-white/[0.08] text-white/70 hover:bg-white/[0.16] hover:text-white"
               aria-label="Close"
@@ -154,6 +205,20 @@ export default function DemoReadinessPanel({
               </div>
             </div>
           )}
+
+          <div className="mb-4 rounded-xl border border-cyan-300/18 bg-cyan-300/[0.07] px-4 py-3">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-cyan-100/70">
+              Next best action
+            </div>
+            <div className="mt-1 text-[12px] leading-5 text-white/78">
+              {nextAction}
+            </div>
+            {copyNotice && (
+              <div className="mt-2 text-[11px] font-medium text-cyan-100/80">
+                {copyNotice}
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className="rounded-lg border border-rose-300/26 bg-rose-300/[0.08] px-4 py-3 text-[12px] leading-5 text-rose-50">

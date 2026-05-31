@@ -28,6 +28,8 @@ export default function SandboxCard({
   const team = sandbox.assigned_agent_details ?? [];
   const canDrop = Boolean(carriedAgent);
   const run = sandbox.run_status;
+  const readiness = sandbox.readiness;
+  const policyCount = sandbox.policies?.length ?? 0;
   const stateLabel = !sandbox.live
     ? "Not live"
     : run?.running
@@ -101,6 +103,40 @@ export default function SandboxCard({
         {canDrop
           ? `Release or click to put ${carriedAgent} here`
           : run?.last_message ?? policySummary(sandbox.policies)}
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1">
+        <span
+          className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+            sandbox.live ? "bg-emerald-300/14 text-emerald-100" : "bg-amber-300/14 text-amber-100"
+          }`}
+        >
+          {sandbox.live ? "live" : "offline"}
+        </span>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+            readiness?.gateway?.healthy
+              ? "bg-emerald-300/14 text-emerald-100"
+              : readiness
+                ? "bg-amber-300/14 text-amber-100"
+                : "bg-white/[0.08] text-white/45"
+          }`}
+        >
+          gateway {readiness?.gateway?.healthy ? "ok" : readiness ? "check" : "?"}
+        </span>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide ${
+            readiness?.inference?.model
+              ? "bg-cyan-300/12 text-cyan-100"
+              : "bg-white/[0.08] text-white/45"
+          }`}
+          title={readiness?.inference?.model ?? sandbox.model ?? "Model unknown"}
+        >
+          model {readiness?.inference?.model ? "ok" : "?"}
+        </span>
+        <span className="rounded bg-white/[0.08] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/50">
+          policies {policyCount}
+        </span>
       </div>
 
       {run?.running && run.mode === "sequential" && (
