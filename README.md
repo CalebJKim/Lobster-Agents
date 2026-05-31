@@ -9,9 +9,33 @@ The current demo path is:
 
 - React/Vite frontend on `:4454`
 - FastAPI backend on `:8001`
-- OpenAI-compatible inference endpoint, usually vLLM on a demo device
+- OpenAI-compatible inference endpoint, usually vLLM on the GB300 demo device
+  or the Spark fallback model route
 - NemoClaw and OpenShell CLIs available on the backend host
 - NemoClaw sandboxes created on that same backend host
+
+## Current Deployment Topologies
+
+The app is machine-agnostic, but the backend, OpenShell gateway, NemoClaw
+sandboxes, and sandbox-reachable inference route must agree with each other.
+Do not commit demo-device IPs or personal credentials into source.
+
+Supported demo shapes:
+
+- **GB300 / DGX Station path**: preferred when the station is reachable. Run the
+  model server with vLLM or another OpenAI-compatible server, run the FastAPI
+  backend on the same host as OpenShell/NemoClaw, and point both backend and
+  NemoClaw inference settings at the GB300 model route.
+- **Spark fallback path**: useful when the station is offline. Spark has been
+  used with `qwen3.6:35b-a3b` behind an OpenAI-compatible or Ollama-style route.
+  Treat its IP as operator config, not repository state.
+- **Mac frontend + remote backend**: common for demos. The browser opens
+  `http://localhost:4454` on the Mac, while `VITE_BACKEND` points to the remote
+  backend on GB300 or Spark. Sandboxes still live on the backend host.
+
+The rule of thumb is simple: the UI can run anywhere, but executable agent work
+happens where the backend and NemoClaw/OpenShell sandboxes run. If you move to a
+new device, rebuild or create sandboxes on that device.
 
 ## New Device Setup
 
@@ -44,6 +68,14 @@ export OFFICE_AGENTS_LLM_MODEL="<served-model-name>"
 export OFFICE_AGENTS_LLM_API_KEY="dummy"
 ```
 
+On GB300 with vLLM, keep the value model-specific and environment-specific:
+
+```bash
+export OFFICE_AGENTS_LLM_BASE_URL="http://<gb300-host-or-ip>:<vllm-port>/v1"
+export OFFICE_AGENTS_LLM_MODEL="<vllm-served-model-id>"
+export OFFICE_AGENTS_LLM_API_KEY="dummy"
+```
+
 The backend model route and the NemoClaw sandbox route can be different. The
 backend can use a host-loopback endpoint, but OpenShell sandboxes must use a
 NemoClaw-supported provider that is reachable through `inference.local`.
@@ -53,6 +85,16 @@ Override these when the sandbox should use a different provider/model:
 export OFFICE_AGENTS_NEMOCLAW_PROVIDER="custom"   # or "ollama" on Spark-style hosts
 export OFFICE_AGENTS_NEMOCLAW_ENDPOINT_URL="http://<sandbox-reachable-model-host>:8000/v1"
 export OFFICE_AGENTS_NEMOCLAW_MODEL="<sandbox-routed-model-name>"
+export OFFICE_AGENTS_NEMOCLAW_API_KEY="dummy"
+```
+
+For GB300/vLLM, the usual NemoClaw setting is the OpenAI-compatible custom
+provider:
+
+```bash
+export OFFICE_AGENTS_NEMOCLAW_PROVIDER="custom"
+export OFFICE_AGENTS_NEMOCLAW_ENDPOINT_URL="http://<sandbox-reachable-gb300-host>:<vllm-port>/v1"
+export OFFICE_AGENTS_NEMOCLAW_MODEL="<vllm-served-model-id>"
 export OFFICE_AGENTS_NEMOCLAW_API_KEY="dummy"
 ```
 
@@ -118,6 +160,20 @@ If the UI says a sandbox is configured but not live, the repo is not the
 missing piece. Create or start that sandbox on the backend host, verify
 `nemoclaw status --json`, then refresh the UI.
 
+The UI can also create additional sandboxes through the Workspaces dock. That
+persists the sandbox metadata in the backend SQLite store and provisions a live
+NemoClaw sandbox on the backend host. This still requires `openshell`,
+`nemoclaw`, model routing, and policies to be correctly installed on that host.
+
+Public GitHub clones do not require GitHub credentials:
+
+```bash
+git clone https://github.com/CalebJKim/Lobster-Agents.git
+```
+
+Do not install write-capable GitHub keys on a demo station unless that station
+is intentionally allowed to push code.
+
 ## Local Development
 
 Backend:
@@ -144,6 +200,16 @@ VITE_BACKEND="http://127.0.0.1:8001" npm run dev -- --host 0.0.0.0 --port 4454
 Use `VITE_BACKEND=http://<backend-host>:8001` when the frontend runs on a
 different laptop from the backend. The frontend source should not contain a
 machine-specific fallback IP.
+
+For a Mac frontend talking to a remote GB300 or Spark backend:
+
+```bash
+cd frontend
+VITE_BACKEND="http://<backend-host-or-ip>:8001" npm run dev -- --host 0.0.0.0 --port 4454
+```
+
+The backend should be started on the host that owns the live OpenShell/NemoClaw
+sandboxes.
 
 ## Demo Operator Checklist
 
@@ -179,6 +245,25 @@ Recommended live flow:
 The E2E harness creates temporary profiles, validates accessories and crabs,
 toggles/restores a policy, loads network rules, runs a two-lobster OpenClaw
 relay, checks diagnostics, and cleans up. It should pass before demo time.
+
+For the broader booth validation suite:
+
+```bash
+./scripts/demo_booth_suite.py \
+  --sandbox nemoclaw-demo-e2e-0530182359 \
+  --scenarios readiness,profiles,edges,policies,web,reset \
+  --json
+```
+
+Use the slower scenarios intentionally:
+
+```bash
+./scripts/demo_booth_suite.py --sandbox nemoclaw-demo-e2e-0530182359 --scenarios coding --json
+./scripts/demo_booth_suite.py --sandbox nemoclaw-demo-e2e-0530182359 --scenarios denial --json
+```
+
+Generated Markdown/JSON reports are written under `reports/`. The latest
+consolidated booth summary is `reports/demo_booth_validation_summary.md`.
 
 ## Policies And Approvals
 
@@ -297,9 +382,16 @@ npm run build
 Manual demo checks:
 
 - `/health` reports the model, NemoClaw, and OpenShell as available.
+- **Demo Ready** reports zero blockers. Expected warnings must be explainable.
 - `/sandboxes` shows configured and live sandboxes separately.
 - A newly created sandbox appears in the dock and on the Three.js map.
 - Build a Claw spawns a visible profile with color/accessories intact.
 - Assigning a profile to a sandbox moves it into the matching hut.
+- A short relay task completes with two OpenClaw lobsters and preserves both
+  per-agent outputs in diagnostics.
+- A simple coding task can produce `index.html`/`styles.css`, and the Status
+  tab exposes them under Run artifacts.
 - A denied outbound request creates an OpenShell network-rule recommendation in
   the Policies tab.
+- Missing `BRAVE_API_KEY` blocks or warns for web/deep-research demos instead
+  of letting the visitor wait on a doomed run.
