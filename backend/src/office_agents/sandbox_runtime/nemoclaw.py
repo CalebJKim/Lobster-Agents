@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -18,6 +19,10 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SAFE_CHUNK_ID = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\a]*(?:\a|\x1b\\)")
 _NETWORK_RULE_STATUSES = {"pending", "approved", "rejected", "all"}
+_ARTIFACT_TEXT_EXTENSIONS = {
+    ".css", ".csv", ".html", ".htm", ".js", ".json", ".log", ".md",
+    ".svg", ".txt", ".ts", ".tsx", ".xml", ".yaml", ".yml",
+}
 
 
 def _which(command: str) -> str | None:
@@ -521,6 +526,165 @@ async def probe_sandbox_inference(
         "output": output[:1000],
         "error": None,
     }
+
+
+async def list_task_artifacts(
+    sandbox_name: str,
+    run_id: str,
+    *,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    """List small text/web artifacts under /sandbox/runs/<run_id>."""
+    if not _SAFE_NAME.match(sandbox_name) or not _SAFE_CHUNK_ID.match(run_id):
+        return {"ok": False, "error": "Invalid sandbox or run id", "files": []}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"ok": False, "error": "OpenShell CLI was not found on PATH.", "files": []}
+
+    script = """
+import json
+import os
+import sys
+
+run_id = sys.argv[1]
+root = os.path.realpath('/sandbox/runs/' + run_id)
+allowed = set(sys.argv[2].split(','))
+items = []
+if os.path.isdir(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+        for name in filenames:
+            if name.startswith('.'):
+                continue
+            path = os.path.realpath(os.path.join(dirpath, name))
+            if not path.startswith(root + os.sep):
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            if size > 2_000_000:
+                continue
+            rel = os.path.relpath(path, root)
+            items.append({
+                'path': rel,
+                'size': size,
+                'kind': 'html' if ext in {'.html', '.htm'} else 'text',
+                'previewable': ext in allowed,
+            })
+print(json.dumps({'files': sorted(items, key=lambda item: item['path'])[:100]}))
+""".strip()
+    encoded_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--workdir",
+        "/sandbox",
+        "--timeout",
+        str(timeout_seconds),
+        "--no-tty",
+        "--",
+        "python3",
+        "-c",
+        "import base64,sys; sys.argv=sys.argv[1:]; exec(base64.b64decode(sys.argv[0]))",
+        encoded_script,
+        run_id,
+        ",".join(sorted(_ARTIFACT_TEXT_EXTENSIONS)),
+        timeout_seconds=timeout_seconds + 5,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {"ok": False, "error": f"artifact list timed out after {timeout_seconds}s", "files": []}
+    if run.returncode != 0:
+        return {"ok": False, "error": output[:1000] or "artifact list failed", "files": []}
+    try:
+        parsed = json.loads(output or "{}")
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "artifact list returned invalid JSON", "raw": output[:1000], "files": []}
+    files = parsed.get("files") if isinstance(parsed.get("files"), list) else []
+    return {"ok": True, "sandbox_name": sandbox_name, "run_id": run_id, "files": files, "error": None}
+
+
+def _artifact_path_is_safe(path: str) -> bool:
+    if not path or path.startswith("/") or "\x00" in path:
+        return False
+    parts = path.split("/")
+    return all(part not in {"", ".", ".."} for part in parts)
+
+
+async def read_task_artifact(
+    sandbox_name: str,
+    run_id: str,
+    artifact_path: str,
+    *,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    """Read a small artifact from /sandbox/runs/<run_id> as base64."""
+    if (
+        not _SAFE_NAME.match(sandbox_name)
+        or not _SAFE_CHUNK_ID.match(run_id)
+        or not _artifact_path_is_safe(artifact_path)
+    ):
+        return {"ok": False, "error": "Invalid sandbox, run id, or artifact path"}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"ok": False, "error": "OpenShell CLI was not found on PATH."}
+
+    script = """
+import base64
+import json
+import os
+import sys
+
+run_id = sys.argv[1]
+rel = sys.argv[2]
+root = os.path.realpath('/sandbox/runs/' + run_id)
+path = os.path.realpath(os.path.join(root, rel))
+ok = path.startswith(root + os.sep) and os.path.isfile(path) and os.path.getsize(path) <= 2_000_000
+if not ok:
+    print(json.dumps({'ok': False, 'error': 'artifact not found or too large'}))
+    sys.exit(0)
+with open(path, 'rb') as handle:
+    data = handle.read()
+print(json.dumps({'ok': True, 'path': rel, 'size': len(data), 'b64': base64.b64encode(data).decode('ascii')}))
+""".strip()
+    encoded_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--workdir",
+        "/sandbox",
+        "--timeout",
+        str(timeout_seconds),
+        "--no-tty",
+        "--",
+        "python3",
+        "-c",
+        "import base64,sys; sys.argv=sys.argv[1:]; exec(base64.b64decode(sys.argv[0]))",
+        encoded_script,
+        run_id,
+        artifact_path,
+        timeout_seconds=timeout_seconds + 5,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {"ok": False, "error": f"artifact read timed out after {timeout_seconds}s"}
+    if run.returncode != 0:
+        return {"ok": False, "error": output[:1000] or "artifact read failed"}
+    try:
+        parsed = json.loads(output or "{}")
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "artifact read returned invalid JSON", "raw": output[:1000]}
+    return parsed if isinstance(parsed, dict) else {"ok": False, "error": "artifact read returned invalid payload"}
 
 
 async def decide_network_rule(

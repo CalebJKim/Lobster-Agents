@@ -1,0 +1,96 @@
+{
+  "base": "http://127.0.0.1:4454",
+  "cleanup": [
+    {
+      "body": {
+        "removed": "Booth Researcher 0531234424",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Researcher 0531234424"
+    },
+    {
+      "body": {
+        "removed": "Booth Writer 0531234424",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Writer 0531234424"
+    },
+    {
+      "body": {
+        "removed": "Booth Coder 0531234424",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Coder 0531234424"
+    },
+    {
+      "body": {
+        "removed": "Booth Critic 0531234424",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Critic 0531234424"
+    },
+    {
+      "body": {
+        "removed": "Booth Crab 0531234424",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Crab 0531234424"
+    }
+  ],
+  "duration_seconds": 638.09,
+  "ok": true,
+  "sandbox": "nemoclaw-demo-e2e-0530182359",
+  "scenarios": [
+    {
+      "duration_seconds": 633.24,
+      "evidence": {
+        "agents": {
+          "Booth Researcher 0531234424": {
+            "failure_kind": null,
+            "partial": "**Researcher:** Sandboxed agent teams enable safe experimentation without risking production systems and allow isolated, parallel scaling of workloads.\n\n**Writer \u2014 Booth Demo Mini Report**\n\n**Sandboxed Agent Teams: Demo Overview**\n\n- Isolated execution: each agent runs in its own sandbox, preventing cross-contamination.\n- Safe iteration: researchers test freely, knowing failures stay contained.\n- Parallel throughput: multiple agents work simultaneously without resource contention.\n- *Risk:* Over...",
+            "success": true
+          },
+          "Booth Writer 0531234424": {
+            "failure_kind": null,
+            "partial": "**Sandboxed Agent Teams: Demo Report**\n\n- Isolated execution ensures each agent operates in its own sandbox, eliminating cross-contamination risks.\n- Safe iteration empowers researchers to experiment freely, knowing failures remain fully contained.\n- Parallel throughput lets multiple agents run simultaneously without resource contention.\n\n*Risk:* Over-provisioned sandboxes can strain host resources. *Mitigation:* enforce per-agent resource quotas and auto-scaling limits.",
+            "success": true
+          }
+        },
+        "errors": {},
+        "failure_kind": null,
+        "outcome": "success",
+        "outputs": {
+          "Booth Researcher 0531234424": "**Researcher:** Sandboxed agent teams enable safe experimentation without risking production systems and allow isolated, parallel scaling of workloads.\n\n**Writer \u2014 Booth Demo Mini Report**\n\n**Sandboxed Agent Teams: Demo Overview**\n\n- Isolated execution: each agent runs in its own sandbox, preventing cross-contamination.\n- Safe iteration: researchers test freely, knowing failures stay contained.\n- Parallel throughput: multiple agents work simultaneously without resource contention.\n- *Risk:* Over-provisioned sandboxes strain host resources. *Mitigation:* enforce per-agent resource quotas and auto-scaling limits.",
+          "Booth Writer 0531234424": "**Sandboxed Agent Teams: Demo Report**\n\n- Isolated execution ensures each agent operates in its own sandbox, eliminating cross-contamination risks.\n- Safe iteration empowers researchers to experiment freely, knowing failures remain fully contained.\n- Parallel throughput lets multiple agents run simultaneously without resource contention.\n\n*Risk:* Over-provisioned sandboxes can strain host resources. *Mitigation:* enforce per-agent resource quotas and auto-scaling limits."
+        },
+        "phase": "result",
+        "run_id": "nemoclaw-demo-e2e-0530182359-b1419c58",
+        "skill_status": "{\"Booth Researcher 0531234424\": {\"claw_id\": \"booth-researcher-0531234424-claw\", \"install_failed\": [], \"install_succeeded\": [], \"installed\": [], \"missing\": [], \"needs_setup\": [], \"raw\": \"Skills (7/53 ready)\\n\\u250c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2510\\n\\u2502 Status        \\u2502 Skill                    \\u2502 Description                                          \\u2502 Source             \\u2502\\n\\u251c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u253c\\u2500\\u2500\\u2500\\...",
+        "status": "finished",
+        "success_count": 2,
+        "timed_out": false,
+        "tool_error_count": 0,
+        "total_count": 2,
+        "violation_count": 0
+      },
+      "name": "collaborative report writing",
+      "notes": [
+        "Run completed with outcome=success."
+      ],
+      "run_id": "nemoclaw-demo-e2e-0530182359-b1419c58",
+      "status": "pass"
+    }
+  ],
+  "stamp": "0531234424",
+  "summary": {
+    "fail": 0,
+    "pass": 1,
+    "total": 1,
+    "warn": 0
+  }
+}

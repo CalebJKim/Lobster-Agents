@@ -534,9 +534,7 @@ class SandboxManager:
         try:
             await self._broadcast_team_task_started(run_id, sandbox_name, task, agents)
             await self._position_team_in_sandbox(run_id, sandbox_name, task, agents)
-            results = await self._run_relay(run_id, sandbox_name, task, agents)
-            for agent, result in results:
-                await self._record_agent_result(run_id, sandbox_name, agent, result)
+            await self._run_relay(run_id, sandbox_name, task, agents)
             await self._finish_run(run_id, sandbox_name, agents)
         except asyncio.CancelledError:
             await self._handle_cancellation(run_id, sandbox_name, agents)
@@ -632,6 +630,7 @@ class SandboxManager:
                     prior_turns=list(prior_turns) if prior_turns else None,
                 )
                 results.append((agent_obj, result))
+                await self._record_agent_result(run_id, sandbox_name, agent_obj, result)
                 if result.get("success"):
                     output_text = str(result.get("output") or "").strip()
                     if output_text:
@@ -642,19 +641,16 @@ class SandboxManager:
                         })
             except Exception as exc:
                 logger.exception("Sandbox team task failed for %s", agent.name)
-                results.append(
-                    (
-                        agent,
-                        {
-                            "success": False,
-                            "output": f"{type(exc).__name__}: {exc}",
-                            # Full traceback so the Task Monitor can render the real
-                            # cause instead of just a one-line summary. Kept under
-                            # "traceback" so frontend can show it in a collapsible.
-                            "traceback": traceback.format_exc(),
-                        },
-                    )
-                )
+                result = {
+                    "success": False,
+                    "output": f"{type(exc).__name__}: {exc}",
+                    # Full traceback so the Task Monitor can render the real
+                    # cause instead of just a one-line summary. Kept under
+                    # "traceback" so frontend can show it in a collapsible.
+                    "traceback": traceback.format_exc(),
+                }
+                results.append((agent, result))
+                await self._record_agent_result(run_id, sandbox_name, agent, result)
         return results
 
     async def _finish_run(

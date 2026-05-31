@@ -1,0 +1,120 @@
+{
+  "base": "http://127.0.0.1:4454",
+  "cleanup": [
+    {
+      "body": {
+        "removed": "Booth Researcher 0601005524",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Researcher 0601005524"
+    },
+    {
+      "body": {
+        "removed": "Booth Writer 0601005524",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Writer 0601005524"
+    },
+    {
+      "body": {
+        "removed": "Booth Coder 0601005524",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Coder 0601005524"
+    },
+    {
+      "body": {
+        "removed": "Booth Skill Coder 0601005524",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Skill Coder 0601005524"
+    },
+    {
+      "body": {
+        "removed": "Booth Critic 0601005524",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Critic 0601005524"
+    },
+    {
+      "body": {
+        "removed": "Booth Crab 0601005524",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Crab 0601005524"
+    }
+  ],
+  "duration_seconds": 152.09,
+  "ok": true,
+  "sandbox": "nemoclaw-demo-e2e-0530182359",
+  "scenarios": [
+    {
+      "duration_seconds": 145.82,
+      "evidence": {
+        "agents": {
+          "Booth Coder 0601005524": {
+            "failure_kind": null,
+            "partial": "Both files are created. Here's the report:\n\n**Files created:**\n- `index.html` \u2014 landing page with sandboxes, policies, and the claw/scuttle/shell team cards\n- `styles.css` \u2014 dark ocean theme with orange accents\n\n**Browser-shareable URL:** Not directly available in this webchat UI \u2014 there's no built-in static server exposed for browsing. To share it, you'd need to serve it through an external host (e.g., GitHub Pages, Netlify, or a local server).\n\n**Preview command:**\n```bash\ncd /sandbox/runs/nem...",
+            "success": true
+          }
+        },
+        "artifacts": {
+          "error": null,
+          "files": [
+            {
+              "kind": "html",
+              "path": "booth-coder-0601005524-claw/index.html",
+              "previewable": true,
+              "size": 2622,
+              "url": "/sandboxes/nemoclaw-demo-e2e-0530182359/tasks/nemoclaw-demo-e2e-0530182359-e1a384f8/artifacts/booth-coder-0601005524-claw/index.html"
+            },
+            {
+              "kind": "text",
+              "path": "booth-coder-0601005524-claw/styles.css",
+              "previewable": true,
+              "size": 1575,
+              "url": "/sandboxes/nemoclaw-demo-e2e-0530182359/tasks/nemoclaw-demo-e2e-0530182359-e1a384f8/artifacts/booth-coder-0601005524-claw/styles.css"
+            }
+          ],
+          "ok": true,
+          "run_id": "nemoclaw-demo-e2e-0530182359-e1a384f8",
+          "sandbox_name": "nemoclaw-demo-e2e-0530182359"
+        },
+        "errors": {},
+        "failure_kind": null,
+        "outcome": "success",
+        "outputs": {
+          "Booth Coder 0601005524": "Both files are created. Here's the report:\n\n**Files created:**\n- `index.html` \u2014 landing page with sandboxes, policies, and the claw/scuttle/shell team cards\n- `styles.css` \u2014 dark ocean theme with orange accents\n\n**Browser-shareable URL:** Not directly available in this webchat UI \u2014 there's no built-in static server exposed for browsing. To share it, you'd need to serve it through an external host (e.g., GitHub Pages, Netlify, or a local server).\n\n**Preview command:**\n```bash\ncd /sandbox/runs/nemoclaw-demo-e2e-0530182359-e1a384f8/booth-coder-0601005524-claw && python3 -m http.server 8080\n```\nThen open `http://localhost:8080` in a browser."
+        },
+        "phase": "result",
+        "run_id": "nemoclaw-demo-e2e-0530182359-e1a384f8",
+        "skill_status": "{\"Booth Coder 0601005524\": {\"claw_id\": \"booth-coder-0601005524-claw\", \"install_failed\": [], \"install_succeeded\": [], \"installed\": [], \"missing\": [], \"needs_setup\": [], \"raw\": \"Skills (7/53 ready)\\n\\u250c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2510\\n\\u2502 Status        \\u2502 Skill                    \\u2502 Description                                          \\u2502 Source             \\u2502\\n\\u251c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u253c\\u2500\\u2500\\u2500\\u2500\\u250...",
+        "status": "finished",
+        "success_count": 1,
+        "timed_out": false,
+        "tool_error_count": 0,
+        "total_count": 1,
+        "violation_count": 0
+      },
+      "name": "coding workflow static website",
+      "notes": [
+        "Run completed with outcome=success."
+      ],
+      "run_id": "nemoclaw-demo-e2e-0530182359-e1a384f8",
+      "status": "pass"
+    }
+  ],
+  "stamp": "0601005524",
+  "summary": {
+    "fail": 0,
+    "pass": 1,
+    "total": 1,
+    "warn": 0
+  }
+}

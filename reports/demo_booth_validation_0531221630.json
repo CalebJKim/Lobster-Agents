@@ -1,0 +1,274 @@
+{
+  "base": "http://127.0.0.1:4454",
+  "cleanup": [
+    {
+      "body": {
+        "removed": "Booth Researcher 0531221630",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Researcher 0531221630"
+    },
+    {
+      "body": {
+        "removed": "Booth Writer 0531221630",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Writer 0531221630"
+    },
+    {
+      "body": {
+        "removed": "Booth Coder 0531221630",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Coder 0531221630"
+    },
+    {
+      "body": {
+        "removed": "Booth Critic 0531221630",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Critic 0531221630"
+    },
+    {
+      "body": {
+        "removed": "Booth Crab 0531221630",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Crab 0531221630"
+    }
+  ],
+  "duration_seconds": 33.47,
+  "ok": true,
+  "sandbox": "nemoclaw-demo-e2e-0530182359",
+  "scenarios": [
+    {
+      "duration_seconds": 2.23,
+      "evidence": {
+        "health": {
+          "components": {
+            "llm": {
+              "endpoint": "http://10.110.23.141:11434",
+              "error": null,
+              "kind": "ollama",
+              "model": "qwen3.6:35b-a3b",
+              "model_loaded": true,
+              "reachable": true
+            },
+            "nemoclaw": {
+              "error": null,
+              "ok": true,
+              "path": "/home/nvidia/.local/bin/nemoclaw"
+            },
+            "openshell": {
+              "error": null,
+              "ok": true,
+              "path": "/home/nvidia/.local/bin/openshell"
+            },
+            "sandboxes": {
+              "available": true,
+              "count": 11,
+              "default": "nemoclaw-demo-e2e-0530182359",
+              "error": null
+            }
+          },
+          "failing": [],
+          "ok": true
+        },
+        "readiness": "{\"checks\": [{\"data\": {}, \"detail\": \"FastAPI is responding.\", \"id\": \"backend\", \"label\": \"Backend API\", \"status\": \"ok\"}, {\"data\": {}, \"detail\": \"qwen3.6:35b-a3b is reachable.\", \"id\": \"llm\", \"label\": \"Model endpoint\", \"status\": \"ok\"}, {\"data\": {}, \"detail\": \"/home/nvidia/.local/bin/openshell\", \"id\": \"openshell\", \"label\": \"OpenShell CLI\", \"status\": \"ok\"}, {\"data\": {}, \"detail\": \"/home/nvidia/.local/bin/nemoclaw\", \"id\": \"nemoclaw\", \"label\": \"NemoClaw CLI\", \"status\": \"ok\"}, {\"data\": {\"count\": 11, \"default\": \"nemoclaw-demo-e2e-0530182359\"}, \"detail\": \"11 live sandboxes detected.\", \"id\": \"live_sandboxes\", \"label\": \"Live sandboxes\", \"status\": \"ok\"}, {\"data\": {\"healthy\": true}, \"detail\": \"healthy_named\", \"id\": \"gateway\", \"label\": \"OpenShell gateway\", \"status\": \"ok\"}, {\"data\": {\"model\": \"qwen3.6:35b-a3b\", \"provider\": \"compatible-endpoint\"}, \"detail\": \"compatible-endpoint / qwen3.6:35b-a3b\", \"id\": \"inference_route\", \"label\": \"NemoClaw inference route\", \"status\": \"ok\"}, {\"data\": {}, \"detail\": \"13 presets available.\", \"id\": \"policy_list\", \"label\": \"Policy command\", \"status\": \"ok\"}, {\"data\": {\"counts\": {\"approved\": 0, \"pending\": 3, \"rejected\": 0}}, \"detail\": \"3 pending rule recommendations.\", \"id\": \"network_rules\", \"label\": \"OpenShell network rules\", \"status\": \"warn\"}, {\"data\": {}, \"detail\": \"1 model entries reachable.\", \"id\": \"sandbox_inference\", \"label\": \"Sandbox to inference.local\", \"st..."
+      },
+      "name": "readiness and live stack",
+      "notes": [
+        "Health ok=True failing=[]",
+        "Readiness summary ok=9 warn=3 fail=0"
+      ],
+      "run_id": null,
+      "status": "pass"
+    },
+    {
+      "duration_seconds": 2.2,
+      "evidence": {
+        "assignment": {
+          "assignments": {
+            "nemoclaw-demo-e2e-0530182359": [
+              "Booth Researcher 0531221630",
+              "Booth Crab 0531221630"
+            ]
+          },
+          "sandbox_name": "nemoclaw-demo-e2e-0530182359",
+          "status": "ok"
+        },
+        "profiles": [
+          {
+            "color": "#06b6d4",
+            "eyewear": "sunglasses",
+            "generated_headwear_kind": "party_hat",
+            "headwear": "generated",
+            "name": "Booth Researcher 0531221630",
+            "role": "researcher",
+            "runtime": "openclaw",
+            "skills": [],
+            "species": "lobster"
+          },
+          {
+            "color": "#8b5cf6",
+            "eyewear": "none",
+            "generated_headwear_kind": "wizard_hat",
+            "headwear": "generated",
+            "name": "Booth Writer 0531221630",
+            "role": "writer",
+            "runtime": "openclaw",
+            "skills": [],
+            "species": "lobster"
+          },
+          {
+            "color": "#10b981",
+            "eyewear": "sunglasses",
+            "generated_headwear_kind": "beanie",
+            "headwear": "generated",
+            "name": "Booth Coder 0531221630",
+            "role": "coder",
+            "runtime": "openclaw",
+            "skills": [
+              "coding-agent"
+            ],
+            "species": "lobster"
+          },
+          {
+            "color": "#f59e0b",
+            "eyewear": "none",
+            "generated_headwear_kind": "top_hat",
+            "headwear": "generated",
+            "name": "Booth Critic 0531221630",
+            "role": "critic",
+            "runtime": "openclaw",
+            "skills": [],
+            "species": "lobster"
+          },
+          {
+            "color": "#2563eb",
+            "eyewear": "none",
+            "generated_headwear_kind": "crown",
+            "headwear": "generated",
+            "name": "Booth Crab 0531221630",
+            "role": "planner",
+            "runtime": "hermes",
+            "skills": [],
+            "species": "crab"
+          }
+        ]
+      },
+      "name": "profile builder and crab visual assignment",
+      "notes": [
+        "Created accessorized lobsters plus a Hermes crab.",
+        "Assigned lobster+crab visual team."
+      ],
+      "run_id": null,
+      "status": "pass"
+    },
+    {
+      "duration_seconds": 4.25,
+      "evidence": {
+        "empty_task": {
+          "body": {
+            "detail": "Empty task"
+          },
+          "code": 400
+        },
+        "no_assigned_agents": {
+          "body": {
+            "detail": "No lobsters are assigned to nemoclaw-demo-e2e-0530182359."
+          },
+          "code": 400
+        },
+        "unassigned_requested_agent": {
+          "body": {
+            "detail": "Requested agents are not assigned to this sandbox."
+          },
+          "code": 400
+        },
+        "unknown_agent_assignment": {
+          "body": {
+            "detail": "Unknown lobster profile(s): Definitely Missing Booth Agent"
+          },
+          "code": 404
+        }
+      },
+      "name": "run safety edge cases",
+      "notes": [
+        "Unknown profiles, empty tasks, unassigned requested agents, and empty teams are rejected before starting runs."
+      ],
+      "run_id": null,
+      "status": "pass"
+    },
+    {
+      "duration_seconds": 20.9,
+      "evidence": {
+        "after_enabled": [
+          "brave",
+          "brew",
+          "huggingface",
+          "local-inference",
+          "pypi"
+        ],
+        "applied": {
+          "dry_run": false,
+          "enabled": false,
+          "error": null,
+          "ok": true,
+          "output": "Endpoints that would be removed: registry.npmjs.org, registry.yarnpkg.com\n  Narrowing sandbox egress \u2014 removing: registry.npmjs.org, registry.yarnpkg.com\n  Removed preset: npm",
+          "preset": "npm",
+          "sandbox_name": "nemoclaw-demo-e2e-0530182359"
+        },
+        "before_enabled": [
+          "brave",
+          "brew",
+          "huggingface",
+          "local-inference",
+          "npm",
+          "pypi"
+        ],
+        "dry_run": {
+          "dry_run": true,
+          "enabled": false,
+          "error": null,
+          "ok": true,
+          "output": "Endpoints that would be removed: registry.npmjs.org, registry.yarnpkg.com\n  --dry-run: no changes applied.",
+          "preset": "npm",
+          "sandbox_name": "nemoclaw-demo-e2e-0530182359"
+        },
+        "network_rule_counts": {
+          "approved": 0,
+          "pending": 3,
+          "rejected": 0
+        },
+        "restored": {
+          "dry_run": false,
+          "enabled": true,
+          "error": null,
+          "ok": true,
+          "output": "Endpoints that would be opened: registry.npmjs.org, registry.yarnpkg.com\n  Widening sandbox egress \u2014 adding: registry.npmjs.org, registry.yarnpkg.com\n  Applied preset: npm",
+          "preset": "npm",
+          "sandbox_name": "nemoclaw-demo-e2e-0530182359"
+        }
+      },
+      "name": "NemoClaw npm policy toggle and OpenShell rules",
+      "notes": [
+        "Toggled npm with dry-run/apply/restore; this validates a non-Brave preset path."
+      ],
+      "run_id": null,
+      "status": "pass"
+    }
+  ],
+  "stamp": "0531221630",
+  "summary": {
+    "fail": 0,
+    "pass": 4,
+    "total": 4,
+    "warn": 0
+  }
+}

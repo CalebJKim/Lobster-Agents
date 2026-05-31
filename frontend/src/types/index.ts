@@ -430,4 +430,20 @@ export interface SandboxRunDiagnostics {
   violations?: NemoClawRunStatus["violations"];
 }
 
+export interface SandboxRunArtifact {
+  path: string;
+  size?: number;
+  kind?: "html" | "text" | string;
+  previewable?: boolean;
+  url?: string;
+}
+
+export interface SandboxRunArtifacts {
+  ok?: boolean;
+  sandbox_name?: string;
+  run_id?: string;
+  files?: SandboxRunArtifact[];
+  error?: string | null;
+}
+
 // WebSocket event union moved to ./ws.ts. Import { WSServerEvent, WSClientMessage } from there.

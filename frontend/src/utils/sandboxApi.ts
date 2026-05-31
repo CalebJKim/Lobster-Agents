@@ -10,6 +10,7 @@ import type {
   OpenClawApprovalsStatus,
   OpenShellNetworkRuleActionResult,
   OpenShellNetworkRulesStatus,
+  SandboxRunArtifacts,
   SandboxRunDiagnostics,
 } from "../types";
 
@@ -100,6 +101,18 @@ export async function fetchRunDiagnostics(
     { cache: "no-store" },
   );
   if (!res.ok) throw new Error(`Could not load run diagnostics (${res.status})`);
+  return res.json();
+}
+
+export async function fetchRunArtifacts(
+  sandboxName: string,
+  runId: string,
+): Promise<SandboxRunArtifacts> {
+  const res = await fetch(
+    `/sandboxes/${encodeURIComponent(sandboxName)}/tasks/${encodeURIComponent(runId)}/artifacts`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Could not load run artifacts (${res.status})`);
   return res.json();
 }
 

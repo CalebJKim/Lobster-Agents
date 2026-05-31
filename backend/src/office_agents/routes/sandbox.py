@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+import base64
+import mimetypes
 import re
 from datetime import datetime
+from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 
 from office_agents.claw_config import SANDBOX_WORKSPACES, SandboxWorkspace
 from office_agents.infra.app_state import app_state
@@ -28,6 +31,8 @@ from office_agents.sandbox_runtime.nemoclaw import (
     get_network_rules,
     get_openclaw_approvals,
     get_policy_presets,
+    list_task_artifacts,
+    read_task_artifact,
     set_policy_preset,
 )
 
@@ -601,3 +606,33 @@ async def get_sandbox_task_diagnostics(sandbox_name: str, run_id: str) -> dict[s
     if diagnostics is None:
         raise HTTPException(status_code=404, detail="Run diagnostics not found")
     return diagnostics
+
+
+@router.get("/sandboxes/{sandbox_name}/tasks/{run_id}/artifacts")
+async def get_sandbox_task_artifacts(sandbox_name: str, run_id: str) -> dict[str, object]:
+    result = await list_task_artifacts(sandbox_name, run_id)
+    files = result.get("files") if isinstance(result.get("files"), list) else []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "")
+        encoded = "/".join(quote(part, safe="") for part in path.split("/") if part)
+        item["url"] = f"/sandboxes/{sandbox_name}/tasks/{run_id}/artifacts/{encoded}"
+    return result
+
+
+@router.get("/sandboxes/{sandbox_name}/tasks/{run_id}/artifacts/{artifact_path:path}")
+async def get_sandbox_task_artifact_file(
+    sandbox_name: str,
+    run_id: str,
+    artifact_path: str,
+) -> Response:
+    result = await read_task_artifact(sandbox_name, run_id, artifact_path)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=str(result.get("error") or "Artifact not found"))
+    try:
+        content = base64.b64decode(str(result.get("b64") or ""), validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Artifact payload decode failed") from exc
+    media_type = mimetypes.guess_type(artifact_path)[0] or "text/plain"
+    return Response(content=content, media_type=media_type)

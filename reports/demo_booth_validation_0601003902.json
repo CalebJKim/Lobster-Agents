@@ -1,0 +1,108 @@
+{
+  "base": "http://127.0.0.1:4454",
+  "cleanup": [
+    {
+      "body": {
+        "removed": "Booth Researcher 0601003902",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Researcher 0601003902"
+    },
+    {
+      "body": {
+        "removed": "Booth Writer 0601003902",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Writer 0601003902"
+    },
+    {
+      "body": {
+        "removed": "Booth Coder 0601003902",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Coder 0601003902"
+    },
+    {
+      "body": {
+        "removed": "Booth Skill Coder 0601003902",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Skill Coder 0601003902"
+    },
+    {
+      "body": {
+        "removed": "Booth Critic 0601003902",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Critic 0601003902"
+    },
+    {
+      "body": {
+        "removed": "Booth Crab 0601003902",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Crab 0601003902"
+    }
+  ],
+  "duration_seconds": 175.6,
+  "ok": true,
+  "sandbox": "nemoclaw-demo-e2e-0530182359",
+  "scenarios": [
+    {
+      "duration_seconds": 169.18,
+      "evidence": {
+        "agents": {
+          "Booth Researcher 0601003902": {
+            "failure_kind": null,
+            "partial": "The outbound request was **denied**. Here is the exact denial:\n\n```\nCONNECT example.com:443 HTTP/1.1\nHost: example.com:443\n\nHTTP/1.1 403 Forbidden\nContent-Type: application/json\nContent-Length: 84\n```\n\nThe sandbox routes outbound HTTPS through an HTTP proxy at `10.200.0.1:3128`. The proxy's CONNECT tunnel to `example.com:443` returned **403 Forbidden**. This is consistent with a controlled sandbox environment that blocks direct outbound internet access.\n\nThe `curl` exit code was **56** (CONNECT...",
+            "success": true
+          }
+        },
+        "errors": {},
+        "failure_kind": null,
+        "network_rules_after": {
+          "approved": 0,
+          "pending": 4,
+          "rejected": 0
+        },
+        "network_rules_before": {
+          "approved": 0,
+          "pending": 3,
+          "rejected": 0
+        },
+        "outcome": "success",
+        "outputs": {
+          "Booth Researcher 0601003902": "The outbound request was **denied**. Here is the exact denial:\n\n```\nCONNECT example.com:443 HTTP/1.1\nHost: example.com:443\n\nHTTP/1.1 403 Forbidden\nContent-Type: application/json\nContent-Length: 84\n```\n\nThe sandbox routes outbound HTTPS through an HTTP proxy at `10.200.0.1:3128`. The proxy's CONNECT tunnel to `example.com:443` returned **403 Forbidden**. This is consistent with a controlled sandbox environment that blocks direct outbound internet access.\n\nThe `curl` exit code was **56** (CONNECT tunnel failed), confirming the connection was refused by the proxy before any data could be exchanged with the target server."
+        },
+        "phase": "result",
+        "run_id": "nemoclaw-demo-e2e-0530182359-4553d4bf",
+        "skill_status": "{\"Booth Researcher 0601003902\": {\"claw_id\": \"booth-researcher-0601003902-claw\", \"install_failed\": [], \"install_succeeded\": [], \"installed\": [], \"missing\": [], \"needs_setup\": [], \"raw\": \"Skills (7/53 ready)\\n\\u250c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u252c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2510\\n\\u2502 Status        \\u2502 Skill                    \\u2502 Description                                          \\u2502 Source             \\u2502\\n\\u251c\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u253c\\u2500\\u2500\\u2500\\...",
+        "status": "finished",
+        "success_count": 1,
+        "timed_out": false,
+        "tool_error_count": 0,
+        "total_count": 1,
+        "violation_count": 0
+      },
+      "name": "OpenShell network denial recommendation",
+      "notes": [
+        "Run completed with outcome=success."
+      ],
+      "run_id": "nemoclaw-demo-e2e-0530182359-4553d4bf",
+      "status": "pass"
+    }
+  ],
+  "stamp": "0601003902",
+  "summary": {
+    "fail": 0,
+    "pass": 1,
+    "total": 1,
+    "warn": 0
+  }
+}

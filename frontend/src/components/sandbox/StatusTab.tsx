@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   NemoClawSandbox,
   NemoClawRunStatus,
+  SandboxRunArtifact,
   OpenClawSkillStatus,
   SandboxRunDiagnostics,
 } from "../../types";
 import { AGENT_COLORS } from "../../utils/sprites";
+import { fetchRunArtifacts } from "../../utils/sandboxApi";
 import { formatDuration, formatTime } from "./format";
 
 interface StatusTabProps {
@@ -233,6 +235,8 @@ export default function StatusTab({
   diagnostics,
 }: StatusTabProps) {
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const [artifacts, setArtifacts] = useState<SandboxRunArtifact[]>([]);
+  const [artifactError, setArtifactError] = useState<string | null>(null);
   const skillStatus = diagnostics?.skill_status ?? run?.skill_status ?? {};
   const toolErrors = diagnostics?.tool_errors ?? run?.tool_errors ?? [];
   const failureKind = diagnostics?.failure_kind ?? run?.failure_kind;
@@ -288,6 +292,26 @@ export default function StatusTab({
     }
     window.setTimeout(() => setCopyNotice(null), 2200);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    setArtifacts([]);
+    setArtifactError(null);
+    if (!run?.run_id || !run.sandbox_name || run.status !== "finished") return;
+    fetchRunArtifacts(run.sandbox_name, run.run_id)
+      .then((result) => {
+        if (cancelled) return;
+        setArtifacts(result.files ?? []);
+        setArtifactError(result.error ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setArtifactError(err instanceof Error ? err.message : "Could not load artifacts");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [run?.run_id, run?.sandbox_name, run?.status]);
 
   return (
     <div className="space-y-4">
@@ -610,6 +634,57 @@ export default function StatusTab({
               </pre>
             ))}
           </div>
+        </section>
+      )}
+
+      {(artifacts.length > 0 || artifactError) && (
+        <section>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-white/40">
+            Run artifacts
+          </div>
+          {artifactError && (
+            <div className="rounded-xl border border-amber-300/24 bg-amber-300/[0.07] px-4 py-3 text-[12px] leading-5 text-amber-50/78">
+              {artifactError}
+            </div>
+          )}
+          {artifacts.length > 0 && (
+            <div className="grid gap-2 md:grid-cols-2">
+              {artifacts.map((artifact) => (
+                <div
+                  key={artifact.path}
+                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3"
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate font-mono text-[12px] font-semibold text-white/86">
+                        {artifact.path}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1 text-[9px] font-bold uppercase tracking-wide text-white/45">
+                        <span className="rounded bg-white/[0.07] px-1.5 py-0.5">
+                          {artifact.kind || "file"}
+                        </span>
+                        {typeof artifact.size === "number" && (
+                          <span className="rounded bg-white/[0.07] px-1.5 py-0.5">
+                            {Math.ceil(artifact.size / 1024)} KB
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {artifact.url && (
+                      <a
+                        href={artifact.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 rounded-md bg-cyan-300/14 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-50 hover:bg-cyan-300/24"
+                      >
+                        {artifact.kind === "html" ? "Preview" : "Open"}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 

@@ -82,6 +82,34 @@ function issueFromCheck(check: DemoReadinessCheck): PreflightIssue {
   };
 }
 
+function taskNeedsExternalWeb(task: string): boolean {
+  const lower = task.toLowerCase();
+  const explicitNoWeb = [
+    "do not use web search",
+    "no external web search",
+    "without external web search",
+    "do not use web_search",
+    "do not use browser",
+  ].some((phrase) => lower.includes(phrase));
+  if (explicitNoWeb) return false;
+  return [
+    "web_search",
+    "web search",
+    "search the web",
+    "browse the web",
+    "internet search",
+    "deep research",
+    "latest",
+    "current news",
+  ].some((phrase) => lower.includes(phrase));
+}
+
+function missingCredentialNames(readiness: DemoReadiness): string[] {
+  return (readiness.policy_snapshot?.credential_checks ?? [])
+    .filter((check) => check.status === "missing")
+    .map((check) => check.name);
+}
+
 function isHermesAgent(agent: AgentInfo): boolean {
   return agent.runtime === "hermes" || agent.species === "crab";
 }
@@ -512,6 +540,15 @@ export default function SandboxRunPanel({
           id: "hermes_assigned",
           label: "Hermes crab runtime is not configured",
           detail: "Crabs can be displayed and assigned, but they will not execute Hermes turns until OFFICE_AGENTS_HERMES_COMMAND is set.",
+        });
+      }
+
+      const missingCredentials = missingCredentialNames(readiness);
+      if (taskNeedsExternalWeb(task) && missingCredentials.includes("BRAVE_API_KEY")) {
+        blockers.push({
+          id: "web_credentials",
+          label: "Web research credential missing",
+          detail: "This task appears to need external web search, but BRAVE_API_KEY is missing. Use a local/no-web scenario or configure Brave before running.",
         });
       }
 

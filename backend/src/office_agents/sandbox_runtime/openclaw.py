@@ -592,6 +592,11 @@ def _format_openclaw_message(
         "web search, do not call web_search, web_fetch, browser, or related "
         "network tools."
     )
+    parts.append(
+        "For writing, planning, reporting, summarizing, brainstorming, and other "
+        "answer-only tasks, respond directly without shell/files/browser/web tools "
+        "unless the Task explicitly asks you to use them."
+    )
 
     parts.append("")
     parts.append("Task:")
