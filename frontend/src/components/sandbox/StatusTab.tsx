@@ -16,6 +16,7 @@ interface StatusTabProps {
   diagnostics?: SandboxRunDiagnostics | null;
 }
 
+type TeamAgent = NonNullable<NemoClawSandbox["assigned_agent_details"]>[number];
 type TimelineState = "done" | "active" | "failed" | "partial" | "pending";
 
 interface TimelineStep {
@@ -172,6 +173,13 @@ function TimelineRow({ step }: { step: TimelineStep }) {
       </div>
     </div>
   );
+}
+
+function skillStatusForAgent(
+  agent: TeamAgent,
+  skillStatus: Record<string, OpenClawSkillStatus>,
+): OpenClawSkillStatus | undefined {
+  return skillStatus[agent.name] || (agent.claw_id ? skillStatus[agent.claw_id] : undefined);
 }
 
 function buildRunSummaryText({
@@ -399,6 +407,120 @@ export default function StatusTab({
             in the Task Monitor to start one.
           </div>
         </div>
+      )}
+
+      {team.length > 0 && (
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-white/40">
+              Team capability matrix
+            </div>
+            <div className="rounded-full bg-white/[0.06] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/45">
+              {team.length} assigned
+            </div>
+          </div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {team.map((agent) => {
+              const status = skillStatusForAgent(agent, skillStatus);
+              const requested = status?.requested?.length ? status.requested : agent.openclaw_skills ?? [];
+              const ready = status?.ready ?? [];
+              const needsSetup = status?.needs_setup ?? [];
+              const installFailed = status?.install_failed ?? [];
+              const hermes = agent.runtime === "hermes" || agent.species === "crab";
+              return (
+                <div
+                  key={agent.name}
+                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3"
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: agent.color || AGENT_COLORS[agent.name] || "#67e8f9" }}
+                        />
+                        <span className="truncate text-[13px] font-semibold text-white/88">
+                          {agent.name}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1 text-[9px] font-semibold uppercase tracking-wide">
+                        <span className="rounded bg-cyan-300/10 px-1.5 py-0.5 text-cyan-100/70">
+                          {agent.runtime || "openclaw"}
+                        </span>
+                        <span className="rounded bg-white/[0.07] px-1.5 py-0.5 text-white/45">
+                          {agent.species || "lobster"}
+                        </span>
+                        <span className="rounded bg-white/[0.07] px-1.5 py-0.5 text-white/45">
+                          {agent.role}
+                        </span>
+                      </div>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                        hermes
+                          ? "bg-amber-300/12 text-amber-100"
+                          : "bg-emerald-300/12 text-emerald-100"
+                      }`}
+                    >
+                      {hermes ? "visual only" : "executable"}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 grid gap-2 text-[11px] leading-4 md:grid-cols-2">
+                    <div>
+                      <div className="text-[9px] font-bold uppercase tracking-wide text-white/35">
+                        Soft tools
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {(agent.tools?.length ? agent.tools : ["none"]).slice(0, 5).map((tool) => (
+                          <span key={tool} className="rounded bg-white/[0.07] px-1.5 py-0.5 text-white/58">
+                            {tool.replace(/_/g, " ")}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-bold uppercase tracking-wide text-white/35">
+                        OpenClaw skills
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {requested.length === 0 ? (
+                          <span className="rounded bg-white/[0.07] px-1.5 py-0.5 text-white/45">
+                            no requested skills
+                          </span>
+                        ) : requested.slice(0, 5).map((skill) => (
+                          <span key={skill} className="rounded bg-cyan-300/10 px-1.5 py-0.5 text-cyan-100/70">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {(ready.length > 0 || needsSetup.length > 0 || installFailed.length > 0) && (
+                    <div className="mt-2 flex flex-wrap gap-1 text-[9px] font-bold uppercase tracking-wide">
+                      {ready.length > 0 && (
+                        <span className="rounded-full bg-emerald-300/12 px-2 py-0.5 text-emerald-100">
+                          ready {ready.length}
+                        </span>
+                      )}
+                      {needsSetup.length > 0 && (
+                        <span className="rounded-full bg-amber-300/12 px-2 py-0.5 text-amber-100">
+                          setup {needsSetup.length}
+                        </span>
+                      )}
+                      {installFailed.length > 0 && (
+                        <span className="rounded-full bg-rose-300/12 px-2 py-0.5 text-rose-100">
+                          failed {installFailed.length}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {run && (
