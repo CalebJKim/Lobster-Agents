@@ -56,6 +56,45 @@ function endpointLabel(endpoint: string): string {
   return endpoint.replace(/\s+\[L4\]$/i, "");
 }
 
+function ruleSearchText(rule: OpenShellNetworkRule): string {
+  return [
+    rule.id,
+    rule.status,
+    rule.rule_name,
+    rule.binary,
+    rule.rationale,
+    rule.security,
+    rule.endpoints_raw,
+    rule.binaries_raw,
+    ...(rule.endpoints ?? []),
+    ...(rule.binaries ?? []),
+    ...(rule.security_flags ?? []),
+  ].filter(Boolean).join(" ");
+}
+
+function networkRulesSummaryText(rules: OpenShellNetworkRule[]): string {
+  const counts = rules.reduce<Record<string, number>>((acc, rule) => {
+    acc[rule.status] = (acc[rule.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const lines = [
+    "OpenShell network rules",
+    `pending: ${counts.pending ?? 0}`,
+    `approved: ${counts.approved ?? 0}`,
+    `rejected: ${counts.rejected ?? 0}`,
+    "",
+  ];
+  for (const rule of rules) {
+    const endpoint = (rule.endpoints?.[0] || rule.endpoints_raw || "unknown endpoint").replace(/\s+/g, " ");
+    const binary = rule.binary || rule.binaries?.[0] || rule.binaries_raw || "unknown binary";
+    lines.push(`- ${rule.status}: ${rule.rule_name || rule.id}`);
+    lines.push(`  endpoint: ${endpointLabel(endpoint)}`);
+    lines.push(`  binary: ${binary}`);
+    if (rule.rationale) lines.push(`  rationale: ${rule.rationale}`);
+  }
+  return lines.join("\n");
+}
+
 function RuleCard({
   rule,
   busy,
@@ -222,18 +261,33 @@ export default function PoliciesTab({
   onNetworkRulesClearPending,
 }: PoliciesTabProps) {
   const [clearPendingConfirm, setClearPendingConfirm] = useState(false);
+  const [ruleQuery, setRuleQuery] = useState("");
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const rules = networkRules?.rules ?? [];
-  const pendingRules = useMemo(
+  const allPendingRules = useMemo(
     () => rules.filter((rule) => rule.status === "pending"),
     [rules],
   );
-  const approvedRules = useMemo(
+  const allApprovedRules = useMemo(
     () => rules.filter((rule) => rule.status === "approved"),
     [rules],
   );
+  const filteredRules = useMemo(() => {
+    const q = ruleQuery.trim().toLowerCase();
+    if (!q) return rules;
+    return rules.filter((rule) => ruleSearchText(rule).toLowerCase().includes(q));
+  }, [ruleQuery, rules]);
+  const pendingRules = useMemo(
+    () => filteredRules.filter((rule) => rule.status === "pending"),
+    [filteredRules],
+  );
+  const approvedRules = useMemo(
+    () => filteredRules.filter((rule) => rule.status === "approved"),
+    [filteredRules],
+  );
   const rejectedRules = useMemo(
-    () => rules.filter((rule) => rule.status === "rejected"),
-    [rules],
+    () => filteredRules.filter((rule) => rule.status === "rejected"),
+    [filteredRules],
   );
 
   const handleClearPending = () => {
@@ -243,6 +297,16 @@ export default function PoliciesTab({
     }
     setClearPendingConfirm(false);
     onNetworkRulesClearPending?.();
+  };
+
+  const copyNetworkRules = async () => {
+    try {
+      await navigator.clipboard.writeText(networkRulesSummaryText(filteredRules));
+      setCopyNotice("Network rule summary copied.");
+    } catch {
+      setCopyNotice("Could not copy automatically.");
+    }
+    window.setTimeout(() => setCopyNotice(null), 2200);
   };
 
   return (
@@ -270,10 +334,10 @@ export default function PoliciesTab({
             presets on: {policies.filter((p) => p.enabled).length}
           </span>
           <span className="rounded-full bg-amber-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-amber-100">
-            pending rules: {pendingRules.length}
+            pending rules: {allPendingRules.length}
           </span>
           <span className="rounded-full bg-emerald-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-emerald-100">
-            approved rules: {approvedRules.length}
+            approved rules: {allApprovedRules.length}
           </span>
           <span className="rounded-full bg-cyan-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-cyan-100">
             exec security: {approvals?.summary?.security ?? "unknown"}
@@ -303,7 +367,7 @@ export default function PoliciesTab({
             >
               Reload
             </button>
-            {pendingRules.length > 0 && (
+            {allPendingRules.length > 0 && (
               <>
                 <button
                   type="button"
@@ -340,6 +404,41 @@ export default function PoliciesTab({
           </div>
         )}
 
+        {networkRules && !networkRulesError && rules.length > 0 && (
+          <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/24 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={ruleQuery}
+                onChange={(event) => setRuleQuery(event.target.value)}
+                placeholder="Search endpoint, binary, rationale..."
+                className="h-8 min-w-56 flex-1 rounded-md border border-white/10 bg-slate-950/50 px-2.5 text-[12px] text-white outline-none placeholder:text-white/30 focus:border-cyan-200/40"
+              />
+              <button
+                type="button"
+                onClick={copyNetworkRules}
+                disabled={filteredRules.length === 0}
+                className="h-8 rounded-md bg-cyan-300/12 px-2.5 text-[10px] font-bold uppercase tracking-wide text-cyan-50 hover:bg-cyan-300/20 disabled:opacity-40"
+              >
+                Copy summary
+              </button>
+              <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white/45">
+                {filteredRules.length}/{rules.length}
+              </span>
+            </div>
+            {copyNotice && (
+              <div className="mt-1.5 text-[11px] font-medium text-cyan-100/75">
+                {copyNotice}
+              </div>
+            )}
+          </div>
+        )}
+
+        {allPendingRules.length > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-300/24 bg-amber-300/[0.08] px-3 py-2 text-[12px] leading-5 text-amber-50/82">
+            {allPendingRules.length} OpenShell rule{allPendingRules.length === 1 ? "" : "s"} need a decision. Approving allows future retries; it does not automatically replay a failed request.
+          </div>
+        )}
+
         {!networkRules && !networkRulesError ? (
           <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
             Loading OpenShell network rules...
@@ -347,6 +446,10 @@ export default function PoliciesTab({
         ) : rules.length === 0 && !networkRulesError ? (
           <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
             No OpenShell network-rule recommendations for this sandbox.
+          </div>
+        ) : filteredRules.length === 0 && !networkRulesError ? (
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
+            No OpenShell network rules match the current search.
           </div>
         ) : (
           <div className="mt-3 space-y-3">
