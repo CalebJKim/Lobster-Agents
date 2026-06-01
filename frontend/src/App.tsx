@@ -424,8 +424,8 @@ export default function App() {
       <section
         className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-lg border border-white/18 bg-slate-950/46 shadow-[0_24px_80px_rgba(4,22,31,0.24)] backdrop-blur-md transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
           commsDockOpen
-            ? `p-2 opacity-100 ${presentationMode ? "right-5 bottom-32 h-[56vh] max-h-[620px] w-[620px]" : "right-5 bottom-32 h-[390px] w-[620px]"} max-md:left-3 max-md:right-3 max-md:bottom-28 max-md:h-[40vh] max-md:!w-auto`
-            : "right-5 bottom-32 h-11 w-[172px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
+            ? `p-2 opacity-100 ${presentationMode ? "right-10 bottom-32 h-[56vh] max-h-[620px] w-[620px]" : "right-10 bottom-32 h-[390px] w-[620px]"} max-md:left-3 max-md:right-3 max-md:bottom-28 max-md:h-[40vh] max-md:!w-auto`
+            : "right-10 bottom-32 h-11 w-[172px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
         }`}
       >
         {!commsDockOpen ? (
@@ -532,7 +532,7 @@ export default function App() {
       </section>
 
       <div
-        className={`absolute left-5 z-20 max-lg:hidden overflow-hidden rounded-lg transition-all duration-300 ease-out ${
+        className={`absolute left-10 z-20 max-lg:hidden overflow-hidden rounded-lg transition-all duration-300 ease-out ${
           sandboxDockOpen
             ? "top-24 bottom-32 w-[min(46vw,820px)] opacity-100"
             : "bottom-32 h-11 w-[190px] opacity-95 hover:opacity-100"
