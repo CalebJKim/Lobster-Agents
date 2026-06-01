@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     openclaw_model_tools_enabled: bool = False
     # Profile preparation installs/filters skills before a turn starts.
     openclaw_profile_timeout_seconds: int = 120
+    # Limit concurrent OpenClaw team runs across all sandboxes. Spark-class
+    # demo hosts are most reliable at 1; GB300/vLLM deployments can raise this.
+    sandbox_max_concurrent_openclaw_runs: int = 1
 
     # Optional Hermes runner for crab agents. The command is executed inside
     # the OpenShell sandbox with HERMES_TASK, HERMES_AGENT_NAME, HERMES_ROLE,

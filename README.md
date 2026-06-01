@@ -98,6 +98,22 @@ export OFFICE_AGENTS_NEMOCLAW_MODEL="<vllm-served-model-id>"
 export OFFICE_AGENTS_NEMOCLAW_API_KEY="dummy"
 ```
 
+OpenClaw relay concurrency is intentionally configurable. Spark-class fallback
+hosts should usually run one active OpenClaw team run at a time because multiple
+simultaneous multi-agent relays can overload the smaller model route. GB300 with
+vLLM should be able to run higher because vLLM batches well and the station has
+more VRAM/throughput. Start conservative, then increase while watching the Demo
+Ready panel, task timelines, and backend logs:
+
+```bash
+# Spark fallback reliability default
+export OFFICE_AGENTS_SANDBOX_MAX_CONCURRENT_OPENCLAW_RUNS=1
+
+# GB300/vLLM candidate values to validate on that machine
+export OFFICE_AGENTS_SANDBOX_MAX_CONCURRENT_OPENCLAW_RUNS=2
+# then try 3, 4, etc. only after multi-sandbox validation stays green
+```
+
 On Spark hosts with Ollama already exposed through OpenShell, a working pair is
 usually `OFFICE_AGENTS_NEMOCLAW_PROVIDER=ollama` and
 `OFFICE_AGENTS_NEMOCLAW_MODEL=qwen3.6:35b-a3b`. Verify from a sandbox with
@@ -254,6 +270,18 @@ For the broader booth validation suite:
   --scenarios readiness,profiles,edges,policies,web,reset \
   --json
 ```
+
+For a slower proof that multiple distinct OpenClaw teams can work across
+multiple live NemoClaw/OpenShell sandboxes:
+
+```bash
+./scripts/demo_multisandbox_suite.py --max-workers 2 --json
+```
+
+On Spark, this intentionally proves backend queueing more than raw parallel
+throughput. On GB300/vLLM, increase both
+`OFFICE_AGENTS_SANDBOX_MAX_CONCURRENT_OPENCLAW_RUNS` and `--max-workers`
+together until latency or failure rate says to stop.
 
 Use the slower scenarios intentionally:
 

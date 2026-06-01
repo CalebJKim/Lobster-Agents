@@ -73,6 +73,9 @@ class SandboxManager:
         self.assignments: dict[str, list[str]] = {}
         self._run_tasks: dict[str, asyncio.Task[None]] = {}
         self._run_meta: dict[str, dict[str, Any]] = {}
+        self._run_gate = asyncio.Semaphore(
+            max(1, int(settings.sandbox_max_concurrent_openclaw_runs))
+        )
         self._sandbox_home_rooms: dict[str, str] = {
             workspace.name: workspace.home_room for workspace in SANDBOX_WORKSPACES
         }
@@ -99,6 +102,15 @@ class SandboxManager:
             item = dict(meta)
             item["run_id"] = run_id
             item["running"] = bool(task and not task.done())
+            if not item["running"] and item.get("status") not in {"finished", "cancelled", "error"}:
+                item["status"] = "error"
+                item["phase"] = "error"
+                item["outcome"] = "failed"
+                item["failure_kind"] = item.get("failure_kind") or "backend_task_lost"
+                item["failure_detail"] = (
+                    item.get("failure_detail")
+                    or "Run task exited before recording a terminal status."
+                )
             # Console lines can grow to hundreds of entries; keep them behind
             # the diagnostics endpoint instead of bloating every /sandboxes poll.
             item.pop("console", None)
@@ -133,6 +145,15 @@ class SandboxManager:
         item = dict(meta)
         item["run_id"] = run_id
         item["running"] = bool(task and not task.done())
+        if not item["running"] and item.get("status") not in {"finished", "cancelled", "error"}:
+            item["status"] = "error"
+            item["phase"] = "error"
+            item["outcome"] = "failed"
+            item["failure_kind"] = item.get("failure_kind") or "backend_task_lost"
+            item["failure_detail"] = (
+                item.get("failure_detail")
+                or "Run task exited before recording a terminal status."
+            )
         return {
             "run_id": run_id,
             "sandbox_name": sandbox_name,
@@ -532,12 +553,26 @@ class SandboxManager:
         agents: list[Agent],
     ) -> None:
         try:
-            await self._broadcast_team_task_started(run_id, sandbox_name, task, agents)
-            await self._position_team_in_sandbox(run_id, sandbox_name, task, agents)
-            await self._run_relay(run_id, sandbox_name, task, agents)
-            await self._finish_run(run_id, sandbox_name, agents)
+            queued_message = (
+                "Queued for OpenClaw capacity "
+                f"({settings.sandbox_max_concurrent_openclaw_runs} concurrent run"
+                f"{'' if settings.sandbox_max_concurrent_openclaw_runs == 1 else 's'} allowed)."
+            )
+            await self._broadcast_progress(
+                run_id=run_id,
+                sandbox_name=sandbox_name,
+                message=queued_message,
+                phase="queued",
+            )
+            async with self._run_gate:
+                await self._broadcast_team_task_started(run_id, sandbox_name, task, agents)
+                await self._position_team_in_sandbox(run_id, sandbox_name, task, agents)
+                await self._run_relay(run_id, sandbox_name, task, agents)
+                await self._finish_run(run_id, sandbox_name, agents)
         except asyncio.CancelledError:
             await self._handle_cancellation(run_id, sandbox_name, agents)
+        except Exception as exc:
+            await self._handle_run_exception(run_id, sandbox_name, agents, exc)
         finally:
             self._run_tasks.pop(run_id, None)
 
@@ -756,6 +791,70 @@ class SandboxManager:
             "sandbox_name": sandbox_name,
             "timestamp": datetime.now().isoformat(),
         })
+        await self._broadcast_full_state()
+
+    async def _handle_run_exception(
+        self,
+        run_id: str,
+        sandbox_name: str,
+        agents: list[Agent],
+        exc: Exception,
+    ) -> None:
+        """Record unexpected backend failures as durable run diagnostics."""
+
+        logger.exception(
+            "Sandbox team task crashed: run_id=%s sandbox=%s",
+            run_id,
+            sandbox_name,
+        )
+        detail = f"{type(exc).__name__}: {exc}"
+        trace = traceback.format_exc()
+        meta = self._run_meta.get(run_id)
+        if meta:
+            meta["status"] = "error"
+            meta["phase"] = "error"
+            meta["outcome"] = "failed"
+            meta["finished_at"] = datetime.now().isoformat()
+            meta["failure_kind"] = "backend_exception"
+            meta["failure_detail"] = detail
+            meta["last_message"] = f"Run failed in backend: {detail}"
+            meta["last_update_at"] = datetime.now().isoformat()
+            meta.setdefault("errors", {})["backend"] = detail
+            meta.setdefault("agent_runs", {})["backend"] = {
+                "agent": "backend",
+                "success": False,
+                "runtime": "office_agents",
+                "failure_kind": "backend_exception",
+                "failure_detail": detail,
+                "timed_out": False,
+                "partial_output": trace,
+                "tool_errors": [],
+            }
+            console = meta.setdefault("console", [])
+            console.append({
+                "run_id": run_id,
+                "sandbox_name": sandbox_name,
+                "agent": "backend",
+                "stream": "stderr",
+                "line": trace[:2000],
+                "timestamp": datetime.now().isoformat(),
+            })
+        self._reset_agents(agents)
+        await self._broadcast({
+            "type": "sandbox_task_failed",
+            "run_id": run_id,
+            "sandbox_name": sandbox_name,
+            "agents": [agent.name for agent in agents],
+            "failure_kind": "backend_exception",
+            "failure_detail": detail,
+            "timestamp": datetime.now().isoformat(),
+        })
+        await self._broadcast_progress(
+            run_id=run_id,
+            sandbox_name=sandbox_name,
+            message=f"Run failed in backend: {detail}",
+            phase="error",
+        )
         await self._broadcast_full_state()
 
     def _move_agent_into_sandbox(self, agent: Agent, sandbox_name: str, task: str) -> None:
