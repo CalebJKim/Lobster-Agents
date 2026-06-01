@@ -2671,7 +2671,7 @@ export default function ThreeUnderwaterMap({
         className="pointer-events-none absolute inset-0 opacity-35 mix-blend-screen"
         style={{
           backgroundImage:
-            "repeating-linear-gradient(112deg, rgba(232, 255, 255, 0.2) 0px, rgba(232, 255, 255, 0.08) 1px, transparent 3px, transparent 24px), repeating-linear-gradient(28deg, transparent 0px, transparent 34px, rgba(190, 255, 255, 0.08) 36px, transparent 42px)",
+            "radial-gradient(ellipse at 18% 18%, rgba(232, 255, 255, 0.18), transparent 28%), radial-gradient(ellipse at 78% 26%, rgba(160, 245, 255, 0.14), transparent 34%), radial-gradient(ellipse at 48% 74%, rgba(226, 255, 246, 0.12), transparent 30%)",
         }}
       />
     </div>
