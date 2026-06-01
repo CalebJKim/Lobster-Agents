@@ -1186,6 +1186,92 @@ export function makeAnemonePatch(x: number, z: number, color = 0xf37aa7) {
   return group;
 }
 
+function makePalmLeaf(length: number, width: number, color: number) {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.quadraticCurveTo(length * 0.42, width, length, 0.02);
+  shape.quadraticCurveTo(length * 0.42, -width * 0.72, 0, 0);
+
+  const leaf = new THREE.Mesh(
+    new THREE.ShapeGeometry(shape),
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.72,
+      side: THREE.DoubleSide,
+      emissive: color,
+      emissiveIntensity: 0.025,
+    })
+  );
+  leaf.castShadow = true;
+  return leaf;
+}
+
+function makePalmTree(x: number, z: number, scale = 1, rotation = 0) {
+  const group = new THREE.Group();
+  group.position.set(x, 0.04, z);
+  group.scale.setScalar(scale);
+  group.rotation.y = rotation;
+  group.name = "reef-palm-tree";
+
+  const mound = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.25, 1.65, 0.2, 32),
+    new THREE.MeshStandardMaterial({ color: 0xe4d2a4, roughness: 0.96 })
+  );
+  mound.scale.set(1.1, 1, 0.76);
+  mound.position.y = 0.08;
+  mound.castShadow = true;
+  mound.receiveShadow = true;
+  group.add(mound);
+
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x9b7046, roughness: 0.82 });
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0x6f4e31, roughness: 0.86 });
+  const trunk = new THREE.Group();
+  trunk.position.set(0.05, 0.15, 0);
+  trunk.rotation.z = -0.24;
+  trunk.rotation.x = 0.08;
+  group.add(trunk);
+
+  const segmentCount = 7;
+  for (let i = 0; i < segmentCount; i++) {
+    const taper = 1 - i * 0.055;
+    const segment = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.15 * taper, 0.2 * taper, 0.52, 10),
+      i % 2 === 0 ? trunkMat : ringMat
+    );
+    segment.position.set(Math.sin(i * 0.45) * 0.05, 0.36 + i * 0.48, 0);
+    segment.rotation.z = Math.sin(i * 0.65) * 0.045;
+    segment.castShadow = true;
+    trunk.add(segment);
+  }
+
+  const crownY = 3.72;
+  const leafColors = [0x2e9f61, 0x47b86f, 0x1f7a55];
+  for (let i = 0; i < 9; i++) {
+    const angle = (i / 9) * Math.PI * 2;
+    const leaf = makePalmLeaf(1.95 + (i % 3) * 0.18, 0.34, leafColors[i % leafColors.length]);
+    leaf.position.set(0, crownY, 0);
+    leaf.rotation.y = angle;
+    leaf.rotation.z = -0.32 - (i % 2) * 0.16;
+    leaf.rotation.x = Math.sin(angle) * 0.2;
+    trunk.add(leaf);
+  }
+
+  const coconutMat = new THREE.MeshStandardMaterial({ color: 0x5a3a22, roughness: 0.78 });
+  for (let i = 0; i < 3; i++) {
+    const coconut = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), coconutMat);
+    coconut.position.set(Math.cos(i * 2.1) * 0.18, crownY - 0.14, Math.sin(i * 2.1) * 0.15);
+    coconut.castShadow = true;
+    trunk.add(coconut);
+  }
+
+  return group;
+}
+
+function makePalmGrove(scene: THREE.Scene) {
+  scene.add(makePalmTree(-35.5, 24.5, 1.05, 0.45));
+  scene.add(makePalmTree(-32.7, 23.0, 0.72, -0.55));
+}
+
 function makeCoralGarden(scene: THREE.Scene) {
   const placements: [number, number, number, number, number, number][] = [
     [-34, -12, 0xff7f9a, 12, 2.2, 1.55],
@@ -1211,6 +1297,7 @@ function makeCoralGarden(scene: THREE.Scene) {
   scene.add(makeAnemonePatch(-22, 18, 0xff7fb5));
   scene.add(makeAnemonePatch(15, 3, 0xf6a0d4));
   scene.add(makeAnemonePatch(4, -25, 0xff8a78));
+  makePalmGrove(scene);
 }
 
 export function makeBubbles(count: number, spread = 0.55) {
