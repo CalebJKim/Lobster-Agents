@@ -5,14 +5,14 @@ set -euo pipefail
 # host. Defaults target the large GB300 GPU when the host also has a smaller
 # display GPU. Override via env vars instead of editing this file.
 
-MODEL="${VLLM_MODEL:-sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP}"
-SERVED_MODEL_NAME="${VLLM_SERVED_MODEL_NAME:-qwen3.6-27b-mtp}"
+MODEL="${VLLM_MODEL:-Qwen/Qwen3.6-27B-FP8}"
+SERVED_MODEL_NAME="${VLLM_SERVED_MODEL_NAME:-qwen3.6-27b-fp8}"
 HOST="${VLLM_HOST:-0.0.0.0}"
 PORT="${VLLM_PORT:-8000}"
 VENV="${VLLM_VENV:-$HOME/vllm-venv}"
 LOG_FILE="${VLLM_LOG_FILE:-/tmp/lobster-vllm.log}"
 PID_FILE="${VLLM_PID_FILE:-/tmp/lobster-vllm.pid}"
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-1}"
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
 GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.86}"
 MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-32768}"

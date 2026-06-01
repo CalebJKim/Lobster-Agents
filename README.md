@@ -84,11 +84,12 @@ scripts/gb300_launch_vllm.sh
 
 The helper defaults to:
 
-- `VLLM_MODEL=sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`
-- `VLLM_SERVED_MODEL_NAME=qwen3.6-27b-mtp`
+- `VLLM_MODEL=Qwen/Qwen3.6-27B-FP8`
+- `VLLM_SERVED_MODEL_NAME=qwen3.6-27b-fp8`
 - `VLLM_PORT=8000`
-- `CUDA_VISIBLE_DEVICES=1`, which targets the large GB300 GPU on stations that
-  also expose a smaller display GPU as device `0`
+- `CUDA_VISIBLE_DEVICES=0`, which targets the large GB300 GPU on the current
+  station layout. Verify with `nvidia-smi` or the Python CUDA probe if the
+  hardware order changes.
 - `VLLM_VENV=$HOME/vllm-venv`
 
 It will not kill an unrelated model server. If a server already responds on the
@@ -102,11 +103,15 @@ VLLM_INSTALL_IF_MISSING=1 scripts/gb300_launch_vllm.sh
 Use environment overrides instead of editing the script:
 
 ```bash
-VLLM_MODEL="Qwen/Qwen3.6-27B-FP8" \
-VLLM_SERVED_MODEL_NAME="qwen3.6-27b-fp8" \
+VLLM_MODEL="sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP" \
+VLLM_SERVED_MODEL_NAME="qwen3.6-27b-mtp" \
 VLLM_EXTRA_ARGS="--enable-prefix-caching --max-num-seqs 8" \
 scripts/gb300_launch_vllm.sh
 ```
+
+The NVFP4/MTP model is intentionally an override. On some vLLM/Transformers
+builds it may require additional model-side processor/config files; the FP8
+cache is the conservative default for a reliable booth setup.
 
 The backend model route and the NemoClaw sandbox route can be different. The
 backend can use a host-loopback endpoint, but OpenShell sandboxes must use a
@@ -249,11 +254,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 OFFICE_AGENTS_LLM_BASE_URL="http://127.0.0.1:8000/v1" \
-OFFICE_AGENTS_LLM_MODEL="qwen3.6-27b-mtp" \
+OFFICE_AGENTS_LLM_MODEL="qwen3.6-27b-fp8" \
 OFFICE_AGENTS_LLM_API_KEY="dummy" \
 OFFICE_AGENTS_NEMOCLAW_PROVIDER="custom" \
 OFFICE_AGENTS_NEMOCLAW_ENDPOINT_URL="http://host.openshell.internal:8000/v1" \
-OFFICE_AGENTS_NEMOCLAW_MODEL="qwen3.6-27b-mtp" \
+OFFICE_AGENTS_NEMOCLAW_MODEL="qwen3.6-27b-fp8" \
 OFFICE_AGENTS_NEMOCLAW_API_KEY="dummy" \
 OFFICE_AGENTS_SANDBOX_MAX_CONCURRENT_OPENCLAW_RUNS=2 \
 python -m uvicorn --app-dir src office_agents.main:app --host 0.0.0.0 --port 8001
