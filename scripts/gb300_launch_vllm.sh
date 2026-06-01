@@ -20,6 +20,16 @@ STARTUP_TIMEOUT_SECONDS="${VLLM_STARTUP_TIMEOUT_SECONDS:-900}"
 INSTALL_IF_MISSING="${VLLM_INSTALL_IF_MISSING:-0}"
 RESTART="${VLLM_RESTART:-0}"
 EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
+ENABLE_AUTO_TOOL_CHOICE="${VLLM_ENABLE_AUTO_TOOL_CHOICE:-1}"
+TOOL_CALL_PARSER="${VLLM_TOOL_CALL_PARSER:-qwen3_xml}"
+
+TOOL_ARGS=()
+if [[ "$ENABLE_AUTO_TOOL_CHOICE" == "1" ]]; then
+  TOOL_ARGS+=(--enable-auto-tool-choice)
+  if [[ -n "$TOOL_CALL_PARSER" ]]; then
+    TOOL_ARGS+=(--tool-call-parser "$TOOL_CALL_PARSER")
+  fi
+fi
 
 if [[ ! -d "$VENV" ]]; then
   python3 -m venv "$VENV"
@@ -80,6 +90,9 @@ echo "  model:              $MODEL"
 echo "  served model name:  $SERVED_MODEL_NAME"
 echo "  endpoint:           http://${HOST}:${PORT}/v1"
 echo "  CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+if [[ "$ENABLE_AUTO_TOOL_CHOICE" == "1" ]]; then
+  echo "  tool parser:        ${TOOL_CALL_PARSER:-<vLLM default>}"
+fi
 echo "  log:                $LOG_FILE"
 
 # Intentionally use python -m so the selected venv controls the vLLM version.
@@ -95,6 +108,7 @@ nohup python -m vllm.entrypoints.openai.api_server \
   --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
   --max-model-len "$MAX_MODEL_LEN" \
+  "${TOOL_ARGS[@]}" \
   $EXTRA_ARGS \
   >"$LOG_FILE" 2>&1 &
 

@@ -91,6 +91,8 @@ The helper defaults to:
   station layout. Verify with `nvidia-smi` or the Python CUDA probe if the
   hardware order changes.
 - `VLLM_VENV=$HOME/vllm-venv`
+- `VLLM_ENABLE_AUTO_TOOL_CHOICE=1`
+- `VLLM_TOOL_CALL_PARSER=qwen3_xml`
 
 It will not kill an unrelated model server. If a server already responds on the
 configured port, it exits cleanly. If vLLM is not installed in the selected
@@ -105,6 +107,7 @@ Use environment overrides instead of editing the script:
 ```bash
 VLLM_MODEL="sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP" \
 VLLM_SERVED_MODEL_NAME="qwen3.6-27b-mtp" \
+VLLM_TOOL_CALL_PARSER="qwen3_xml" \
 VLLM_EXTRA_ARGS="--enable-prefix-caching --max-num-seqs 8" \
 scripts/gb300_launch_vllm.sh
 ```
