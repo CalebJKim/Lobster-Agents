@@ -374,6 +374,37 @@ function makeSandTexture() {
   });
 }
 
+function makeOceanTexture() {
+  return makeCanvasTexture((ctx, w, h) => {
+    const gradient = ctx.createLinearGradient(0, 0, w, h);
+    gradient.addColorStop(0, "#2bbfd0");
+    gradient.addColorStop(0.48, "#1596b4");
+    gradient.addColorStop(1, "#0b5f82");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, h);
+
+    for (let i = 0; i < 26; i++) {
+      ctx.strokeStyle = `rgba(234, 255, 255, ${0.045 + Math.random() * 0.055})`;
+      ctx.lineWidth = 1 + Math.random() * 1.6;
+      ctx.beginPath();
+      const baseY = Math.random() * h;
+      const phase = Math.random() * Math.PI * 2;
+      for (let x = -20; x <= w + 20; x += 14) {
+        const y = baseY + Math.sin(x * 0.022 + phase) * (10 + Math.random() * 4);
+        if (x === -20) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < 1800; i++) {
+      const alpha = 0.025 + Math.random() * 0.045;
+      ctx.fillStyle = `rgba(210, 255, 255, ${alpha})`;
+      ctx.fillRect(Math.random() * w, Math.random() * h, 1, 1);
+    }
+  });
+}
+
 function makeTextSprite(text: string, color = "#f7fbff", bg = "rgba(8, 35, 45, 0.58)") {
   const canvas = document.createElement("canvas");
   canvas.width = 384;
@@ -543,20 +574,101 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.quadraticCurveTo(x, y, x + r, y);
 }
 
+function makeIslandShape(rx: number, rz: number, phase: number, steps = 132) {
+  return new THREE.Shape(makeBlobPoints(rx, rz, phase, steps));
+}
+
+function makeShoreLine(points: THREE.Vector2[], y: number, color: number, opacity: number, scale = 1) {
+  const edgePoints = points.map((p) => new THREE.Vector3(p.x * scale, y, -p.y * scale));
+  edgePoints.push(edgePoints[0].clone());
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(edgePoints),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity })
+  );
+}
+
+function makeOceanCaustics(scene: THREE.Scene) {
+  const material = new THREE.LineBasicMaterial({ color: 0xeaffff, transparent: true, opacity: 0.12 });
+  for (let i = 0; i < 18; i++) {
+    const z = -29 + i * 3.4;
+    const xStart = -48 + (i % 4) * 1.6;
+    const points: THREE.Vector3[] = [];
+    for (let j = 0; j < 36; j++) {
+      const x = xStart + j * 2.9;
+      const y = 0.045;
+      points.push(new THREE.Vector3(x, y, z + Math.sin(j * 0.72 + i * 1.15) * 0.55));
+    }
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material.clone());
+    line.rotation.y = -0.06;
+    scene.add(line);
+  }
+}
+
 function makeGround(scene: THREE.Scene) {
+  const oceanW = FLOOR_W + 150;
+  const oceanH = FLOOR_H + 132;
+  const ocean = makeOceanTexture();
+  ocean.repeat.set(1, 1);
+  const oceanFloor = new THREE.Mesh(
+    new THREE.PlaneGeometry(oceanW, oceanH, 16, 16),
+    new THREE.MeshBasicMaterial({ map: ocean, color: 0x8be9ef })
+  );
+  oceanFloor.rotation.x = -Math.PI / 2;
+  oceanFloor.position.y = -0.045;
+  scene.add(oceanFloor);
+
+  const lagoonPoints = makeBlobPoints(45.5, 32.2, 1.35, 132);
+  const lagoon = new THREE.Mesh(
+    new THREE.ShapeGeometry(new THREE.Shape(lagoonPoints)),
+    new THREE.MeshBasicMaterial({
+      color: 0x8ce8dc,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+    })
+  );
+  lagoon.rotation.x = -Math.PI / 2;
+  lagoon.position.y = -0.018;
+  scene.add(lagoon);
+
   const sand = makeSandTexture();
   sand.repeat.set(6, 5);
+  const islandPoints = makeBlobPoints(42.4, 29.4, 0.82, 132);
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(FLOOR_W + 8, FLOOR_H + 8, 32, 32),
-    new THREE.MeshStandardMaterial({ map: sand, roughness: 0.95, metalness: 0 })
+    new THREE.ShapeGeometry(new THREE.Shape(islandPoints)),
+    new THREE.MeshStandardMaterial({
+      map: sand,
+      roughness: 0.96,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    })
   );
   ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0.006;
   ground.receiveShadow = true;
   scene.add(ground);
 
+  const wetSand = new THREE.Mesh(
+    new THREE.ShapeGeometry(makeIslandShape(43.5, 30.4, 0.96, 132)),
+    new THREE.MeshBasicMaterial({
+      color: 0xf1dfb3,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  wetSand.rotation.x = -Math.PI / 2;
+  wetSand.position.y = 0.014;
+  scene.add(wetSand);
+
+  scene.add(makeShoreLine(islandPoints, 0.055, 0xffffff, 0.3, 1.006));
+  scene.add(makeShoreLine(lagoonPoints, 0.03, 0xdffcff, 0.22, 1.004));
+  makeOceanCaustics(scene);
+
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(FLOOR_W + 8, FLOOR_H + 8),
-    new THREE.MeshBasicMaterial({ color: 0x7ed7d8, transparent: true, opacity: 0.05, depthWrite: false })
+    new THREE.PlaneGeometry(oceanW, oceanH),
+    new THREE.MeshBasicMaterial({ color: 0x9df7f3, transparent: true, opacity: 0.075, depthWrite: false })
   );
   water.name = "water-sheet";
   water.rotation.x = -Math.PI / 2;
@@ -1268,8 +1380,21 @@ function makePalmTree(x: number, z: number, scale = 1, rotation = 0) {
 }
 
 function makePalmGrove(scene: THREE.Scene) {
-  scene.add(makePalmTree(-35.5, 24.5, 1.05, 0.45));
-  scene.add(makePalmTree(-32.7, 23.0, 0.72, -0.55));
+  const palms: [number, number, number, number][] = [
+    [-35.5, 24.5, 1.05, 0.45],
+    [-32.7, 23.0, 0.72, -0.55],
+    [31.4, 22.0, 0.9, 2.15],
+    [35.0, 18.5, 0.68, 1.55],
+    [-38.2, -12.8, 0.84, -1.15],
+    [-34.4, -18.5, 0.62, -0.45],
+    [12.4, -28.2, 0.78, 2.65],
+    [16.2, -26.8, 0.58, 2.05],
+    [39.0, -8.5, 0.7, 1.0],
+  ];
+
+  palms.forEach(([x, z, scale, rotation]) => {
+    scene.add(makePalmTree(x, z, scale, rotation));
+  });
 }
 
 function makeCoralGarden(scene: THREE.Scene) {
@@ -2535,7 +2660,20 @@ export default function ThreeUnderwaterMap({
 
   return (
     <div ref={mountRef} className="relative h-full w-full overflow-hidden bg-[#8bd8dc]">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_18%,rgba(255,255,255,0.18),transparent_16%),linear-gradient(180deg,rgba(109,214,224,0.08),rgba(20,112,132,0.08))]" />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(207, 252, 255, 0.12), rgba(20, 112, 132, 0.16)), radial-gradient(ellipse at 50% 48%, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.035) 38%, rgba(4, 54, 79, 0.22) 100%)",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-35 mix-blend-screen"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(112deg, rgba(232, 255, 255, 0.2) 0px, rgba(232, 255, 255, 0.08) 1px, transparent 3px, transparent 24px), repeating-linear-gradient(28deg, transparent 0px, transparent 34px, rgba(190, 255, 255, 0.08) 36px, transparent 42px)",
+        }}
+      />
     </div>
   );
 }
