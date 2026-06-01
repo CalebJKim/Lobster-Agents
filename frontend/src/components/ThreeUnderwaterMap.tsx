@@ -700,23 +700,24 @@ function makeOrganicPad(
 ) {
   const points = makeBlobPoints(rx, rz, phase);
   const shape = new THREE.Shape(points);
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
     opacity,
-    roughness: 1,
+    side: THREE.DoubleSide,
+    depthWrite: false,
   });
   const plate = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
   plate.rotation.x = -Math.PI / 2;
-  plate.position.set(center.x, 0.035, center.z);
+  plate.position.set(center.x, 0.018, center.z);
   scene.add(plate);
 
-  const edgePoints = points.map((p) => new THREE.Vector3(center.x + p.x, 0.07, center.z - p.y));
+  const edgePoints = points.map((p) => new THREE.Vector3(center.x + p.x, 0.038, center.z - p.y));
   edgePoints.push(edgePoints[0].clone());
   scene.add(
     new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(edgePoints),
-      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.14 })
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: Math.min(opacity * 0.45, 0.075) })
     )
   );
 }
@@ -952,9 +953,7 @@ function makeVillageCove(scene: THREE.Scene) {
       layout.rx,
       layout.rz,
       layout.color,
-      // War room used to be 0.38, dropped to match the sandbox huts so the
-      // centre isn't visibly brighter than the rest of the reef floor.
-      0.3,
+      room.id.startsWith("sandbox_") ? 0.12 : room.id === "war_room" ? 0.16 : 0.1,
       layout.phase,
     );
   });
