@@ -264,6 +264,18 @@ OFFICE_AGENTS_SANDBOX_MAX_CONCURRENT_OPENCLAW_RUNS=2 \
 python -m uvicorn --app-dir src office_agents.main:app --host 0.0.0.0 --port 8001
 ```
 
+For booth operation on the GB300, after vLLM is healthy, the repeatable app
+launcher is:
+
+```bash
+scripts/gb300_launch_reef.sh
+```
+
+It refreshes the backend editable install if needed, starts the FastAPI backend
+on `:8001`, starts the Vite frontend on `:4454`, and leaves already-healthy
+services untouched. Logs are written to `/tmp/lobster-backend.log` and
+`/tmp/lobster-frontend.log`.
+
 Frontend:
 
 ```bash
