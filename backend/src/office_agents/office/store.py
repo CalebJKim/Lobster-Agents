@@ -53,6 +53,22 @@ class PersistentStore:
                     updated_at TEXT NOT NULL
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS visitor_agents (
+                    name TEXT PRIMARY KEY,
+                    species TEXT NOT NULL,
+                    runtime TEXT NOT NULL,
+                    archetype TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    color TEXT,
+                    appearance_json TEXT,
+                    skills_json TEXT NOT NULL,
+                    mission TEXT,
+                    profile_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
             await db.commit()
         logger.info("Persistent store initialized at %s", self.db_path)
 
@@ -86,6 +102,12 @@ class PersistentStore:
                 (sandbox_name,),
             )
             await db.commit()
+
+    async def clear_display_overrides(self) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("DELETE FROM sandbox_display_names")
+            await db.commit()
+            return cursor.rowcount if cursor.rowcount is not None else 0
 
     async def list_sandbox_workspaces(self) -> list[dict[str, Any]]:
         """User-created sandbox workspaces persisted across backend restarts."""
@@ -132,6 +154,130 @@ class PersistentStore:
             )
             await db.commit()
         logger.info("Registered sandbox workspace %s (%s)", sandbox_name, display_name)
+
+    async def clear_user_sandbox_workspaces(self) -> int:
+        """Remove dynamic app workspace registrations.
+
+        This does not destroy live NemoClaw/OpenShell sandboxes on the host; it
+        only returns the UI registry to the four starter workspaces.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "DELETE FROM sandbox_workspaces WHERE source != 'default'"
+            )
+            await db.commit()
+            return cursor.rowcount if cursor.rowcount is not None else 0
+
+    async def save_visitor_agent(
+        self,
+        *,
+        name: str,
+        species: str,
+        runtime: str,
+        archetype: str,
+        role: str,
+        color: str | None,
+        appearance: dict[str, Any] | None,
+        skills: list[str],
+        mission: str | None,
+        profile: dict[str, Any],
+    ) -> None:
+        """Persist one visitor-built agent for later export."""
+        import json
+
+        ts = datetime.now().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO visitor_agents "
+                "(name, species, runtime, archetype, role, color, appearance_json, "
+                "skills_json, mission, profile_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "species=excluded.species, runtime=excluded.runtime, archetype=excluded.archetype, "
+                "role=excluded.role, color=excluded.color, appearance_json=excluded.appearance_json, "
+                "skills_json=excluded.skills_json, mission=excluded.mission, "
+                "profile_json=excluded.profile_json, updated_at=excluded.updated_at",
+                (
+                    name,
+                    species,
+                    runtime,
+                    archetype,
+                    role,
+                    color,
+                    json.dumps(appearance or {}, sort_keys=True),
+                    json.dumps(skills, sort_keys=True),
+                    mission,
+                    json.dumps(profile, sort_keys=True),
+                    ts,
+                    ts,
+                ),
+            )
+            await db.commit()
+
+    async def get_visitor_agent(self, name: str) -> dict[str, Any] | None:
+        import json
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM visitor_agents WHERE name = ?",
+                (name,),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "name": row["name"],
+            "species": row["species"],
+            "runtime": row["runtime"],
+            "archetype": row["archetype"],
+            "role": row["role"],
+            "color": row["color"],
+            "appearance": json.loads(row["appearance_json"] or "{}"),
+            "skills": json.loads(row["skills_json"] or "[]"),
+            "mission": row["mission"],
+            "profile": json.loads(row["profile_json"] or "{}"),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    async def list_visitor_agents(self) -> list[dict[str, Any]]:
+        import json
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM visitor_agents ORDER BY created_at ASC"
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                "name": row["name"],
+                "species": row["species"],
+                "runtime": row["runtime"],
+                "archetype": row["archetype"],
+                "role": row["role"],
+                "color": row["color"],
+                "appearance": json.loads(row["appearance_json"] or "{}"),
+                "skills": json.loads(row["skills_json"] or "[]"),
+                "mission": row["mission"],
+                "profile": json.loads(row["profile_json"] or "{}"),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    async def delete_visitor_agent(self, name: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM visitor_agents WHERE name = ?", (name,))
+            await db.commit()
+
+    async def clear_visitor_agents(self) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("DELETE FROM visitor_agents")
+            await db.commit()
+            return cursor.rowcount if cursor.rowcount is not None else 0
 
     async def save_deliverable(
         self, query: str, agent: str, content: str

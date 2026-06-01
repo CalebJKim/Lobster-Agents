@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # Limit concurrent OpenClaw team runs across all sandboxes. Spark-class
     # demo hosts are most reliable at 1; GB300/vLLM deployments can raise this.
     sandbox_max_concurrent_openclaw_runs: int = 1
+    # Keep the reef map focused on configured app workspaces. Live-only
+    # NemoClaw sandboxes can exist on the host without appearing in the UI.
+    show_unregistered_live_sandboxes: bool = False
 
     # Optional Hermes runner for crab agents. The command is executed inside
     # the OpenShell sandbox with HERMES_TASK, HERMES_AGENT_NAME, HERMES_ROLE,

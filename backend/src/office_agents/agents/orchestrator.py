@@ -192,6 +192,7 @@ class Orchestrator:
                 # we don't strand the in-flight task.
                 raise
 
+        release_room_seat(agent.location, agent.name)
         self.agents.remove(agent)
         self.office_state.agent_states.pop(name, None)
         await self.broadcast({

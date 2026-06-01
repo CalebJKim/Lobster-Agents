@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from office_agents.claw_config import SANDBOX_WORKSPACES
 from office_agents.config import settings
 from office_agents.llm.client import LLMClient
 from office_agents.sandbox_runtime.nemoclaw import (
@@ -155,9 +156,16 @@ async def demo_readiness(sandbox_name: str | None = None) -> dict[str, Any]:
         sandbox for sandbox in status.get("sandboxes", [])
         if isinstance(sandbox, dict) and isinstance(sandbox.get("name"), str)
     ]
+    visible_starter_names = [workspace.name for workspace in SANDBOX_WORKSPACES]
+    live_names = {sandbox["name"] for sandbox in live_sandboxes}
+    visible_default = next(
+        (name for name in visible_starter_names if name in live_names),
+        None,
+    )
     live_count = len(live_sandboxes)
     selected = (
         sandbox_name
+        or visible_default
         or status.get("defaultSandbox")
         or (live_sandboxes[0].get("name") if live_sandboxes else None)
     )
@@ -166,7 +174,11 @@ async def demo_readiness(sandbox_name: str | None = None) -> dict[str, Any]:
         "Live sandboxes",
         "ok" if live_count > 0 else "fail",
         f"{live_count} live sandbox{'es' if live_count != 1 else ''} detected.",
-        {"count": live_count, "default": status.get("defaultSandbox")},
+        {
+            "count": live_count,
+            "default": status.get("defaultSandbox"),
+            "visible_default": visible_default,
+        },
     )
 
     gateway = status.get("gatewayHealth") if isinstance(status.get("gatewayHealth"), dict) else {}

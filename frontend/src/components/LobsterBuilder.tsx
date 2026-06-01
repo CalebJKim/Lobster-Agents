@@ -869,7 +869,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/8 bg-slate-900/40 px-6 py-3">
           <div className="text-[11px] text-white/45">
-            Profiles live in memory until backend restart. Restart re-seeds the starter crew.
+            Visitor profiles are saved as exportable OpenClaw agent packages.
           </div>
           <div className="flex items-center gap-2">
             <button

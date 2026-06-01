@@ -224,6 +224,23 @@ async function fetchSandboxes(): Promise<NemoClawStatus> {
   return fetchJson<NemoClawStatus>("/sandboxes");
 }
 
+async function cleanupDemoBooth() {
+  return fetchJson<{ status: string; deleted_agents?: string[]; removed_dynamic_sandboxes?: number }>(
+    "/demo/cleanup",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "booth",
+        clear_sandbox_files: true,
+        delete_visitor_agents: true,
+        reset_to_default_sandboxes: true,
+        clear_pending_rules: false,
+      }),
+    },
+  );
+}
+
 async function assignTeam(sandboxName: string, agentNames: string[]) {
   return fetchJson<{ status: string; assignments: Record<string, string[]> }>(`/sandboxes/${encodeURIComponent(sandboxName)}/team`, {
     method: "POST",
@@ -290,6 +307,8 @@ export default function SandboxOrchestrator({
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [newSandboxName, setNewSandboxName] = useState("");
   const [creatingSandbox, setCreatingSandbox] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupConfirm, setCleanupConfirm] = useState(false);
   const [hermesConfigured, setHermesConfigured] = useState<boolean | null>(null);
   const [profileQuery, setProfileQuery] = useState("");
   const [profileFilter, setProfileFilter] = useState<"all" | "lobster" | "crab" | "unassigned">("all");
@@ -348,6 +367,29 @@ export default function SandboxOrchestrator({
       setNotice(err instanceof Error ? err.message : "Could not load sandboxes");
     }
   }, []);
+
+  const handleCleanupDemo = useCallback(async () => {
+    if (!cleanupConfirm) {
+      setCleanupConfirm(true);
+      setNotice("Click Clean Demo again to delete visitor agents, clear workspaces, and return to four starter sandboxes.");
+      return;
+    }
+    setCleanupBusy(true);
+    setPopError(null);
+    try {
+      const result = await cleanupDemoBooth();
+      setCleanupConfirm(false);
+      setNotice(
+        `Clean demo complete. Removed ${(result.deleted_agents ?? []).length} visitor profile(s) and ${result.removed_dynamic_sandboxes ?? 0} extra sandbox registration(s).`,
+      );
+      await load();
+      await onStateRefresh?.();
+    } catch (err) {
+      setPopError(err instanceof Error ? err.message : "Clean demo failed");
+    } finally {
+      setCleanupBusy(false);
+    }
+  }, [cleanupConfirm, load, onStateRefresh]);
 
   useEffect(() => {
     load();
@@ -904,6 +946,19 @@ export default function SandboxOrchestrator({
           className="h-8 shrink-0 rounded-md bg-white/[0.08] px-2.5 text-[11px] font-semibold text-white/62 transition hover:bg-white/[0.13] hover:text-white disabled:opacity-40"
         >
           Refresh
+        </button>
+        <button
+          type="button"
+          onClick={handleCleanupDemo}
+          disabled={cleanupBusy || busy}
+          className={`h-8 shrink-0 rounded-md px-2.5 text-[11px] font-semibold transition disabled:opacity-40 ${
+            cleanupConfirm
+              ? "bg-amber-300/22 text-amber-50 hover:bg-amber-300/32"
+              : "bg-white/[0.08] text-white/62 hover:bg-white/[0.13] hover:text-white"
+          }`}
+          title="Delete visitor profiles, clear sandbox files, and return to four starter sandboxes"
+        >
+          {cleanupBusy ? "Cleaning" : cleanupConfirm ? "Confirm Clean" : "Clean Demo"}
         </button>
         {onCollapse && (
           <button

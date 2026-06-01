@@ -180,6 +180,9 @@ The UI can also create additional sandboxes through the Workspaces dock. That
 persists the sandbox metadata in the backend SQLite store and provisions a live
 NemoClaw sandbox on the backend host. This still requires `openshell`,
 `nemoclaw`, model routing, and policies to be correctly installed on that host.
+By default, the reef map shows only the four starter sandboxes plus sandboxes
+created through this app. Other live NemoClaw sandboxes on the host stay hidden
+unless `OFFICE_AGENTS_SHOW_UNREGISTERED_LIVE_SANDBOXES=true` is set.
 
 Public GitHub clones do not require GitHub credentials:
 
@@ -293,6 +296,12 @@ Use the slower scenarios intentionally:
 Generated Markdown/JSON reports are written under `reports/`. The latest
 consolidated booth summary is `reports/demo_booth_validation_summary.md`.
 
+Between visitors, use **Clean Demo** in the Workspaces dock. It cancels active
+runs, clears assignments/run UI state, deletes visitor-created lobsters/crabs,
+archives and wipes starter sandbox work/run directories, removes extra app
+sandbox registrations, and returns the map to the four starter huts. It does
+not destroy live NemoClaw/OpenShell sandboxes on the host.
+
 ## Policies And Approvals
 
 There are two separate policy layers:
@@ -319,6 +328,20 @@ ready, needs-setup, and install-failed states.
 Skills that require credentials or binaries need setup inside the sandbox or
 OpenClaw profile. The UI should surface readiness instead of silently treating
 metadata as truth.
+
+## Visitor Agent Exports
+
+Visitor-built lobsters and crabs are saved in the backend SQLite store as
+exportable agent profiles. Each profile exposes:
+
+- `GET /lobsters/{name}/passport` for portable JSON metadata
+- `GET /lobsters/{name}/portrait.svg` for a visual keepsake
+- `GET /lobsters/{name}/export` for a zip containing `agent.json`,
+  `portrait.svg`, `README.md`, and `install-openclaw-agent.sh`
+
+The sidebar profile chip includes a **Save** action for downloading the zip.
+Clean Demo deletes visitor profiles from the live roster and saved export
+store, so export before cleaning if a visitor wants to keep their agent.
 
 ## Sandboxes
 

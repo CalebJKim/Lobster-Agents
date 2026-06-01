@@ -12,6 +12,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 
 from office_agents.claw_config import SANDBOX_WORKSPACES, SandboxWorkspace
+from office_agents.config import settings
 from office_agents.infra.app_state import app_state
 from office_agents.models import (
     NetworkRuleApproveAllRequest,
@@ -97,15 +98,26 @@ async def _configured_workspaces() -> list[SandboxWorkspace]:
     return workspaces
 
 
-async def _visible_workspaces(status: dict[str, object] | None = None) -> list[SandboxWorkspace]:
+async def _visible_workspaces(
+    status: dict[str, object] | None = None,
+    *,
+    include_unregistered_live: bool | None = None,
+) -> list[SandboxWorkspace]:
     """Configured workspaces plus live OpenShell sandboxes missing from SQLite.
 
     Dynamic workspace rows are the durable source for UI names/rooms. Live-only
-    sandboxes are still exposed so a missing or reset local DB does not hide a
-    valid OpenShell sandbox from the demo.
+    sandboxes are hidden by default so the booth starts with the four starter
+    huts. Operators can still expose live-only sandboxes by setting
+    OFFICE_AGENTS_SHOW_UNREGISTERED_LIVE_SANDBOXES=true or passing the explicit
+    query flag on /sandboxes.
     """
 
     workspaces = await _configured_workspaces()
+    if include_unregistered_live is None:
+        include_unregistered_live = settings.show_unregistered_live_sandboxes
+    if not include_unregistered_live:
+        return workspaces
+
     seen = {workspace.name for workspace in workspaces}
     live_status = status if status is not None else await get_nemoclaw_status()
     live_sandboxes = live_status.get("sandboxes", [])
@@ -218,11 +230,14 @@ def _next_sandbox_name(
 
 
 @router.get("/sandboxes")
-async def get_sandboxes() -> dict[str, object]:
+async def get_sandboxes(include_unregistered_live: bool | None = None) -> dict[str, object]:
     """Merge configured workspaces with live nemoclaw status + run/team state."""
 
     status = await get_nemoclaw_status()
-    workspaces = await _visible_workspaces(status)
+    workspaces = await _visible_workspaces(
+        status,
+        include_unregistered_live=include_unregistered_live,
+    )
     _sync_orchestrator_workspaces(workspaces)
 
     orch = app_state.orchestrator

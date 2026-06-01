@@ -100,6 +100,14 @@ export default function AgentChip({
           )}
         </span>
       </button>
+      <a
+        href={`/lobsters/${encodeURIComponent(agent.name)}/export`}
+        title={`Save ${agent.name} as an OpenClaw agent package`}
+        className="hidden shrink-0 rounded bg-cyan-300/12 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-cyan-100 transition hover:bg-cyan-300/22 group-hover:inline-flex"
+        onClick={(event) => event.stopPropagation()}
+      >
+        Save
+      </a>
       {onRemove && (
         <button
           type="button"
