@@ -32,27 +32,30 @@ DEFAULT_TIMEOUT_SECONDS = settings.openclaw_turn_timeout_seconds
 # as module-level constants because manager.py imports them by name.
 DEFAULT_SANDBOX_WORKDIR = settings.sandbox_workspaces_dir
 DEFAULT_RUNS_WORKDIR = settings.sandbox_runs_dir
-_OPENCLAW_TIMEOUT_PATCH = (
+# Older versions of this wrapper wrote timeout knobs into openclaw.json under
+# agents.defaults. OpenClaw 2026.5 validates that object strictly and rejects
+# those fields, so the pre-run patch is now only a cleanup step. Per-turn
+# timeout control is passed via `openclaw agent --timeout` below.
+_OPENCLAW_CONFIG_CLEANUP_PATCH = (
     "import hashlib,json,pathlib,sys;"
     "p=pathlib.Path('/sandbox/.openclaw/openclaw.json');"
     "sys.exit(0) if not p.exists() else None;"
     "cfg=json.loads(p.read_text());"
-    "value=int(sys.argv[1]);"
     "changed=False;"
-    "defaults=cfg.setdefault('agents',{}).setdefault('defaults',{});"
-    "changed=changed or defaults.get('timeoutSeconds')!=value;"
-    "defaults['timeoutSeconds']=value;"
-    "llm=defaults.setdefault('llm',{});"
-    "changed=changed or llm.get('idleTimeoutSeconds')!=0;"
-    "llm['idleTimeoutSeconds']=0;"
+    "defaults=cfg.get('agents',{}).get('defaults',{});"
+    "changed=changed or defaults.pop('timeoutSeconds',None) is not None;"
+    "llm=defaults.get('llm');"
+    "changed=changed or (isinstance(llm,dict) and llm.pop('idleTimeoutSeconds',None) is not None);"
+    "changed=changed or (isinstance(llm,dict) and not llm and defaults.pop('llm',None) is not None);"
     "text=json.dumps(cfg,indent=2)+'\\n';"
     "p.write_text(text) if changed else None;"
     "h=hashlib.sha256(p.read_bytes()).hexdigest();"
     "hp=p.with_name('.config-hash');"
     "hp.write_text(f'{h}  openclaw.json\\n') if changed or hp.exists() else None;"
     "marker=p.with_name('.lobster-openclaw-timeout');"
-    "desired=str(value)+'\\n';"
-    "restart=changed or (not marker.exists()) or marker.read_text()!=desired;"
+    "desired='config-cleanup-v2\\n';"
+    "marker.write_text(desired) if changed or (not marker.exists()) or marker.read_text()!=desired else None;"
+    "restart=changed;"
     "print('restart' if restart else 'ok')"
 )
 
@@ -155,7 +158,7 @@ async def run_openclaw(
             openclaw_session_id,
             str(timeout_seconds),
             settings.openclaw_thinking_level,
-            _OPENCLAW_TIMEOUT_PATCH,
+            _OPENCLAW_CONFIG_CLEANUP_PATCH,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
