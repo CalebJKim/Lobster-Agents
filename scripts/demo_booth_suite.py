@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -821,7 +822,7 @@ def run_suite(ctx: Context, args: argparse.Namespace) -> None:
 
 def main() -> int:
     args = parse_args()
-    stamp = time.strftime("%m%d%H%M%S")
+    stamp = f"{time.strftime('%m%d%H%M%S')}-{os.getpid()}"
     ctx = Context(
         base=str(args.base).rstrip("/"),
         sandbox=str(args.sandbox),

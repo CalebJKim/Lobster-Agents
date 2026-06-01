@@ -1,0 +1,79 @@
+{
+  "base": "http://127.0.0.1:4454",
+  "cleanup": [
+    {
+      "body": {
+        "removed": "Booth Researcher 0601094735",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Researcher 0601094735"
+    },
+    {
+      "body": {
+        "removed": "Booth Writer 0601094735",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Writer 0601094735"
+    },
+    {
+      "body": {
+        "removed": "Booth Coder 0601094735",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Coder 0601094735"
+    },
+    {
+      "body": {
+        "removed": "Booth Skill Coder 0601094735",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Skill Coder 0601094735"
+    },
+    {
+      "body": {
+        "removed": "Booth Critic 0601094735",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Critic 0601094735"
+    },
+    {
+      "body": {
+        "removed": "Booth Crab 0601094735",
+        "status": "ok"
+      },
+      "code": 200,
+      "name": "Booth Crab 0601094735"
+    }
+  ],
+  "duration_seconds": 6.87,
+  "ok": false,
+  "sandbox": "nemoclaw-demo-e2e-0530182359",
+  "scenarios": [
+    {
+      "duration_seconds": 1.35,
+      "evidence": {
+        "start": {
+          "detail": "No lobsters are assigned to nemoclaw-demo-e2e-0530182359."
+        }
+      },
+      "name": "coding workflow static website",
+      "notes": [
+        "Could not start task: HTTP 400"
+      ],
+      "run_id": null,
+      "status": "fail"
+    }
+  ],
+  "stamp": "0601094735",
+  "summary": {
+    "fail": 1,
+    "pass": 0,
+    "total": 1,
+    "warn": 0
+  }
+}
