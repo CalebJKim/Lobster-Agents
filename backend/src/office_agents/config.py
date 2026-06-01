@@ -41,9 +41,9 @@ class Settings(BaseSettings):
     # OpenClaw turn timeout for NemoClaw relay runs. Match OpenClaw's CLI
     # default and leave enough room for first-token stalls on demo hardware.
     openclaw_turn_timeout_seconds: int = 600
-    # Keep demo relay turns concise and avoid long hidden reasoning for simple
-    # one-sentence tasks. Override to medium/high for deeper agent work.
-    openclaw_thinking_level: str = "minimal"
+    # Keep demo relay turns compatible with local vLLM routes. Some routes
+    # only advertise `off`; hosts can opt into deeper thinking explicitly.
+    openclaw_thinking_level: str = "off"
     # The current GB300 vLLM server is not launched with OpenAI tool-call
     # parsing flags, so OpenClaw must not send model-facing tool schemas.
     openclaw_model_tools_enabled: bool = False
@@ -87,9 +87,9 @@ class Settings(BaseSettings):
     def normalize_openclaw_thinking_level(cls, value: Any) -> str:
         allowed = {"off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"}
         if not isinstance(value, str):
-            return "minimal"
+            return "off"
         normalized = value.strip().lower()
-        return normalized if normalized in allowed else "minimal"
+        return normalized if normalized in allowed else "off"
 
     model_config = {
         "env_prefix": "OFFICE_AGENTS_",

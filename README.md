@@ -260,9 +260,15 @@ OFFICE_AGENTS_NEMOCLAW_PROVIDER="custom" \
 OFFICE_AGENTS_NEMOCLAW_ENDPOINT_URL="http://host.openshell.internal:8000/v1" \
 OFFICE_AGENTS_NEMOCLAW_MODEL="qwen3.6-27b-fp8" \
 OFFICE_AGENTS_NEMOCLAW_API_KEY="dummy" \
+OFFICE_AGENTS_OPENCLAW_THINKING_LEVEL="off" \
 OFFICE_AGENTS_SANDBOX_MAX_CONCURRENT_OPENCLAW_RUNS=2 \
 python -m uvicorn --app-dir src office_agents.main:app --host 0.0.0.0 --port 8001
 ```
+
+Keep `OFFICE_AGENTS_OPENCLAW_THINKING_LEVEL=off` for the default GB300 FP8
+route unless the selected OpenClaw model explicitly advertises another
+thinking level. OpenClaw will reject unsupported values before the agent turn
+starts.
 
 For booth operation on the GB300, after vLLM is healthy, the repeatable app
 launcher is:
