@@ -387,7 +387,7 @@ export default function App() {
       </div>
 
       <header className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3 max-md:left-3 max-md:right-3 max-md:top-3">
-        <div className="pointer-events-auto min-w-[285px] rounded-xl border border-white/15 bg-slate-950/52 px-5 py-3.5 text-white shadow-[0_18px_60px_rgba(4,22,31,0.22)] backdrop-blur-md max-sm:hidden">
+        <div className="pointer-events-auto rounded-xl border border-white/15 bg-slate-950/52 px-4 py-3 text-white shadow-[0_18px_60px_rgba(4,22,31,0.22)] backdrop-blur-md max-sm:hidden">
           <div className="min-w-0">
             <h1 className="text-base font-semibold">
               NemoClaw Reef
