@@ -387,12 +387,12 @@ export default function App() {
       </div>
 
       <header className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3 max-md:left-3 max-md:right-3 max-md:top-3">
-        <div className="pointer-events-auto inline-flex rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-5 py-3.5 text-white shadow-[0_18px_60px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md max-sm:hidden">
-          <div className="min-w-0">
-            <h1 className="whitespace-nowrap text-[19px] font-semibold leading-6 [text-shadow:_0_1px_14px_rgba(255,255,255,0.14)]">
+        <div className="pointer-events-auto w-[390px] rounded-2xl border border-white/24 bg-[#1c5f72]/72 p-0 text-white shadow-[0_18px_60px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md max-sm:hidden">
+          <div className="min-w-0 px-7 py-4">
+            <h1 className="whitespace-nowrap text-[18px] font-semibold leading-6 [text-shadow:_0_1px_14px_rgba(255,255,255,0.14)]">
               NemoClaw Reef
             </h1>
-            <p className="mt-1 whitespace-nowrap text-[12.5px] font-medium leading-5 text-white/78 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
+            <p className="mt-1 whitespace-nowrap text-[12px] font-medium leading-5 text-white/78 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
           </div>
         </div>
         <HeaderCluster
