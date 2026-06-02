@@ -91,6 +91,7 @@ async def cleanup_demo(req: dict | None = None) -> dict[str, object]:
     - clear assignments/run UI state
     - delete visitor-created agents from the live roster
     - archive and wipe configured sandbox work/run directories
+    - clear pending OpenShell network-rule recommendations
     - remove dynamic sandbox registrations so the map returns to four huts
 
     Live NemoClaw/OpenShell sandboxes remain on the host. They are hidden unless
@@ -105,7 +106,7 @@ async def cleanup_demo(req: dict | None = None) -> dict[str, object]:
     clear_sandbox_files = bool(body.get("clear_sandbox_files", True))
     delete_visitor_agents = bool(body.get("delete_visitor_agents", True))
     reset_to_default_sandboxes = bool(body.get("reset_to_default_sandboxes", True))
-    clear_pending_rules = bool(body.get("clear_pending_rules", False))
+    clear_pending_rules = bool(body.get("clear_pending_rules", True))
 
     orch = app_state.require_orchestrator()
     office = app_state.require_office_state()

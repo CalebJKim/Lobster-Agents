@@ -225,7 +225,12 @@ async function fetchSandboxes(): Promise<NemoClawStatus> {
 }
 
 async function cleanupDemoBooth() {
-  return fetchJson<{ status: string; deleted_agents?: string[]; removed_dynamic_sandboxes?: number }>(
+  return fetchJson<{
+    status: string;
+    deleted_agents?: string[];
+    removed_dynamic_sandboxes?: number;
+    pending_rule_clears?: { ok?: boolean }[];
+  }>(
     "/demo/cleanup",
     {
       method: "POST",
@@ -235,7 +240,7 @@ async function cleanupDemoBooth() {
         clear_sandbox_files: true,
         delete_visitor_agents: true,
         reset_to_default_sandboxes: true,
-        clear_pending_rules: false,
+        clear_pending_rules: true,
       }),
     },
   );
@@ -371,7 +376,7 @@ export default function SandboxOrchestrator({
   const handleCleanupDemo = useCallback(async () => {
     if (!cleanupConfirm) {
       setCleanupConfirm(true);
-      setNotice("Click Clean Demo again to delete visitor agents, clear workspaces, and return to four starter sandboxes.");
+      setNotice("Click Clean Demo again to delete visitor agents, clear workspaces, clear pending policy requests, and return to four starter sandboxes.");
       return;
     }
     setCleanupBusy(true);
@@ -379,8 +384,10 @@ export default function SandboxOrchestrator({
     try {
       const result = await cleanupDemoBooth();
       setCleanupConfirm(false);
+      const pendingClears = result.pending_rule_clears ?? [];
+      const clearedSandboxes = pendingClears.filter((item) => item?.ok !== false).length;
       setNotice(
-        `Clean demo complete. Removed ${(result.deleted_agents ?? []).length} visitor profile(s) and ${result.removed_dynamic_sandboxes ?? 0} extra sandbox registration(s).`,
+        `Clean demo complete. Removed ${(result.deleted_agents ?? []).length} visitor profile(s), ${result.removed_dynamic_sandboxes ?? 0} extra sandbox registration(s), and cleared pending policy requests in ${clearedSandboxes} sandbox(es).`,
       );
       await load();
       await onStateRefresh?.();
@@ -956,7 +963,7 @@ export default function SandboxOrchestrator({
               ? "bg-amber-300/22 text-amber-50 hover:bg-amber-300/32"
               : "bg-white/[0.08] text-white/62 hover:bg-white/[0.13] hover:text-white"
           }`}
-          title="Delete visitor profiles, clear sandbox files, and return to four starter sandboxes"
+          title="Delete visitor profiles, clear sandbox files, clear pending policy requests, and return to four starter sandboxes"
         >
           {cleanupBusy ? "Cleaning" : cleanupConfirm ? "Confirm Clean" : "Clean Demo"}
         </button>

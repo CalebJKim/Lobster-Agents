@@ -216,11 +216,12 @@ Use **Clean Demo** in the UI between visitors. It:
 - clears assignments and run UI state
 - deletes visitor-created lobsters/crabs
 - wipes starter sandbox work/run directories
+- clears pending OpenShell network-rule recommendations
 - removes extra app-created sandbox registrations
 - returns the reef map to the four starter workspaces
 
 It does **not** destroy live NemoClaw/OpenShell sandboxes and does **not**
-erase approved OpenShell network rules.
+erase approved or rejected OpenShell network rules.
 
 ## Policies
 
