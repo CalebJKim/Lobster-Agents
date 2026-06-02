@@ -263,6 +263,7 @@ export default function PoliciesTab({
   const [clearPendingConfirm, setClearPendingConfirm] = useState(false);
   const [ruleQuery, setRuleQuery] = useState("");
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const [showRuleHistory, setShowRuleHistory] = useState(false);
   const rules = networkRules?.rules ?? [];
   const allPendingRules = useMemo(
     () => rules.filter((rule) => rule.status === "pending"),
@@ -272,22 +273,32 @@ export default function PoliciesTab({
     () => rules.filter((rule) => rule.status === "approved"),
     [rules],
   );
+  const hiddenHistoryCount = useMemo(
+    () => rules.filter((rule) => rule.status !== "pending").length,
+    [rules],
+  );
   const filteredRules = useMemo(() => {
     const q = ruleQuery.trim().toLowerCase();
     if (!q) return rules;
     return rules.filter((rule) => ruleSearchText(rule).toLowerCase().includes(q));
   }, [ruleQuery, rules]);
+  const visibleRules = useMemo(
+    () => showRuleHistory
+      ? filteredRules
+      : filteredRules.filter((rule) => rule.status === "pending"),
+    [filteredRules, showRuleHistory],
+  );
   const pendingRules = useMemo(
-    () => filteredRules.filter((rule) => rule.status === "pending"),
-    [filteredRules],
+    () => visibleRules.filter((rule) => rule.status === "pending"),
+    [visibleRules],
   );
   const approvedRules = useMemo(
-    () => filteredRules.filter((rule) => rule.status === "approved"),
-    [filteredRules],
+    () => showRuleHistory ? visibleRules.filter((rule) => rule.status === "approved") : [],
+    [showRuleHistory, visibleRules],
   );
   const rejectedRules = useMemo(
-    () => filteredRules.filter((rule) => rule.status === "rejected"),
-    [filteredRules],
+    () => showRuleHistory ? visibleRules.filter((rule) => rule.status === "rejected") : [],
+    [showRuleHistory, visibleRules],
   );
 
   const handleClearPending = () => {
@@ -301,7 +312,7 @@ export default function PoliciesTab({
 
   const copyNetworkRules = async () => {
     try {
-      await navigator.clipboard.writeText(networkRulesSummaryText(filteredRules));
+      await navigator.clipboard.writeText(networkRulesSummaryText(visibleRules));
       setCopyNotice("Network rule summary copied.");
     } catch {
       setCopyNotice("Could not copy automatically.");
@@ -413,18 +424,32 @@ export default function PoliciesTab({
                 placeholder="Search endpoint, binary, rationale..."
                 className="h-8 min-w-56 flex-1 rounded-md border border-white/10 bg-slate-950/50 px-2.5 text-[12px] text-white outline-none placeholder:text-white/30 focus:border-cyan-200/40"
               />
+              {hiddenHistoryCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowRuleHistory((current) => !current)}
+                  className="h-8 rounded-md bg-white/[0.08] px-2.5 text-[10px] font-bold uppercase tracking-wide text-white/70 hover:bg-white/[0.16]"
+                >
+                  {showRuleHistory ? "Hide history" : `Show history ${hiddenHistoryCount}`}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={copyNetworkRules}
-                disabled={filteredRules.length === 0}
+                disabled={visibleRules.length === 0}
                 className="h-8 rounded-md bg-cyan-300/12 px-2.5 text-[10px] font-bold uppercase tracking-wide text-cyan-50 hover:bg-cyan-300/20 disabled:opacity-40"
               >
                 Copy summary
               </button>
               <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white/45">
-                {filteredRules.length}/{rules.length}
+                {visibleRules.length}/{rules.length}
               </span>
             </div>
+            {!showRuleHistory && hiddenHistoryCount > 0 && (
+              <div className="mt-1.5 text-[11px] font-medium text-white/45">
+                Showing pending requests only. Approved and rejected rule history remains available but hidden for demo clarity.
+              </div>
+            )}
             {copyNotice && (
               <div className="mt-1.5 text-[11px] font-medium text-cyan-100/75">
                 {copyNotice}
@@ -447,9 +472,13 @@ export default function PoliciesTab({
           <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
             No OpenShell network-rule recommendations for this sandbox.
           </div>
-        ) : filteredRules.length === 0 && !networkRulesError ? (
+        ) : visibleRules.length === 0 && !networkRulesError ? (
           <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
-            No OpenShell network rules match the current search.
+            {showRuleHistory
+              ? "No OpenShell network rules match the current search."
+              : hiddenHistoryCount > 0
+                ? "No pending policy requests. Approved and rejected rule history is hidden."
+                : "No pending policy requests."}
           </div>
         ) : (
           <div className="mt-3 space-y-3">
