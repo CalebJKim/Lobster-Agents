@@ -387,12 +387,12 @@ export default function App() {
       </div>
 
       <header className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3 max-md:left-3 max-md:right-3 max-md:top-3">
-        <div className="pointer-events-auto min-w-[380px] max-w-[420px] rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-6 py-4 text-white shadow-[0_18px_60px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md max-sm:hidden">
+        <div className="pointer-events-auto inline-flex rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-5 py-3.5 text-white shadow-[0_18px_60px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md max-sm:hidden">
           <div className="min-w-0">
-            <h1 className="text-[20px] font-semibold leading-7 [text-shadow:_0_1px_14px_rgba(255,255,255,0.14)]">
+            <h1 className="whitespace-nowrap text-[19px] font-semibold leading-6 [text-shadow:_0_1px_14px_rgba(255,255,255,0.14)]">
               NemoClaw Reef
             </h1>
-            <p className="mt-1 text-[13px] font-medium leading-5 text-white/78 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
+            <p className="mt-1 whitespace-nowrap text-[12.5px] font-medium leading-5 text-white/78 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
           </div>
         </div>
         <HeaderCluster
@@ -425,26 +425,26 @@ export default function App() {
         className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-2xl border border-white/24 bg-[#1c5f72]/72 shadow-[0_24px_80px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
           commsDockOpen
             ? `p-2 opacity-100 ${presentationMode ? "right-10 bottom-32 h-[56vh] max-h-[620px] w-[620px]" : "right-10 bottom-32 h-[390px] w-[620px]"} max-md:left-3 max-md:right-3 max-md:bottom-28 max-md:h-[40vh] max-md:!w-auto`
-            : "right-10 bottom-32 h-16 w-[248px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
+            : "right-10 bottom-32 h-14 w-[218px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
         }`}
       >
         {!commsDockOpen ? (
           <button
             type="button"
             onClick={() => setCommsDockOpen(true)}
-            className="flex h-full w-full items-center justify-between gap-4 px-5 text-left text-white"
+            className="flex h-full w-full items-center justify-between gap-3.5 px-4 text-left text-white"
             title="Open comms"
             aria-label="Open comms"
           >
             <span className="min-w-0">
-              <span className="block truncate text-[11px] font-bold uppercase leading-5 text-white/58">
+              <span className="block truncate text-[10.5px] font-bold uppercase leading-4 text-white/58">
                 Dock
               </span>
-              <span className="block truncate text-[13.5px] font-semibold leading-5 text-white/95">
+              <span className="block truncate text-[13px] font-semibold leading-5 text-white/95">
                 Comms Stream
               </span>
             </span>
-            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-white/18 px-3.5 text-[11px] font-bold leading-none text-white ring-1 ring-white/14">
+            <span className="grid h-8 shrink-0 place-items-center rounded-lg bg-white/16 px-2.5 text-[10.5px] font-bold leading-none text-white ring-1 ring-white/14">
               Open
             </span>
           </button>
@@ -535,7 +535,7 @@ export default function App() {
         className={`absolute left-10 z-20 max-lg:hidden overflow-hidden rounded-lg transition-all duration-300 ease-out ${
           sandboxDockOpen
             ? "top-24 bottom-32 w-[min(46vw,820px)] opacity-100"
-            : "bottom-32 h-16 w-[260px] opacity-95 hover:opacity-100"
+            : "bottom-32 h-14 w-[220px] opacity-95 hover:opacity-100"
         }`}
       >
         {sandboxDockOpen ? (
@@ -555,19 +555,19 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSandboxDockOpen(true)}
-            className="pointer-events-auto flex h-full w-full items-center justify-between gap-4 rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-5 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md"
+            className="pointer-events-auto flex h-full w-full items-center justify-between gap-3.5 rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-4 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md"
             title="Open sandboxes"
             aria-label="Open sandboxes"
           >
             <span className="min-w-0">
-              <span className="block truncate text-[11px] font-bold uppercase leading-5 text-white/58">
+              <span className="block truncate text-[10.5px] font-bold uppercase leading-4 text-white/58">
                 NemoClaw
               </span>
-              <span className="block truncate text-[13.5px] font-semibold leading-5 text-white/95">
+              <span className="block truncate text-[13px] font-semibold leading-5 text-white/95">
                 Sandboxes
               </span>
             </span>
-            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-white/18 px-3.5 text-[11px] font-bold leading-none text-white ring-1 ring-white/14">
+            <span className="grid h-8 shrink-0 place-items-center rounded-lg bg-white/16 px-2.5 text-[10.5px] font-bold leading-none text-white ring-1 ring-white/14">
               Open
             </span>
           </button>
