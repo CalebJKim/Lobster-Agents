@@ -22,7 +22,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
     badge: "Code",
     description: "Create a small static app and preview the generated HTML from Run artifacts.",
     task:
-      "Build a tiny static web app for a Lobster Agents booth visitor. Do not use web search and do not start a long-running server. In your current working directory, create index.html, styles.css, and app.js. The page should look polished, explain NemoClaw sandboxes, OpenShell policies, and OpenClaw lobster teams, and include one small interactive button or toggle. After creating the files, report the exact filenames and tell the user to open index.html from the Run artifacts Preview link in this UI.",
+      "Build a tiny static web app for a Lobster Agents booth visitor. Do not use web search and do not start a long-running server. In your current working directory, create index.html, styles.css, and app.js. The page should look polished, explain NemoClaw sandboxes, OpenShell policies, and OpenClaw lobster teams, and include one small interactive button or toggle. Do not paste the source code in your final answer. After creating the files, give a short product summary, list the exact filenames, and tell the user to open the generated product from the Run artifacts Preview link in this UI.",
   },
   {
     id: "policy-denial",

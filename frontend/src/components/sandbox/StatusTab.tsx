@@ -281,6 +281,10 @@ export default function StatusTab({
         : "",
     [errors, failureDetail, failureKind, outputs, run, team, timedOut],
   );
+  const primaryHtmlArtifact = useMemo(
+    () => artifacts.find((artifact) => artifact.kind === "html" && artifact.url),
+    [artifacts],
+  );
 
   const copyRunSummary = async () => {
     if (!runSummaryText) return;
@@ -431,6 +435,34 @@ export default function StatusTab({
             in the Task Monitor to start one.
           </div>
         </div>
+      )}
+
+      {primaryHtmlArtifact && (
+        <section className="rounded-xl border border-cyan-300/24 bg-cyan-300/[0.07] px-4 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-cyan-100/78">
+                Generated product
+              </div>
+              <div className="mt-1 truncate font-mono text-[13px] font-semibold text-white/90">
+                {primaryHtmlArtifact.path}
+              </div>
+              {typeof primaryHtmlArtifact.size === "number" && (
+                <div className="mt-1 text-[11px] font-medium text-white/52">
+                  {Math.ceil(primaryHtmlArtifact.size / 1024)} KB HTML preview
+                </div>
+              )}
+            </div>
+            <a
+              href={primaryHtmlArtifact.url}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 rounded-lg bg-cyan-300/24 px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-cyan-50 transition hover:bg-cyan-300/36"
+            >
+              Open product
+            </a>
+          </div>
+        </section>
       )}
 
       {team.length > 0 && (
