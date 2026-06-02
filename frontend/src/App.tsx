@@ -37,7 +37,7 @@ function TeamSummary({ agents }: { agents: { name: string; state: string }[] }) 
   const dots = activeAgents.length === 0 ? agents.slice(0, 7) : activeAgents.slice(0, 7);
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl">
+    <div className="flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-4 text-[12px] font-semibold text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-xl">
       <span className="shrink-0 leading-none">{label}</span>
       <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
         {dots.map((a) => (
@@ -59,14 +59,14 @@ function ActiveStatus({ agents }: { agents: { state: string }[] }) {
 
   if (activeCount === 0) {
     return (
-      <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold leading-none text-white/88 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl sm:flex">
+      <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-4 text-[12px] font-semibold leading-none text-white/88 shadow-[0_14px_34px_rgba(3,26,36,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-xl sm:flex">
         Idle chat
       </div>
     );
   }
 
   return (
-    <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-cyan-50/35 bg-cyan-100/24 px-4 text-[12px] font-semibold leading-none text-white shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl sm:flex">
+    <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-white/24 bg-[#1c5f72]/78 px-4 text-[12px] font-semibold leading-none text-white shadow-[0_14px_34px_rgba(3,26,36,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-xl sm:flex">
       {activeCount} moving
     </div>
   );
@@ -86,7 +86,7 @@ function HeaderButton({
   return (
     <button
       onClick={onClick}
-      className={`h-10 shrink-0 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold leading-none text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl transition hover:bg-cyan-50/26 hover:text-white ${className}`}
+      className={`h-10 shrink-0 rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-4 text-[12px] font-semibold leading-none text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-xl transition hover:bg-[#287486]/82 hover:text-white ${className}`}
       title={title}
     >
       {children}
@@ -97,9 +97,9 @@ function HeaderButton({
 function HeaderStatus({ connected }: { connected: boolean }) {
   return (
     <div
-      className={`flex h-10 shrink-0 items-center rounded-2xl border px-4 text-[12px] font-semibold leading-none shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 backdrop-blur-xl ${
+      className={`flex h-10 shrink-0 items-center rounded-2xl border px-4 text-[12px] font-semibold leading-none shadow-[0_14px_34px_rgba(3,26,36,0.24)] ring-1 backdrop-blur-xl ${
         connected
-          ? "border-cyan-50/40 bg-cyan-100/24 text-white ring-white/20"
+          ? "border-white/26 bg-[#1c5f72]/76 text-white ring-cyan-50/16"
           : "border-rose-100/24 bg-rose-300/18 text-rose-50 ring-rose-200/20"
       }`}
     >
@@ -112,7 +112,7 @@ function HeaderPhase({ phase }: { phase: string }) {
   const label = phase === "idle" ? "Idle" : phase[0].toUpperCase() + phase.slice(1);
 
   return (
-    <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold leading-none text-white/88 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl sm:flex">
+    <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-4 text-[12px] font-semibold leading-none text-white/88 shadow-[0_14px_34px_rgba(3,26,36,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-xl sm:flex">
       {label}
     </div>
   );
@@ -154,7 +154,7 @@ function HeaderCluster({
       <button
         type="button"
         onClick={onOpenModelMenu}
-        className="hidden h-10 shrink-0 items-center gap-2 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl hover:bg-cyan-50/26 hover:text-white sm:flex"
+        className="hidden h-10 shrink-0 items-center gap-2 rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-4 text-[12px] font-semibold text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-xl hover:bg-[#287486]/82 hover:text-white sm:flex"
         title="Switch the LLM backend that drives the agents"
       >
         <span className="text-[10px] uppercase tracking-wider text-white/45">Model</span>
@@ -387,12 +387,12 @@ export default function App() {
       </div>
 
       <header className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3 max-md:left-3 max-md:right-3 max-md:top-3">
-        <div className="pointer-events-auto w-fit max-w-[330px] rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-5 py-4 text-white shadow-[0_18px_60px_rgba(4,22,31,0.20)] ring-1 ring-white/18 backdrop-blur-md max-sm:hidden">
+        <div className="pointer-events-auto min-w-[380px] max-w-[420px] rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-6 py-4 text-white shadow-[0_18px_60px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md max-sm:hidden">
           <div className="min-w-0">
-            <h1 className="text-[17px] font-semibold leading-5 [text-shadow:_0_1px_14px_rgba(255,255,255,0.14)]">
+            <h1 className="text-[20px] font-semibold leading-7 [text-shadow:_0_1px_14px_rgba(255,255,255,0.14)]">
               NemoClaw Reef
             </h1>
-            <p className="mt-1 text-[11.5px] font-medium leading-4 text-white/78 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
+            <p className="mt-1 text-[13px] font-medium leading-5 text-white/78 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
           </div>
         </div>
         <HeaderCluster
@@ -422,7 +422,7 @@ export default function App() {
       )}
 
       <section
-        className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-2xl border border-cyan-50/35 bg-cyan-100/20 shadow-[0_24px_80px_rgba(4,22,31,0.22)] ring-1 ring-white/18 backdrop-blur-md transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
+        className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-2xl border border-white/24 bg-[#1c5f72]/72 shadow-[0_24px_80px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
           commsDockOpen
             ? `p-2 opacity-100 ${presentationMode ? "right-10 bottom-32 h-[56vh] max-h-[620px] w-[620px]" : "right-10 bottom-32 h-[390px] w-[620px]"} max-md:left-3 max-md:right-3 max-md:bottom-28 max-md:h-[40vh] max-md:!w-auto`
             : "right-10 bottom-32 h-16 w-[248px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
@@ -444,7 +444,7 @@ export default function App() {
                 Comms Stream
               </span>
             </span>
-            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-cyan-50/22 px-3.5 text-[11px] font-bold leading-none text-white">
+            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-white/18 px-3.5 text-[11px] font-bold leading-none text-white ring-1 ring-white/14">
               Open
             </span>
           </button>
@@ -555,7 +555,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSandboxDockOpen(true)}
-            className="pointer-events-auto flex h-full w-full items-center justify-between gap-4 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-5 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.22)] ring-1 ring-white/18 backdrop-blur-md"
+            className="pointer-events-auto flex h-full w-full items-center justify-between gap-4 rounded-2xl border border-white/24 bg-[#1c5f72]/72 px-5 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.24)] ring-1 ring-cyan-50/14 backdrop-blur-md"
             title="Open sandboxes"
             aria-label="Open sandboxes"
           >
@@ -567,7 +567,7 @@ export default function App() {
                 Sandboxes
               </span>
             </span>
-            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-cyan-50/22 px-3.5 text-[11px] font-bold leading-none text-white">
+            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-white/18 px-3.5 text-[11px] font-bold leading-none text-white ring-1 ring-white/14">
               Open
             </span>
           </button>
