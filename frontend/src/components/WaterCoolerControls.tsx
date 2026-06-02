@@ -54,7 +54,7 @@ export default function WaterCoolerControls({ onSetWaterCooler }: WaterCoolerCon
     return (
       <button
         onClick={() => setOpen(true)}
-        className="h-8 shrink-0 rounded-lg bg-slate-950/48 px-3 text-[11px] font-semibold leading-none text-white/75 ring-1 ring-white/12 backdrop-blur-xl transition hover:bg-slate-950/62 hover:text-white"
+        className="h-9 shrink-0 rounded-xl border border-cyan-100/16 bg-cyan-950/42 px-3.5 text-[12px] font-semibold leading-none text-white/84 shadow-[0_12px_32px_rgba(3,26,36,0.18)] ring-1 ring-white/10 backdrop-blur-xl transition hover:bg-cyan-900/54 hover:text-white"
         title="Reef chat controls"
       >
         Reef Chat
