@@ -206,7 +206,8 @@ In 2-4 minutes:
 5. Run the **Relay Check** quick task.
 6. Open **Run + Outputs** to show timeline, outputs, diagnostics, and summary.
 7. Open **Policies** to show NemoClaw presets and OpenShell network rules.
-8. Click **Clean Demo** between visitors.
+8. Optional: run **Build Web App**, then open `index.html` from **Run artifacts**.
+9. Click **Clean Demo** between visitors.
 
 ## Clean Demo
 
