@@ -37,7 +37,7 @@ function TeamSummary({ agents }: { agents: { name: string; state: string }[] }) 
   const dots = activeAgents.length === 0 ? agents.slice(0, 7) : activeAgents.slice(0, 7);
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2 rounded-xl border border-cyan-100/16 bg-cyan-950/42 px-3.5 text-[12px] font-semibold text-white/84 shadow-[0_12px_32px_rgba(3,26,36,0.18)] ring-1 ring-white/10 backdrop-blur-xl">
+    <div className="flex h-10 shrink-0 items-center gap-2 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl">
       <span className="shrink-0 leading-none">{label}</span>
       <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
         {dots.map((a) => (
@@ -59,14 +59,14 @@ function ActiveStatus({ agents }: { agents: { state: string }[] }) {
 
   if (activeCount === 0) {
     return (
-      <div className="hidden h-9 shrink-0 items-center rounded-xl border border-cyan-100/16 bg-cyan-950/42 px-3.5 text-[12px] font-semibold leading-none text-white/76 shadow-[0_12px_32px_rgba(3,26,36,0.18)] ring-1 ring-white/10 backdrop-blur-xl sm:flex">
+      <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold leading-none text-white/88 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl sm:flex">
         Idle chat
       </div>
     );
   }
 
   return (
-    <div className="hidden h-9 shrink-0 items-center rounded-xl border border-cyan-100/18 bg-cyan-200/16 px-3.5 text-[12px] font-semibold leading-none text-white ring-1 ring-cyan-100/18 backdrop-blur-xl sm:flex">
+    <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-cyan-50/35 bg-cyan-100/24 px-4 text-[12px] font-semibold leading-none text-white shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl sm:flex">
       {activeCount} moving
     </div>
   );
@@ -86,7 +86,7 @@ function HeaderButton({
   return (
     <button
       onClick={onClick}
-      className={`h-9 shrink-0 rounded-xl border border-cyan-100/16 bg-cyan-950/42 px-3.5 text-[12px] font-semibold leading-none text-white/84 shadow-[0_12px_32px_rgba(3,26,36,0.18)] ring-1 ring-white/10 backdrop-blur-xl transition hover:bg-cyan-900/54 hover:text-white ${className}`}
+      className={`h-10 shrink-0 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold leading-none text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl transition hover:bg-cyan-50/26 hover:text-white ${className}`}
       title={title}
     >
       {children}
@@ -97,10 +97,10 @@ function HeaderButton({
 function HeaderStatus({ connected }: { connected: boolean }) {
   return (
     <div
-      className={`flex h-9 shrink-0 items-center rounded-xl border px-3.5 text-[12px] font-semibold leading-none ring-1 backdrop-blur-xl ${
+      className={`flex h-10 shrink-0 items-center rounded-2xl border px-4 text-[12px] font-semibold leading-none shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 backdrop-blur-xl ${
         connected
-          ? "border-emerald-100/18 bg-emerald-300/16 text-emerald-50 ring-emerald-200/20"
-          : "border-rose-100/18 bg-rose-300/16 text-rose-50 ring-rose-200/20"
+          ? "border-cyan-50/40 bg-cyan-100/24 text-white ring-white/20"
+          : "border-rose-100/24 bg-rose-300/18 text-rose-50 ring-rose-200/20"
       }`}
     >
       {connected ? "Live" : "Offline"}
@@ -112,7 +112,7 @@ function HeaderPhase({ phase }: { phase: string }) {
   const label = phase === "idle" ? "Idle" : phase[0].toUpperCase() + phase.slice(1);
 
   return (
-    <div className="hidden h-9 shrink-0 items-center rounded-xl border border-cyan-100/16 bg-cyan-950/42 px-3.5 text-[12px] font-semibold leading-none text-white/76 shadow-[0_12px_32px_rgba(3,26,36,0.18)] ring-1 ring-white/10 backdrop-blur-xl sm:flex">
+    <div className="hidden h-10 shrink-0 items-center rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold leading-none text-white/88 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl sm:flex">
       {label}
     </div>
   );
@@ -144,7 +144,7 @@ function HeaderCluster({
   activeModel: { label: string; kind: string } | null;
 }) {
   return (
-    <div className="pointer-events-auto flex max-w-[min(880px,calc(100vw-230px))] shrink flex-wrap items-start justify-end gap-2 max-md:max-w-[calc(100vw-1.5rem)]">
+    <div className="pointer-events-auto flex max-w-[min(960px,calc(100vw-220px))] shrink flex-wrap items-start justify-end gap-2.5 max-md:max-w-[calc(100vw-1.5rem)]">
       {workflowPhase !== "idle" && <HeaderPhase phase={workflowPhase} />}
       <TeamSummary agents={agents} />
       <ActiveStatus agents={agents} />
@@ -154,7 +154,7 @@ function HeaderCluster({
       <button
         type="button"
         onClick={onOpenModelMenu}
-        className="hidden h-9 shrink-0 items-center gap-2 rounded-xl border border-cyan-100/18 bg-cyan-950/42 px-3.5 text-[12px] font-semibold text-white/86 shadow-[0_12px_32px_rgba(3,26,36,0.18)] ring-1 ring-white/10 backdrop-blur-xl hover:bg-cyan-900/54 hover:text-white sm:flex"
+        className="hidden h-10 shrink-0 items-center gap-2 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-4 text-[12px] font-semibold text-white/92 shadow-[0_14px_34px_rgba(3,26,36,0.18)] ring-1 ring-white/18 backdrop-blur-xl hover:bg-cyan-50/26 hover:text-white sm:flex"
         title="Switch the LLM backend that drives the agents"
       >
         <span className="text-[10px] uppercase tracking-wider text-white/45">Model</span>
@@ -163,14 +163,14 @@ function HeaderCluster({
       <HeaderButton
         onClick={onOpenReadiness}
         title="Check demo readiness across backend, sandboxes, policies, and runtime"
-        className="hidden border-emerald-300/32 bg-emerald-300/12 text-emerald-50 hover:bg-emerald-300/24 md:block"
+        className="hidden md:block"
       >
         Demo Ready
       </HeaderButton>
       <HeaderButton
         onClick={onOpenLobsterBuilder}
         title="Build a Claw — spawn a new OpenClaw lobster profile"
-        className="border-cyan-300/40 bg-cyan-300/14 text-cyan-50 hover:bg-cyan-300/26"
+        className=""
       >
         🦞 Build a Claw
       </HeaderButton>
@@ -387,12 +387,12 @@ export default function App() {
       </div>
 
       <header className="pointer-events-none absolute left-5 right-5 top-5 z-20 flex items-start justify-between gap-3 max-md:left-3 max-md:right-3 max-md:top-3">
-        <div className="pointer-events-auto w-fit max-w-[360px] rounded-2xl border border-cyan-100/18 bg-cyan-950/42 px-[18px] py-[14px] text-white shadow-[0_18px_60px_rgba(4,22,31,0.20)] ring-1 ring-white/10 backdrop-blur-md max-sm:hidden">
+        <div className="pointer-events-auto w-fit max-w-[330px] rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-5 py-4 text-white shadow-[0_18px_60px_rgba(4,22,31,0.20)] ring-1 ring-white/18 backdrop-blur-md max-sm:hidden">
           <div className="min-w-0">
             <h1 className="text-[17px] font-semibold leading-5 [text-shadow:_0_1px_14px_rgba(255,255,255,0.14)]">
               NemoClaw Reef
             </h1>
-            <p className="mt-1 text-[11.5px] font-medium leading-4 text-white/66 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
+            <p className="mt-1 text-[11.5px] font-medium leading-4 text-white/78 max-sm:hidden">OpenClaw profiles in shared sandboxes</p>
           </div>
         </div>
         <HeaderCluster
@@ -422,29 +422,29 @@ export default function App() {
       )}
 
       <section
-        className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-xl border border-cyan-100/18 bg-cyan-950/42 shadow-[0_24px_80px_rgba(4,22,31,0.22)] ring-1 ring-white/10 backdrop-blur-md transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
+        className={`pointer-events-auto absolute z-20 flex overflow-hidden rounded-2xl border border-cyan-50/35 bg-cyan-100/20 shadow-[0_24px_80px_rgba(4,22,31,0.22)] ring-1 ring-white/18 backdrop-blur-md transition-[width,height,max-height,opacity,transform] duration-300 ease-out max-md:top-auto ${
           commsDockOpen
             ? `p-2 opacity-100 ${presentationMode ? "right-10 bottom-32 h-[56vh] max-h-[620px] w-[620px]" : "right-10 bottom-32 h-[390px] w-[620px]"} max-md:left-3 max-md:right-3 max-md:bottom-28 max-md:h-[40vh] max-md:!w-auto`
-            : "right-10 bottom-32 h-14 w-[210px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
+            : "right-10 bottom-32 h-16 w-[248px] p-0 opacity-95 hover:opacity-100 max-md:right-3 max-md:bottom-28"
         }`}
       >
         {!commsDockOpen ? (
           <button
             type="button"
             onClick={() => setCommsDockOpen(true)}
-            className="flex h-full w-full items-center justify-between gap-3 px-4 text-left text-white"
+            className="flex h-full w-full items-center justify-between gap-4 px-5 text-left text-white"
             title="Open comms"
             aria-label="Open comms"
           >
             <span className="min-w-0">
-              <span className="block truncate text-[11px] font-bold uppercase leading-4 text-white/46">
+              <span className="block truncate text-[11px] font-bold uppercase leading-5 text-white/58">
                 Dock
               </span>
-              <span className="block truncate text-[13px] font-semibold leading-5 text-white/90">
+              <span className="block truncate text-[13.5px] font-semibold leading-5 text-white/95">
                 Comms Stream
               </span>
             </span>
-            <span className="grid h-8 shrink-0 place-items-center rounded-lg bg-cyan-200/18 px-3 text-[11px] font-bold leading-none text-cyan-50">
+            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-cyan-50/22 px-3.5 text-[11px] font-bold leading-none text-white">
               Open
             </span>
           </button>
@@ -535,7 +535,7 @@ export default function App() {
         className={`absolute left-10 z-20 max-lg:hidden overflow-hidden rounded-lg transition-all duration-300 ease-out ${
           sandboxDockOpen
             ? "top-24 bottom-32 w-[min(46vw,820px)] opacity-100"
-            : "bottom-32 h-14 w-[224px] opacity-95 hover:opacity-100"
+            : "bottom-32 h-16 w-[260px] opacity-95 hover:opacity-100"
         }`}
       >
         {sandboxDockOpen ? (
@@ -555,19 +555,19 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSandboxDockOpen(true)}
-            className="pointer-events-auto flex h-full w-full items-center justify-between gap-3 rounded-xl border border-cyan-100/18 bg-cyan-950/42 px-4 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.22)] ring-1 ring-white/10 backdrop-blur-md"
+            className="pointer-events-auto flex h-full w-full items-center justify-between gap-4 rounded-2xl border border-cyan-50/35 bg-cyan-100/20 px-5 text-left text-white shadow-[0_24px_80px_rgba(4,22,31,0.22)] ring-1 ring-white/18 backdrop-blur-md"
             title="Open sandboxes"
             aria-label="Open sandboxes"
           >
             <span className="min-w-0">
-              <span className="block truncate text-[11px] font-bold uppercase leading-4 text-white/46">
+              <span className="block truncate text-[11px] font-bold uppercase leading-5 text-white/58">
                 NemoClaw
               </span>
-              <span className="block truncate text-[13px] font-semibold leading-5 text-white/90">
+              <span className="block truncate text-[13.5px] font-semibold leading-5 text-white/95">
                 Sandboxes
               </span>
             </span>
-            <span className="grid h-8 shrink-0 place-items-center rounded-lg bg-cyan-200/18 px-3 text-[11px] font-bold leading-none text-cyan-50">
+            <span className="grid h-9 shrink-0 place-items-center rounded-xl bg-cyan-50/22 px-3.5 text-[11px] font-bold leading-none text-white">
               Open
             </span>
           </button>
