@@ -158,7 +158,7 @@ function HeaderCluster({
         title="Switch the LLM backend that drives the agents"
       >
         <span className="text-[10px] uppercase tracking-wider text-white/45">Model</span>
-        <span className="max-w-[180px] truncate">{activeModel?.label ?? "—"}</span>
+        <span className="max-w-[180px] truncate">Model Endpoints</span>
       </button>
       <HeaderButton
         onClick={onOpenReadiness}
