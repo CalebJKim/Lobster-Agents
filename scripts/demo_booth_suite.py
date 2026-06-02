@@ -526,10 +526,11 @@ def scenario_report(ctx: Context) -> Scenario:
 
 def scenario_coding(ctx: Context) -> Scenario:
     task = (
-        "Coding booth workflow. Do not use web search. In your working directory, create a tiny static website "
-        "for a Lobster Agents demo with index.html and styles.css. The page should explain sandboxes, policies, "
-        "and a lobster/crab team in visitor-friendly language. After creating files, report exact filenames, "
-        "whether a browser-shareable URL is available in this UI, and one command someone would run to preview it."
+        "Build a tiny static web app for a Lobster Agents booth visitor. Do not use web search and do not start "
+        "a long-running server. In your current working directory, create index.html, styles.css, and app.js. "
+        "The page should look polished, explain NemoClaw sandboxes, OpenShell policies, and OpenClaw lobster teams, "
+        "and include one small interactive button or toggle. After creating the files, report the exact filenames "
+        "and tell the user to open index.html from the Run artifacts Preview link in this UI."
     )
     result = run_task(
         ctx,
@@ -757,7 +758,7 @@ def write_reports(ctx: Context, cleanup_results: list[dict[str, Any]]) -> tuple[
         "",
         "## Demo Readiness Interpretation",
         "",
-        "- PASS means the workflow is booth-ready on the current Spark backend.",
+        "- PASS means the workflow is booth-ready on the current demo station.",
         "- WARN means the app surfaced the truth, but the story needs positioning or setup before a visitor can rely on it.",
         "- FAIL means a hard reliability issue that should be fixed before using that workflow live.",
         "",
