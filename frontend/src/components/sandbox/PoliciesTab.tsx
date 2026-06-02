@@ -95,6 +95,55 @@ function networkRulesSummaryText(rules: OpenShellNetworkRule[]): string {
   return lines.join("\n");
 }
 
+function PolicyPreviewPanel({
+  preview,
+  busy,
+  onApply,
+  onCancelPreview,
+}: {
+  preview: PolicyPreview;
+  busy: string | null;
+  onApply: () => void;
+  onCancelPreview: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-cyan-300/30 bg-cyan-300/[0.08] px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-cyan-100/85">
+            Preview ready
+          </div>
+          <div className="mt-0.5 text-[13px] font-semibold text-white">
+            Will {preview.enabled ? "enable" : "disable"} {preview.preset}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onCancelPreview}
+            className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/72 hover:bg-white/[0.16] hover:text-white"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={busy === preview.preset}
+            className="rounded-md bg-cyan-300/30 px-3 py-1 text-[11px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
+          >
+            {busy === preview.preset ? "Applying..." : "Apply"}
+          </button>
+        </div>
+      </div>
+      {preview.output && (
+        <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded bg-slate-950/40 px-3 py-2 font-mono text-[11px] leading-4 text-white/75">
+          {preview.output}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function RuleCard({
   rule,
   busy,
@@ -601,6 +650,16 @@ export default function PoliciesTab({
             {notice}
           </div>
         )}
+        {preview && (
+          <div className="mt-3">
+            <PolicyPreviewPanel
+              preview={preview}
+              busy={busy}
+              onApply={onApply}
+              onCancelPreview={onCancelPreview}
+            />
+          </div>
+        )}
 
         {policies.length === 0 && !error ? (
           <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-[12px] text-white/55">
@@ -649,7 +708,7 @@ export default function PoliciesTab({
                       onClick={() => onPreview(p.name, nextEnabled)}
                       className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/82 hover:bg-white/[0.16] disabled:opacity-40"
                     >
-                      {isBusy ? "Working..." : `Preview turning ${nextEnabled ? "on" : "off"}`}
+                      {isBusy ? "Previewing..." : `Preview ${nextEnabled ? "enable" : "disable"}`}
                     </button>
                   </div>
                 </div>
@@ -659,42 +718,6 @@ export default function PoliciesTab({
         )}
       </section>
 
-      {preview && (
-        <div className="rounded-xl border border-cyan-300/30 bg-cyan-300/[0.08] px-4 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-cyan-100/85">
-                Preview
-              </div>
-              <div className="mt-0.5 text-[13px] font-semibold text-white">
-                Will {preview.enabled ? "enable" : "disable"} {preview.preset}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={onCancelPreview}
-                className="rounded-md bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/72 hover:bg-white/[0.16] hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onApply}
-                disabled={busy === preview.preset}
-                className="rounded-md bg-cyan-300/30 px-3 py-1 text-[11px] font-bold uppercase text-cyan-50 hover:bg-cyan-300/45 disabled:opacity-40"
-              >
-                {busy === preview.preset ? "Applying..." : "Apply"}
-              </button>
-            </div>
-          </div>
-          {preview.output && (
-            <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded bg-slate-950/40 px-3 py-2 font-mono text-[11px] leading-4 text-white/75">
-              {preview.output}
-            </pre>
-          )}
-        </div>
-      )}
     </div>
   );
 }
