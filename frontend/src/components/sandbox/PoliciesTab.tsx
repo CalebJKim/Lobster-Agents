@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   NemoClawCredentialCheck,
   NemoClawPolicyPreset,
   OpenClawApprovalsStatus,
-  OpenClawWebSearchProvider,
-  OpenClawWebSearchStatus,
   OpenShellNetworkRule,
   OpenShellNetworkRulesStatus,
 } from "../../types";
@@ -37,51 +35,6 @@ interface PoliciesTabProps {
   ) => void;
   onNetworkRulesApproveAll?: () => void;
   onNetworkRulesClearPending?: () => void;
-  webSearch?: OpenClawWebSearchStatus | null;
-  webSearchBusy?: boolean;
-  onWebSearchReload?: () => void;
-  onWebSearchProviderChange?: (
-    provider: OpenClawWebSearchProvider,
-    ollamaBaseUrl?: string | null,
-  ) => void;
-}
-
-const WEB_SEARCH_OPTIONS: Array<{
-  provider: OpenClawWebSearchProvider;
-  label: string;
-  tag: string;
-  description: string;
-}> = [
-  {
-    provider: "duckduckgo",
-    label: "DuckDuckGo",
-    tag: "no key",
-    description: "Good demo fallback for live web-search without storing a key.",
-  },
-  {
-    provider: "ollama",
-    label: "Ollama",
-    tag: "local/cloud",
-    description: "Uses Ollama Web Search through a signed-in local daemon or Ollama Cloud.",
-  },
-  {
-    provider: "brave",
-    label: "Brave",
-    tag: "API key",
-    description: "Best when BRAVE_API_KEY is configured inside the sandbox.",
-  },
-  {
-    provider: "auto",
-    label: "Auto",
-    tag: "OpenClaw",
-    description: "Let OpenClaw pick from configured web-search providers.",
-  },
-];
-
-function providerLabel(provider: OpenClawWebSearchProvider | null | undefined): string {
-  if (!provider) return "unknown";
-  return WEB_SEARCH_OPTIONS.find((option) => option.provider === provider)?.label
-    ?? provider.toString();
 }
 
 function statusClass(status: OpenShellNetworkRule["status"]) {
@@ -355,17 +308,11 @@ export default function PoliciesTab({
   onNetworkRuleDecision,
   onNetworkRulesApproveAll,
   onNetworkRulesClearPending,
-  webSearch,
-  webSearchBusy = false,
-  onWebSearchReload,
-  onWebSearchProviderChange,
 }: PoliciesTabProps) {
   const [clearPendingConfirm, setClearPendingConfirm] = useState(false);
   const [ruleQuery, setRuleQuery] = useState("");
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [showRuleHistory, setShowRuleHistory] = useState(false);
-  const [webProviderDraft, setWebProviderDraft] = useState<OpenClawWebSearchProvider>("duckduckgo");
-  const [ollamaBaseDraft, setOllamaBaseDraft] = useState("");
   const rules = networkRules?.rules ?? [];
   const allPendingRules = useMemo(
     () => rules.filter((rule) => rule.status === "pending"),
@@ -402,15 +349,6 @@ export default function PoliciesTab({
     () => showRuleHistory ? visibleRules.filter((rule) => rule.status === "rejected") : [],
     [showRuleHistory, visibleRules],
   );
-  const webSearchDirty =
-    webProviderDraft !== (webSearch?.provider ?? "auto") ||
-    (webProviderDraft === "ollama" &&
-      ollamaBaseDraft.trim() !== (webSearch?.ollama_base_url ?? webSearch?.plugin_ollama_base_url ?? ""));
-
-  useEffect(() => {
-    setWebProviderDraft(webSearch?.provider ?? "auto");
-    setOllamaBaseDraft(webSearch?.ollama_base_url ?? webSearch?.plugin_ollama_base_url ?? "");
-  }, [webSearch?.provider, webSearch?.ollama_base_url, webSearch?.plugin_ollama_base_url]);
 
   const handleClearPending = () => {
     if (!clearPendingConfirm) {
@@ -429,13 +367,6 @@ export default function PoliciesTab({
       setCopyNotice("Could not copy automatically.");
     }
     window.setTimeout(() => setCopyNotice(null), 2200);
-  };
-
-  const submitWebSearchProvider = () => {
-    onWebSearchProviderChange?.(
-      webProviderDraft,
-      webProviderDraft === "ollama" ? ollamaBaseDraft : null,
-    );
   };
 
   return (
@@ -474,130 +405,6 @@ export default function PoliciesTab({
           <span className="rounded-full bg-cyan-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-cyan-100">
             exec ask: {approvals?.summary?.ask ?? "unknown"}
           </span>
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-cyan-300/16 bg-cyan-300/[0.045] px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-cyan-100/55">
-              OpenClaw web search
-            </div>
-            <div className="mt-1.5 text-[12px] leading-5 text-white/66">
-              This selects the provider behind OpenClaw&apos;s <span className="font-mono text-cyan-50/80">web_search</span> tool for this sandbox. OpenShell still denies unapproved outbound traffic first and surfaces network-rule requests below.
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onWebSearchReload ?? onReload}
-            disabled={webSearchBusy}
-            className="shrink-0 rounded-md bg-white/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/70 hover:bg-white/[0.16] disabled:opacity-40"
-          >
-            Reload
-          </button>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-          <span className="rounded-full bg-white/[0.08] px-2.5 py-0.5 font-semibold uppercase tracking-wide text-white/60">
-            active: {providerLabel(webSearch?.provider)}
-          </span>
-          {webSearch?.keyless && (
-            <span className="rounded-full bg-emerald-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-emerald-100">
-              keyless path
-            </span>
-          )}
-          {webSearch?.credentials && webSearch.credentials.length > 0 && (
-            <span className="rounded-full bg-amber-300/14 px-2.5 py-0.5 font-semibold uppercase tracking-wide text-amber-100">
-              setup: {webSearch.credentials.join(" / ")}
-            </span>
-          )}
-        </div>
-
-        {webSearch?.error && (
-          <div className="mt-3 rounded-lg border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-[12px] text-rose-100">
-            {webSearch.error}
-          </div>
-        )}
-
-        <div className="mt-3 grid gap-2 md:grid-cols-4">
-          {WEB_SEARCH_OPTIONS.map((option) => {
-            const selected = webProviderDraft === option.provider;
-            return (
-              <button
-                key={option.provider}
-                type="button"
-                onClick={() => setWebProviderDraft(option.provider)}
-                disabled={webSearchBusy}
-                className={`rounded-xl border px-3 py-3 text-left transition disabled:opacity-45 ${
-                  selected
-                    ? "border-cyan-200/42 bg-cyan-300/[0.12]"
-                    : "border-white/10 bg-white/[0.04] hover:border-white/22 hover:bg-white/[0.07]"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-[12px] font-semibold text-white/88">
-                    {option.label}
-                  </div>
-                  <span className="rounded-full bg-white/[0.08] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white/52">
-                    {option.tag}
-                  </span>
-                </div>
-                <div className="mt-1 text-[11px] leading-4 text-white/55">
-                  {option.description}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {webProviderDraft === "ollama" && (
-          <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/28 px-3 py-2">
-            <label className="block text-[9px] font-bold uppercase tracking-wide text-white/38">
-              Ollama base URL
-            </label>
-            <div className="mt-1 flex flex-col gap-2 sm:flex-row">
-              <input
-                value={ollamaBaseDraft}
-                onChange={(event) => setOllamaBaseDraft(event.target.value)}
-                placeholder="http://host.openshell.internal:11434"
-                disabled={webSearchBusy}
-                className="h-9 min-w-0 flex-1 rounded-md border border-white/10 bg-slate-950/50 px-2.5 font-mono text-[12px] text-white outline-none placeholder:text-white/30 focus:border-cyan-200/40 disabled:opacity-45"
-              />
-              <button
-                type="button"
-                onClick={() => setOllamaBaseDraft("http://host.openshell.internal:11434")}
-                disabled={webSearchBusy}
-                className="h-9 rounded-md bg-white/[0.08] px-2.5 text-[10px] font-bold uppercase tracking-wide text-white/70 hover:bg-white/[0.16] disabled:opacity-40"
-              >
-                Local host
-              </button>
-              <button
-                type="button"
-                onClick={() => setOllamaBaseDraft("https://ollama.com")}
-                disabled={webSearchBusy}
-                className="h-9 rounded-md bg-white/[0.08] px-2.5 text-[10px] font-bold uppercase tracking-wide text-white/70 hover:bg-white/[0.16] disabled:opacity-40"
-              >
-                Cloud
-              </button>
-            </div>
-            <div className="mt-1.5 text-[11px] leading-4 text-white/48">
-              Local search requires the host Ollama daemon to be signed in. Cloud search requires OpenClaw/Ollama credentials configured outside this UI.
-            </div>
-          </div>
-        )}
-
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <div className="text-[11px] leading-4 text-white/48">
-            Recommended booth fallback: DuckDuckGo. Use Ollama once the demo station&apos;s Ollama search path is verified.
-          </div>
-          <button
-            type="button"
-            onClick={submitWebSearchProvider}
-            disabled={!onWebSearchProviderChange || webSearchBusy || !webSearchDirty}
-            className="shrink-0 rounded-md bg-cyan-300/25 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-50 hover:bg-cyan-300/38 disabled:cursor-not-allowed disabled:bg-white/[0.07] disabled:text-white/35"
-          >
-            {webSearchBusy ? "Saving" : "Save provider"}
-          </button>
         </div>
       </section>
 

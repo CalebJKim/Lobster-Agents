@@ -304,39 +304,6 @@ export interface NemoClawCredentialCheck {
   message: string;
 }
 
-export type OpenClawWebSearchProvider =
-  | "auto"
-  | "brave"
-  | "duckduckgo"
-  | "ollama"
-  | "searxng"
-  | "tavily"
-  | "perplexity"
-  | "exa"
-  | "firecrawl"
-  | "gemini"
-  | "grok"
-  | "kimi"
-  | "minimax"
-  | string;
-
-export interface OpenClawWebSearchStatus {
-  ok?: boolean;
-  sandbox_name?: string | null;
-  provider: OpenClawWebSearchProvider;
-  configured_provider?: OpenClawWebSearchProvider | null;
-  raw_provider?: string | null;
-  label?: string;
-  credentials?: string[];
-  keyless?: boolean;
-  ollama_base_url?: string | null;
-  plugin_ollama_base_url?: string | null;
-  supported_providers?: string[];
-  recommended_providers?: string[];
-  output?: string;
-  error?: string | null;
-}
-
 export interface OpenClawApprovalsStatus {
   approvals_path?: string | null;
   snapshot?: {

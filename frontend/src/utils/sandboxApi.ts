@@ -8,8 +8,6 @@ import type {
   NemoClawPolicyStatus,
   NemoClawStatus,
   OpenClawApprovalsStatus,
-  OpenClawWebSearchProvider,
-  OpenClawWebSearchStatus,
   OpenShellNetworkRuleActionResult,
   OpenShellNetworkRulesStatus,
   SandboxRunArtifacts,
@@ -90,47 +88,6 @@ export async function fetchNetworkRules(
   };
   if (!res.ok) {
     throw new Error(body.detail || body.error || `Could not load network rules (${res.status})`);
-  }
-  return body;
-}
-
-export async function fetchWebSearchStatus(
-  sandboxName: string,
-): Promise<OpenClawWebSearchStatus> {
-  const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/web-search`, {
-    cache: "no-store",
-  });
-  const body = (await res.json().catch(() => ({}))) as OpenClawWebSearchStatus & {
-    detail?: string;
-  };
-  if (!res.ok) {
-    throw new Error(body.detail || body.error || `Could not load web search config (${res.status})`);
-  }
-  return body;
-}
-
-export async function setWebSearchProvider(
-  sandboxName: string,
-  provider: OpenClawWebSearchProvider,
-  ollamaBaseUrl?: string | null,
-): Promise<OpenClawWebSearchStatus> {
-  const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/web-search`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      provider,
-      ollama_base_url: ollamaBaseUrl?.trim() || null,
-    }),
-  });
-  const body = (await res.json().catch(() => ({}))) as OpenClawWebSearchStatus & {
-    detail?: string;
-  };
-  if (!res.ok) {
-    return {
-      provider,
-      ok: false,
-      error: body.error || body.detail || `Web search config update failed (${res.status})`,
-    };
   }
   return body;
 }
