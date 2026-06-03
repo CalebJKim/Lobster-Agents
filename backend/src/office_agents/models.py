@@ -104,6 +104,11 @@ class SandboxPolicyRequest(BaseModel):
     dry_run: bool = True
 
 
+class WebSearchProviderRequest(BaseModel):
+    provider: str = Field(min_length=1, max_length=40)
+    ollama_base_url: str | None = Field(default=None, max_length=240)
+
+
 class NetworkRuleDecisionRequest(BaseModel):
     decision: str
 

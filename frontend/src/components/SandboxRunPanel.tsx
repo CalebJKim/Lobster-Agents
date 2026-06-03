@@ -8,6 +8,8 @@ import type {
   NemoClawRunStatus,
   NemoClawSandbox,
   OpenClawApprovalsStatus,
+  OpenClawWebSearchProvider,
+  OpenClawWebSearchStatus,
   OpenShellNetworkRule,
   OpenShellNetworkRulesStatus,
   SandboxRunDiagnostics,
@@ -19,10 +21,12 @@ import {
   decideNetworkRule,
   fetchApprovals,
   fetchDemoReadiness,
+  fetchWebSearchStatus,
   fetchNetworkRules,
   fetchPolicies,
   fetchRunDiagnostics,
   setPolicy,
+  setWebSearchProvider,
 } from "../utils/sandboxApi";
 import { DEMO_SCENARIOS } from "../utils/demoScenarios";
 import { statusDot } from "./sandbox/format";
@@ -110,6 +114,10 @@ function missingCredentialNames(readiness: DemoReadiness): string[] {
     .map((check) => check.name);
 }
 
+function normalizeWebSearchProvider(status: OpenClawWebSearchStatus | null): string {
+  return (status?.provider || "auto").toString().toLowerCase();
+}
+
 function isHermesAgent(agent: AgentInfo): boolean {
   return agent.runtime === "hermes" || agent.species === "crab";
 }
@@ -151,6 +159,8 @@ export default function SandboxRunPanel({
   const [networkRules, setNetworkRules] = useState<OpenShellNetworkRulesStatus | null>(null);
   const [networkRulesError, setNetworkRulesError] = useState<string | null>(null);
   const [networkRulesBusy, setNetworkRulesBusy] = useState<string | null>(null);
+  const [webSearch, setWebSearch] = useState<OpenClawWebSearchStatus | null>(null);
+  const [webSearchBusy, setWebSearchBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SandboxRunDiagnostics | null>(null);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [policyBusy, setPolicyBusy] = useState<string | null>(null);
@@ -183,10 +193,11 @@ export default function SandboxRunPanel({
   const loadPolicies = useCallback(async () => {
     setNetworkRulesBusy((current) => current ?? "reload");
     try {
-      const [data, approvalData, networkData] = await Promise.allSettled([
+      const [data, approvalData, networkData, webSearchData] = await Promise.allSettled([
         fetchPolicies(sandbox.name),
         fetchApprovals(sandbox.name),
         fetchNetworkRules(sandbox.name),
+        fetchWebSearchStatus(sandbox.name),
       ]);
       if (data.status === "fulfilled") {
         setPolicies(data.value.policies ?? []);
@@ -210,6 +221,17 @@ export default function SandboxRunPanel({
             ? networkData.reason.message
             : "Could not load OpenShell network rules",
         );
+      }
+      if (webSearchData.status === "fulfilled") {
+        setWebSearch(webSearchData.value);
+      } else {
+        setWebSearch({
+          provider: "auto",
+          ok: false,
+          error: webSearchData.reason instanceof Error
+            ? webSearchData.reason.message
+            : "Could not load OpenClaw web search config",
+        });
       }
     } catch (err) {
       setPoliciesError(err instanceof Error ? err.message : "Could not load policies");
@@ -316,6 +338,27 @@ export default function SandboxRunPanel({
     await loadPolicies();
     await onAfterChange?.();
   }, [loadPolicies, onAfterChange, sandbox.name]);
+
+  const handleWebSearchProviderChange = useCallback(
+    async (provider: OpenClawWebSearchProvider, ollamaBaseUrl?: string | null) => {
+      setWebSearchBusy(true);
+      setPolicyNotice(null);
+      const result = await setWebSearchProvider(sandbox.name, provider, ollamaBaseUrl);
+      setWebSearchBusy(false);
+      if (result.error) {
+        setPolicyNotice(result.error);
+        return;
+      }
+      setWebSearch(result);
+      setPolicyNotice(
+        result.output ||
+          `OpenClaw web_search provider set to ${result.provider || provider}.`,
+      );
+      await loadPolicies();
+      await onAfterChange?.();
+    },
+    [loadPolicies, onAfterChange, sandbox.name],
+  );
 
   const backendRun = sandbox.run_status ?? null;
   const run =
@@ -436,6 +479,8 @@ export default function SandboxRunPanel({
     setNetworkRules(null);
     setNetworkRulesError(null);
     setNetworkRulesBusy(null);
+    setWebSearch(null);
+    setWebSearchBusy(false);
     setRunPreflight(null);
   }, [sandbox.name]);
 
@@ -504,7 +549,13 @@ export default function SandboxRunPanel({
     setPreflightBusy(true);
     setTaskNotice(null);
     try {
-      const readiness = await fetchDemoReadiness(sandbox.name);
+      const [readiness, preflightWebSearch] = await Promise.all([
+        fetchDemoReadiness(sandbox.name),
+        fetchWebSearchStatus(sandbox.name).catch(() => webSearch),
+      ]);
+      if (preflightWebSearch) {
+        setWebSearch(preflightWebSearch);
+      }
       const blockers: PreflightIssue[] = [];
       const warnings: PreflightIssue[] = [];
 
@@ -544,12 +595,27 @@ export default function SandboxRunPanel({
       }
 
       const missingCredentials = missingCredentialNames(readiness);
-      if (taskNeedsExternalWeb(task) && missingCredentials.includes("BRAVE_API_KEY")) {
-        blockers.push({
-          id: "web_credentials",
-          label: "Web research credential missing",
-          detail: "This task appears to need external web search, but BRAVE_API_KEY is missing. Use a local/no-web scenario or configure Brave before running.",
-        });
+      const webProvider = normalizeWebSearchProvider(preflightWebSearch);
+      if (taskNeedsExternalWeb(task)) {
+        if (webProvider === "brave" && missingCredentials.includes("BRAVE_API_KEY")) {
+          blockers.push({
+            id: "web_credentials",
+            label: "Brave search credential missing",
+            detail: "This sandbox is configured to use Brave for OpenClaw web_search, but BRAVE_API_KEY is missing. Switch the provider to DuckDuckGo/Ollama or configure Brave before running.",
+          });
+        } else if (webProvider === "ollama") {
+          warnings.push({
+            id: "web_search_ollama",
+            label: "Ollama web search requires setup",
+            detail: "Ollama search needs the demo station's Ollama daemon signed in or Ollama Cloud credentials configured outside this UI. OpenShell may still surface network-rule approvals on first use.",
+          });
+        } else if (webProvider === "auto" && missingCredentials.includes("BRAVE_API_KEY")) {
+          warnings.push({
+            id: "web_search_auto",
+            label: "Auto web search may avoid Brave",
+            detail: "BRAVE_API_KEY is missing, but this sandbox is not pinned to Brave. If the run fails, switch the web-search provider to DuckDuckGo or Ollama in Policies.",
+          });
+        }
       }
 
       setRunPreflight({
@@ -576,7 +642,7 @@ export default function SandboxRunPanel({
     } finally {
       setPreflightBusy(false);
     }
-  }, [assignedNames, hermesAssigned, preflightBusy, runActive, sandbox.live, sandbox.name, taskBusy, taskDraft]);
+  }, [assignedNames, hermesAssigned, preflightBusy, runActive, sandbox.live, sandbox.name, taskBusy, taskDraft, webSearch]);
 
   const confirmRunTask = useCallback(async () => {
     if (!runPreflight || runPreflight.blockers.length > 0) return;
@@ -1128,6 +1194,10 @@ export default function SandboxRunPanel({
               onNetworkRuleDecision={handleNetworkRuleDecision}
               onNetworkRulesApproveAll={handleApproveAllNetworkRules}
               onNetworkRulesClearPending={handleClearPendingNetworkRules}
+              webSearch={webSearch}
+              webSearchBusy={webSearchBusy}
+              onWebSearchReload={loadPolicies}
+              onWebSearchProviderChange={handleWebSearchProviderChange}
             />
           )}
 

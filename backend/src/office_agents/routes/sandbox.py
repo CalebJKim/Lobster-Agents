@@ -21,6 +21,7 @@ from office_agents.models import (
     SandboxPolicyRequest,
     SandboxTaskRequest,
     SandboxTeamRequest,
+    WebSearchProviderRequest,
 )
 from office_agents.sandbox_runtime.nemoclaw import (
     approve_all_network_rules,
@@ -31,10 +32,12 @@ from office_agents.sandbox_runtime.nemoclaw import (
     get_nemoclaw_status,
     get_network_rules,
     get_openclaw_approvals,
+    get_openclaw_web_search_provider,
     get_policy_presets,
     list_task_artifacts,
     read_task_artifact,
     set_policy_preset,
+    set_openclaw_web_search_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -546,6 +549,29 @@ async def update_sandbox_policy(sandbox_name: str, req: SandboxPolicyRequest) ->
     )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error") or "Policy update failed")
+    return result
+
+
+@router.get("/sandboxes/{sandbox_name}/web-search")
+async def get_sandbox_web_search(sandbox_name: str) -> dict[str, object]:
+    result = await get_openclaw_web_search_provider(sandbox_name)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "Web search config unavailable")
+    return result
+
+
+@router.post("/sandboxes/{sandbox_name}/web-search")
+async def update_sandbox_web_search(
+    sandbox_name: str,
+    req: WebSearchProviderRequest,
+) -> dict[str, object]:
+    result = await set_openclaw_web_search_provider(
+        sandbox_name,
+        req.provider,
+        ollama_base_url=req.ollama_base_url,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "Web search config update failed")
     return result
 
 

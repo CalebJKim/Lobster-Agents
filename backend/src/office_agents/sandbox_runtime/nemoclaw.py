@@ -19,6 +19,50 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SAFE_CHUNK_ID = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\a]*(?:\a|\x1b\\)")
 _NETWORK_RULE_STATUSES = {"pending", "approved", "rejected", "all"}
+_WEB_SEARCH_PROVIDERS = {
+    "auto",
+    "brave",
+    "duckduckgo",
+    "exa",
+    "firecrawl",
+    "gemini",
+    "grok",
+    "kimi",
+    "minimax",
+    "ollama",
+    "perplexity",
+    "searxng",
+    "tavily",
+}
+_WEB_SEARCH_PROVIDER_LABELS: dict[str, str] = {
+    "auto": "Auto",
+    "duckduckgo": "DuckDuckGo",
+    "ollama": "Ollama Web Search",
+    "brave": "Brave Search",
+    "tavily": "Tavily",
+    "perplexity": "Perplexity",
+    "exa": "Exa",
+    "firecrawl": "Firecrawl",
+    "searxng": "SearXNG",
+    "gemini": "Gemini",
+    "grok": "Grok",
+    "kimi": "Kimi",
+    "minimax": "MiniMax",
+}
+_WEB_SEARCH_CREDENTIALS: dict[str, list[str]] = {
+    "brave": ["BRAVE_API_KEY"],
+    "tavily": ["TAVILY_API_KEY"],
+    "perplexity": ["PERPLEXITY_API_KEY"],
+    "exa": ["EXA_API_KEY"],
+    "firecrawl": ["FIRECRAWL_API_KEY"],
+    "gemini": ["GEMINI_API_KEY"],
+    "grok": ["XAI_API_KEY"],
+    "kimi": ["KIMI_API_KEY"],
+    "minimax": ["MINIMAX_API_KEY"],
+    # Ollama can be local+signed-in or cloud API-key backed. The UI treats
+    # this as a setup note rather than a hard credential requirement.
+    "ollama": ["OLLAMA_API_KEY or ollama signin"],
+}
 _ARTIFACT_TEXT_EXTENSIONS = {
     ".css", ".csv", ".html", ".htm", ".js", ".json", ".log", ".md",
     ".svg", ".txt", ".ts", ".tsx", ".xml", ".yaml", ".yml",
@@ -808,6 +852,228 @@ async def clear_pending_network_rules(
         "sandbox_name": sandbox_name,
         "output": output,
         "error": None if run.returncode == 0 else output,
+    }
+
+
+def _clean_config_value(value: str) -> str | None:
+    text = _strip_ansi(str(value or "")).strip()
+    if not text or text.lower() in {"undefined", "null", "none"}:
+        return None
+    if (text.startswith('"') and text.endswith('"')) or (
+        text.startswith("'") and text.endswith("'")
+    ):
+        text = text[1:-1].strip()
+    return text or None
+
+
+def _web_search_provider_meta(provider: str) -> dict[str, Any]:
+    normalized = provider if provider in _WEB_SEARCH_PROVIDERS else "auto"
+    return {
+        "provider": normalized,
+        "label": _WEB_SEARCH_PROVIDER_LABELS.get(normalized, normalized),
+        "credentials": _WEB_SEARCH_CREDENTIALS.get(normalized, []),
+        "keyless": normalized in {"auto", "duckduckgo", "searxng"},
+    }
+
+
+async def get_openclaw_web_search_provider(
+    sandbox_name: str,
+    *,
+    timeout_seconds: int = 10,
+) -> dict[str, Any]:
+    """Read OpenClaw's sandbox-local web_search provider configuration."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "sandbox_name": sandbox_name, "error": "Invalid sandbox name"}
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": "OpenShell CLI was not found on PATH.",
+            "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        }
+
+    script = (
+        'set +e; '
+        'provider="$(openclaw config get tools.web.search.provider 2>/tmp/openclaw-web-provider.err)"; pc=$?; '
+        'ollama_base="$(openclaw config get models.providers.ollama.baseUrl 2>/tmp/openclaw-web-ollama-base.err)"; bc=$?; '
+        'plugin_base="$(openclaw config get plugins.entries.ollama.config.webSearch.baseUrl 2>/tmp/openclaw-web-ollama-plugin-base.err)"; pbc=$?; '
+        'provider_err="$(cat /tmp/openclaw-web-provider.err 2>/dev/null)"; '
+        'python3 -c \'import json,sys; '
+        'print(json.dumps({"provider":sys.argv[1],"provider_status":sys.argv[2],'
+        '"ollama_base_url":sys.argv[3],"ollama_base_status":sys.argv[4],'
+        '"plugin_ollama_base_url":sys.argv[5],"plugin_ollama_base_status":sys.argv[6],'
+        '"provider_error":sys.argv[7]}))\' '
+        '"$provider" "$pc" "$ollama_base" "$bc" "$plugin_base" "$pbc" "$provider_err"'
+    )
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--timeout",
+        str(timeout_seconds),
+        "--",
+        "sh",
+        "-lc",
+        script,
+        timeout_seconds=timeout_seconds + 5,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": f"OpenClaw web-search config read timed out after {timeout_seconds}s",
+            "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        }
+    if run.returncode != 0:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": output or f"OpenShell exited with code {run.returncode}",
+            "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        }
+
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": "OpenClaw web-search config returned invalid JSON.",
+            "raw": output[:1200],
+            "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        }
+
+    raw_provider = _clean_config_value(str(parsed.get("provider") or "")) or "auto"
+    provider = raw_provider if raw_provider in _WEB_SEARCH_PROVIDERS else "auto"
+    meta = _web_search_provider_meta(provider)
+    return {
+        "ok": True,
+        "sandbox_name": sandbox_name,
+        "provider": provider,
+        "configured_provider": None if provider == "auto" else provider,
+        "raw_provider": raw_provider,
+        "label": meta["label"],
+        "credentials": meta["credentials"],
+        "keyless": meta["keyless"],
+        "ollama_base_url": _clean_config_value(str(parsed.get("ollama_base_url") or "")),
+        "plugin_ollama_base_url": _clean_config_value(
+            str(parsed.get("plugin_ollama_base_url") or "")
+        ),
+        "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        "recommended_providers": ["duckduckgo", "ollama", "brave", "auto"],
+        "error": None,
+    }
+
+
+async def set_openclaw_web_search_provider(
+    sandbox_name: str,
+    provider: str,
+    *,
+    ollama_base_url: str | None = None,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    """Set OpenClaw's sandbox-local web_search provider.
+
+    This intentionally configures provider metadata only. Secret API keys stay
+    out of the app and should be supplied through OpenClaw/NemoClaw host setup.
+    """
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "sandbox_name": sandbox_name, "error": "Invalid sandbox name"}
+
+    normalized = (provider or "").strip().lower()
+    if normalized not in _WEB_SEARCH_PROVIDERS:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": f"Unsupported web search provider: {provider}",
+            "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        }
+
+    base_url = (ollama_base_url or "").strip()
+    if base_url and not re.match(r"^https?://[A-Za-z0-9_.:/-]+$", base_url):
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": "Ollama base URL must be http(s) and contain only URL-safe characters.",
+        }
+
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "error": "OpenShell CLI was not found on PATH.",
+            "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        }
+
+    provider_cmd = (
+        'openclaw config unset tools.web.search.provider'
+        if normalized == "auto"
+        else 'openclaw config set tools.web.search.provider "$1"'
+    )
+    ollama_cmd = (
+        'if [ "$2" ]; then '
+        'openclaw config set models.providers.ollama.baseUrl "$2"; '
+        'openclaw config set plugins.entries.ollama.config.webSearch.baseUrl "$2"; '
+        'fi'
+        if normalized == "ollama"
+        else ':'
+    )
+    script = (
+        'set -e; provider="$1"; base_url="$2"; '
+        f'{provider_cmd}; '
+        f'{ollama_cmd}; '
+        'openclaw config validate >/tmp/openclaw-web-validate.log 2>&1 || '
+        '{ cat /tmp/openclaw-web-validate.log; exit 1; }; '
+        'echo "web_search provider updated to ${provider:-auto}"; '
+        'if [ "$base_url" ]; then echo "ollama baseUrl set to $base_url"; fi'
+    )
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--timeout",
+        str(timeout_seconds),
+        "--",
+        "sh",
+        "-lc",
+        script,
+        "openclaw-web-search-provider",
+        "" if normalized == "auto" else normalized,
+        base_url,
+        timeout_seconds=timeout_seconds + 5,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "provider": normalized,
+            "output": output,
+            "error": f"OpenClaw web-search config update timed out after {timeout_seconds}s",
+        }
+    if run.returncode != 0:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "provider": normalized,
+            "output": output,
+            "error": output or f"OpenShell exited with code {run.returncode}",
+        }
+
+    status = await get_openclaw_web_search_provider(sandbox_name)
+    return {
+        **status,
+        "ok": bool(status.get("ok")),
+        "output": output,
+        "provider": normalized if normalized != "auto" else str(status.get("provider") or "auto"),
     }
 
 
