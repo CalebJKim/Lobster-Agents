@@ -130,6 +130,23 @@ const PROVIDER_OPTIONS: OpenClawWebSearchProvider[] = [
   "tavily",
 ];
 
+const RECENT_REJECTED_HIT_WINDOW_MS = 20 * 60 * 1000;
+
+function ruleSeenTime(value?: string | null): number | null {
+  if (!value) return null;
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const parsed = Date.parse(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function recentlyBlockedByRejectedRule(rule: OpenShellNetworkRule): boolean {
+  if (rule.status !== "rejected") return false;
+  if (typeof rule.hit_count !== "number" || rule.hit_count <= 0) return false;
+  const lastSeen = ruleSeenTime(rule.last_seen || rule.first_seen);
+  if (lastSeen === null) return false;
+  return Date.now() - lastSeen <= RECENT_REJECTED_HIT_WINDOW_MS;
+}
+
 function PolicyPreviewPanel({
   preview,
   busy,
@@ -382,7 +399,9 @@ export default function PoliciesTab({
   const visibleRules = useMemo(
     () => showRuleHistory
       ? filteredRules
-      : filteredRules.filter((rule) => rule.status === "pending"),
+      : filteredRules.filter((rule) => (
+        rule.status === "pending" || recentlyBlockedByRejectedRule(rule)
+      )),
     [filteredRules, showRuleHistory],
   );
   const pendingRules = useMemo(
@@ -394,8 +413,8 @@ export default function PoliciesTab({
     [showRuleHistory, visibleRules],
   );
   const rejectedRules = useMemo(
-    () => showRuleHistory ? visibleRules.filter((rule) => rule.status === "rejected") : [],
-    [showRuleHistory, visibleRules],
+    () => visibleRules.filter((rule) => rule.status === "rejected"),
+    [visibleRules],
   );
 
   useEffect(() => {
@@ -606,7 +625,7 @@ export default function PoliciesTab({
               OpenShell network rules
             </div>
             <div className="mt-1 text-[12px] leading-5 text-white/65">
-              OpenShell denies first, records the attempted outbound access, then proposes a minimal policy rule. Approving lets future fetch/curl retries through after policy hot-reload; Brave-style web_search still needs its own search credential/provider.
+              OpenShell denies first, records the attempted outbound access, then proposes a minimal endpoint + binary rule. Approving lets that same tool retry after policy hot-reload; Brave-style web_search still needs its own search credential/provider.
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
@@ -687,12 +706,12 @@ export default function PoliciesTab({
             </div>
             {!showRuleHistory && hiddenHistoryCount > 0 && (
               <div className="mt-1.5 text-[11px] font-medium text-white/45">
-                Showing pending requests only. Approved and rejected rule history remains available but hidden for demo clarity; decisions can take 5-15 seconds to hot-reload.
+                Showing pending requests plus recently active rejected rules. Rules are tool-specific, so curl and Node/web-fetch can need separate approvals for the same host. Older approved/rejected history stays hidden for demo clarity; decisions can take 5-15 seconds to hot-reload.
               </div>
             )}
             {!showRuleHistory && allPendingRules.length === 0 && allRejectedRules.length > 0 && (
               <div className="mt-1.5 text-[11px] font-medium text-amber-100/72">
-                If a request seems blocked but no new card appears, show history: a matching rejected rule can keep blocking future attempts without creating a fresh pending request.
+                If a request is still blocked and no card appears, show history: a matching older rejected rule can keep blocking future attempts without creating a fresh pending request.
               </div>
             )}
             {copyNotice && (
@@ -762,8 +781,13 @@ export default function PoliciesTab({
             {rejectedRules.length > 0 && (
               <div className="space-y-2">
                 <div className="text-[10px] font-bold uppercase tracking-wide text-rose-100/75">
-                  Rejected
+                  {showRuleHistory ? "Rejected" : "Blocked by rejected history"}
                 </div>
+                {!showRuleHistory && (
+                  <div className="rounded-lg border border-rose-300/20 bg-rose-300/[0.07] px-3 py-2 text-[12px] leading-5 text-rose-50/78">
+                    This endpoint + binary rule was recently active and is now rejected, so matching retries can be blocked without creating a new pending card. Approve it to allow future retries after policy hot-reload.
+                  </div>
+                )}
                 {rejectedRules.map((rule) => (
                   <RuleCard
                     key={rule.id}
