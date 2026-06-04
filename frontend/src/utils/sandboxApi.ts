@@ -8,6 +8,9 @@ import type {
   NemoClawPolicyStatus,
   NemoClawStatus,
   OpenClawApprovalsStatus,
+  OpenClawWebSearchProvider,
+  OpenClawWebSearchStatus,
+  OpenClawWebSearchUpdateResult,
   OpenShellNetworkRuleActionResult,
   OpenShellNetworkRulesStatus,
   SandboxRunArtifacts,
@@ -175,6 +178,50 @@ export async function clearPendingNetworkRules(
     `/sandboxes/${encodeURIComponent(sandboxName)}/network-rules/clear-pending`,
     { method: "POST" },
   );
+}
+
+export async function fetchWebSearchStatus(
+  sandboxName: string,
+): Promise<OpenClawWebSearchStatus> {
+  const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/web-search`, {
+    cache: "no-store",
+  });
+  const body = (await res.json().catch(() => ({}))) as OpenClawWebSearchStatus & {
+    detail?: string;
+  };
+  if (!res.ok) {
+    throw new Error(body.detail || body.error || `Could not load web search setup (${res.status})`);
+  }
+  return body;
+}
+
+export async function setWebSearchProvider(
+  sandboxName: string,
+  provider: OpenClawWebSearchProvider,
+  options?: {
+    ollamaBaseUrl?: string | null;
+    rebuildSandbox?: boolean;
+  },
+): Promise<OpenClawWebSearchUpdateResult> {
+  const res = await fetch(`/sandboxes/${encodeURIComponent(sandboxName)}/web-search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      provider,
+      ollama_base_url: options?.ollamaBaseUrl ?? null,
+      rebuild_sandbox: options?.rebuildSandbox ?? false,
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as OpenClawWebSearchUpdateResult & {
+    detail?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: body.error || body.detail || `Web search setup failed (${res.status})`,
+    };
+  }
+  return body;
 }
 
 /** Never throws — failures return `{ ok: false, error }`. Use when the caller

@@ -110,3 +110,9 @@ class NetworkRuleDecisionRequest(BaseModel):
 
 class NetworkRuleApproveAllRequest(BaseModel):
     include_security_flagged: bool = False
+
+
+class WebSearchProviderRequest(BaseModel):
+    provider: str = Field(pattern=r"^(auto|brave|duckduckgo|ollama|searxng|google|tavily)$")
+    ollama_base_url: str | None = Field(default=None, max_length=240)
+    rebuild_sandbox: bool = False

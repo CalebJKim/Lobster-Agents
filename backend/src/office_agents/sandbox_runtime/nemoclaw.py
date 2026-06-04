@@ -9,6 +9,9 @@ import os
 import re
 import shutil
 from typing import Any
+from urllib.parse import urlparse, urlunparse
+
+import httpx
 
 from ._subprocess import run_capture
 from ..config import settings
@@ -19,6 +22,12 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _SAFE_CHUNK_ID = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\a]*(?:\a|\x1b\\)")
 _NETWORK_RULE_STATUSES = {"pending", "approved", "rejected", "all"}
+_WEB_SEARCH_PROVIDERS = {"auto", "brave", "duckduckgo", "ollama", "searxng", "google", "tavily"}
+_WEB_SEARCH_CONFIG_PATH = "tools.web.search.provider"
+_OLLAMA_PLUGIN_BASE_URL_PATH = "plugins.entries.ollama.config.webSearch.baseUrl"
+_OLLAMA_MODEL_BASE_URL_PATH = "models.providers.ollama.baseUrl"
+_DEFAULT_SANDBOX_OLLAMA_BASE_URL = "http://host.openshell.internal:11434"
+_ALLOWED_OLLAMA_HOSTS = {"host.openshell.internal", "127.0.0.1", "localhost", "ollama.com"}
 _ARTIFACT_TEXT_EXTENSIONS = {
     ".css", ".csv", ".html", ".htm", ".js", ".json", ".log", ".md",
     ".svg", ".txt", ".ts", ".tsx", ".xml", ".yaml", ".yml",
@@ -808,6 +817,346 @@ async def clear_pending_network_rules(
         "sandbox_name": sandbox_name,
         "output": output,
         "error": None if run.returncode == 0 else output,
+    }
+
+
+def _parse_openclaw_config_value(output: str) -> str | None:
+    clean = _strip_ansi(output).strip()
+    if not clean:
+        return None
+    if "path not found" in clean.lower():
+        return None
+    try:
+        parsed = json.loads(clean)
+    except json.JSONDecodeError:
+        parsed = clean
+    if isinstance(parsed, dict):
+        value = parsed.get("value")
+    else:
+        value = parsed
+    if value is None:
+        return None
+    text = str(value).strip().strip('"').strip("'")
+    return text or None
+
+
+async def _openclaw_config_get(path: str, *, timeout_seconds: int = 10) -> dict[str, Any]:
+    openclaw_cmd = _which("openclaw")
+    if not openclaw_cmd:
+        return {"present": False, "value": None, "error": "OpenClaw CLI was not found on PATH."}
+    run = await run_capture(
+        openclaw_cmd,
+        "config",
+        "get",
+        path,
+        timeout_seconds=timeout_seconds,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "present": False,
+            "value": None,
+            "raw": output,
+            "error": f"openclaw config get timed out after {timeout_seconds}s",
+        }
+    value = _parse_openclaw_config_value(output)
+    return {
+        "present": value is not None,
+        "value": value,
+        "raw": output,
+        "error": None if run.returncode == 0 or value is None else output,
+    }
+
+
+async def _sandbox_openclaw_config_get(
+    sandbox_name: str,
+    path: str,
+    *,
+    timeout_seconds: int = 15,
+) -> dict[str, Any]:
+    openshell_cmd = _which("openshell")
+    if not openshell_cmd:
+        return {"present": False, "value": None, "error": "OpenShell CLI was not found on PATH."}
+    run = await run_capture(
+        openshell_cmd,
+        "sandbox",
+        "exec",
+        "--name",
+        sandbox_name,
+        "--timeout",
+        str(timeout_seconds),
+        "--no-tty",
+        "--",
+        "openclaw",
+        "config",
+        "get",
+        path,
+        timeout_seconds=timeout_seconds + 5,
+    )
+    output = _strip_ansi(run.stdout or run.stderr).strip()
+    if run.timed_out:
+        return {
+            "present": False,
+            "value": None,
+            "raw": output,
+            "error": f"sandbox openclaw config get timed out after {timeout_seconds}s",
+        }
+    value = _parse_openclaw_config_value(output)
+    return {
+        "present": value is not None,
+        "value": value,
+        "raw": output,
+        "error": None if run.returncode == 0 or value is None else output,
+    }
+
+
+def _normalize_web_search_provider(provider: str | None) -> str:
+    value = (provider or "").strip().lower()
+    return value if value in _WEB_SEARCH_PROVIDERS else "auto"
+
+
+def _validate_ollama_base_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip().rstrip("/")
+    if not text:
+        return None
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Ollama base URL must be an http(s) URL.")
+    if parsed.hostname not in _ALLOWED_OLLAMA_HOSTS:
+        allowed = ", ".join(sorted(_ALLOWED_OLLAMA_HOSTS))
+        raise ValueError(f"Ollama base URL host must be one of: {allowed}.")
+    return text
+
+
+def _ollama_probe_url(configured_base_url: str | None) -> str | None:
+    if not configured_base_url:
+        return None
+    parsed = urlparse(configured_base_url)
+    if parsed.hostname not in {"host.openshell.internal", "127.0.0.1", "localhost"}:
+        return None
+    netloc = parsed.netloc
+    if parsed.hostname == "host.openshell.internal":
+        netloc = netloc.replace("host.openshell.internal", "127.0.0.1", 1)
+    return urlunparse((parsed.scheme, netloc, parsed.path.rstrip("/"), "", "", ""))
+
+
+async def _probe_local_ollama(base_url: str | None, *, timeout_seconds: float = 4.0) -> dict[str, Any]:
+    probe_base = _ollama_probe_url(base_url)
+    if not probe_base:
+        return {
+            "base_url": base_url,
+            "probe_url": None,
+            "service_ok": None,
+            "message": "Local Ollama probe is skipped for non-local base URLs.",
+        }
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await client.get(f"{probe_base}/api/tags")
+        return {
+            "base_url": base_url,
+            "probe_url": probe_base,
+            "service_ok": response.status_code < 500,
+            "status_code": response.status_code,
+            "message": "Ollama service responded." if response.status_code < 500 else "Ollama service returned an error.",
+        }
+    except httpx.TimeoutException:
+        return {
+            "base_url": base_url,
+            "probe_url": probe_base,
+            "service_ok": False,
+            "message": f"Ollama probe timed out after {timeout_seconds}s.",
+        }
+    except httpx.HTTPError as exc:
+        return {
+            "base_url": base_url,
+            "probe_url": probe_base,
+            "service_ok": False,
+            "message": str(exc),
+        }
+
+
+async def get_web_search_status(
+    sandbox_name: str,
+    *,
+    timeout_seconds: int = 15,
+) -> dict[str, Any]:
+    """Return host desired and sandbox-active OpenClaw web-search config.
+
+    OpenClaw config changes must be made on the host before a sandbox is
+    rebuilt. Running ``openclaw configure`` inside an OpenShell sandbox is not
+    durable and can fail, so this status intentionally separates host desired
+    values from sandbox active values.
+    """
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+
+    host_provider_result = await _openclaw_config_get(_WEB_SEARCH_CONFIG_PATH, timeout_seconds=timeout_seconds)
+    host_ollama_result = await _openclaw_config_get(_OLLAMA_PLUGIN_BASE_URL_PATH, timeout_seconds=timeout_seconds)
+    host_model_ollama_result = await _openclaw_config_get(_OLLAMA_MODEL_BASE_URL_PATH, timeout_seconds=timeout_seconds)
+    sandbox_provider_result = await _sandbox_openclaw_config_get(
+        sandbox_name,
+        _WEB_SEARCH_CONFIG_PATH,
+        timeout_seconds=timeout_seconds,
+    )
+    sandbox_ollama_result = await _sandbox_openclaw_config_get(
+        sandbox_name,
+        _OLLAMA_PLUGIN_BASE_URL_PATH,
+        timeout_seconds=timeout_seconds,
+    )
+
+    host_provider = _normalize_web_search_provider(host_provider_result.get("value"))
+    sandbox_provider = _normalize_web_search_provider(sandbox_provider_result.get("value"))
+    host_ollama_url = (
+        str(host_ollama_result.get("value") or host_model_ollama_result.get("value") or "").strip()
+        or None
+    )
+    sandbox_ollama_url = str(sandbox_ollama_result.get("value") or "").strip() or None
+    desired_ollama_url = host_ollama_url or _DEFAULT_SANDBOX_OLLAMA_BASE_URL
+    provider_needs_rebuild = host_provider != sandbox_provider
+    ollama_needs_rebuild = (
+        host_provider == "ollama"
+        and bool(host_ollama_url)
+        and sandbox_ollama_url != host_ollama_url
+    )
+
+    return {
+        "ok": True,
+        "sandbox_name": sandbox_name,
+        "supported_providers": sorted(_WEB_SEARCH_PROVIDERS),
+        "host_provider": host_provider,
+        "sandbox_provider": sandbox_provider,
+        "effective_provider": sandbox_provider or host_provider or "auto",
+        "needs_rebuild": provider_needs_rebuild or ollama_needs_rebuild,
+        "host_ollama_base_url": host_ollama_url,
+        "sandbox_ollama_base_url": sandbox_ollama_url,
+        "default_ollama_base_url": _DEFAULT_SANDBOX_OLLAMA_BASE_URL,
+        "ollama": await _probe_local_ollama(desired_ollama_url),
+        "notes": [
+            "web_search provider config is OpenClaw runtime config, not a NemoClaw/OpenShell network policy.",
+            "OpenShell network rules can still deny the provider's outbound requests and surface approve/reject recommendations.",
+            "If host_provider and sandbox_provider differ, rebuild this sandbox before testing web_search.",
+        ],
+        "errors": {
+            "host_provider": host_provider_result.get("error"),
+            "sandbox_provider": sandbox_provider_result.get("error"),
+            "host_ollama": host_ollama_result.get("error") or host_model_ollama_result.get("error"),
+            "sandbox_ollama": sandbox_ollama_result.get("error"),
+        },
+    }
+
+
+async def set_web_search_provider(
+    sandbox_name: str,
+    *,
+    provider: str,
+    ollama_base_url: str | None = None,
+    rebuild_sandbox: bool = False,
+    timeout_seconds: int = 900,
+) -> dict[str, Any]:
+    """Set host OpenClaw web-search provider and optionally rebuild a sandbox."""
+    if not _SAFE_NAME.match(sandbox_name):
+        return {"ok": False, "error": "Invalid sandbox name"}
+
+    raw_provider = (provider or "").strip().lower()
+    if raw_provider not in _WEB_SEARCH_PROVIDERS:
+        return {"ok": False, "error": "Unsupported web search provider."}
+    normalized_provider = raw_provider
+
+    try:
+        normalized_ollama_url = _validate_ollama_base_url(
+            ollama_base_url or (_DEFAULT_SANDBOX_OLLAMA_BASE_URL if normalized_provider == "ollama" else None)
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    openclaw_cmd = _which("openclaw")
+    if not openclaw_cmd:
+        return {"ok": False, "error": "OpenClaw CLI was not found on PATH."}
+
+    outputs: list[str] = []
+    errors: list[str] = []
+    config_commands: list[list[str]] = []
+    if normalized_provider == "auto":
+        config_commands.append([openclaw_cmd, "config", "unset", _WEB_SEARCH_CONFIG_PATH])
+    else:
+        config_commands.append([openclaw_cmd, "config", "set", _WEB_SEARCH_CONFIG_PATH, normalized_provider])
+    if normalized_provider == "ollama" and normalized_ollama_url:
+        config_commands.append([
+            openclaw_cmd,
+            "config",
+            "set",
+            _OLLAMA_PLUGIN_BASE_URL_PATH,
+            normalized_ollama_url,
+        ])
+        config_commands.append([
+            openclaw_cmd,
+            "config",
+            "set",
+            _OLLAMA_MODEL_BASE_URL_PATH,
+            normalized_ollama_url,
+        ])
+
+    for command in config_commands:
+        run = await run_capture(*command, timeout_seconds=20)
+        output = _strip_ansi(run.stdout or run.stderr).strip()
+        if output:
+            outputs.append(output)
+        if run.timed_out:
+            errors.append(f"{' '.join(command[1:])} timed out")
+        elif command[2] == "unset" and "path not found" in output.lower():
+            continue
+        elif run.returncode != 0:
+            errors.append(output or f"{' '.join(command[1:])} failed")
+    if errors:
+        return {
+            "ok": False,
+            "sandbox_name": sandbox_name,
+            "provider": normalized_provider,
+            "ollama_base_url": normalized_ollama_url,
+            "output": "\n".join(outputs),
+            "error": "\n".join(errors),
+        }
+
+    rebuild_result: dict[str, Any] | None = None
+    if rebuild_sandbox:
+        nemoclaw_cmd = _which("nemoclaw")
+        if not nemoclaw_cmd:
+            return {
+                "ok": False,
+                "sandbox_name": sandbox_name,
+                "provider": normalized_provider,
+                "ollama_base_url": normalized_ollama_url,
+                "output": "\n".join(outputs),
+                "error": "NemoClaw CLI was not found on PATH for sandbox rebuild.",
+            }
+        run = await run_capture(
+            nemoclaw_cmd,
+            sandbox_name,
+            "rebuild",
+            "--yes",
+            timeout_seconds=timeout_seconds,
+        )
+        rebuild_output = _strip_ansi("\n".join(part for part in (run.stdout, run.stderr) if part)).strip()
+        rebuild_result = {
+            "ok": run.returncode == 0 and not run.timed_out,
+            "timed_out": run.timed_out,
+            "output": rebuild_output,
+            "error": None if run.returncode == 0 and not run.timed_out else rebuild_output or "Sandbox rebuild failed.",
+        }
+        outputs.append(rebuild_output)
+
+    status = await get_web_search_status(sandbox_name)
+    return {
+        "ok": True if not rebuild_result else bool(rebuild_result.get("ok")),
+        "sandbox_name": sandbox_name,
+        "provider": normalized_provider,
+        "ollama_base_url": normalized_ollama_url,
+        "rebuild": rebuild_result,
+        "status": status,
+        "output": "\n".join(part for part in outputs if part).strip(),
+        "error": None if not rebuild_result or rebuild_result.get("ok") else rebuild_result.get("error"),
     }
 
 

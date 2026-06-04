@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   NemoClawCredentialCheck,
   NemoClawPolicyPreset,
   OpenClawApprovalsStatus,
+  OpenClawWebSearchProvider,
+  OpenClawWebSearchStatus,
   OpenShellNetworkRule,
   OpenShellNetworkRulesStatus,
 } from "../../types";
@@ -28,6 +30,10 @@ interface PoliciesTabProps {
   networkRules?: OpenShellNetworkRulesStatus | null;
   networkRulesError?: string | null;
   networkRulesBusy?: string | null;
+  webSearchStatus?: OpenClawWebSearchStatus | null;
+  webSearchBusy?: boolean;
+  webSearchNotice?: string | null;
+  webSearchError?: string | null;
   onNetworkRulesReload?: () => void;
   onNetworkRuleDecision?: (
     rule: OpenShellNetworkRule,
@@ -35,6 +41,12 @@ interface PoliciesTabProps {
   ) => void;
   onNetworkRulesApproveAll?: () => void;
   onNetworkRulesClearPending?: () => void;
+  onWebSearchReload?: () => void;
+  onWebSearchConfigure?: (
+    provider: OpenClawWebSearchProvider,
+    ollamaBaseUrl: string | null,
+    rebuildSandbox: boolean,
+  ) => void;
 }
 
 function statusClass(status: OpenShellNetworkRule["status"]) {
@@ -94,6 +106,29 @@ function networkRulesSummaryText(rules: OpenShellNetworkRule[]): string {
   }
   return lines.join("\n");
 }
+
+function providerLabel(provider?: string | null): string {
+  if (!provider) return "auto";
+  return provider.replace(/_/g, " ");
+}
+
+function providerBadgeClass(provider?: string | null, needsRebuild = false): string {
+  if (needsRebuild) return "border-amber-300/28 bg-amber-300/[0.10] text-amber-50";
+  if (provider === "ollama") return "border-cyan-300/24 bg-cyan-300/[0.10] text-cyan-50";
+  if (provider === "duckduckgo") return "border-emerald-300/22 bg-emerald-300/[0.08] text-emerald-50";
+  if (provider === "brave") return "border-violet-300/24 bg-violet-300/[0.08] text-violet-50";
+  return "border-white/10 bg-white/[0.05] text-white/68";
+}
+
+const PROVIDER_OPTIONS: OpenClawWebSearchProvider[] = [
+  "ollama",
+  "duckduckgo",
+  "brave",
+  "auto",
+  "searxng",
+  "google",
+  "tavily",
+];
 
 function PolicyPreviewPanel({
   preview,
@@ -304,15 +339,24 @@ export default function PoliciesTab({
   networkRules,
   networkRulesError,
   networkRulesBusy,
+  webSearchStatus,
+  webSearchBusy = false,
+  webSearchNotice,
+  webSearchError,
   onNetworkRulesReload,
   onNetworkRuleDecision,
   onNetworkRulesApproveAll,
   onNetworkRulesClearPending,
+  onWebSearchReload,
+  onWebSearchConfigure,
 }: PoliciesTabProps) {
   const [clearPendingConfirm, setClearPendingConfirm] = useState(false);
   const [ruleQuery, setRuleQuery] = useState("");
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [showRuleHistory, setShowRuleHistory] = useState(false);
+  const [webProviderDraft, setWebProviderDraft] = useState<OpenClawWebSearchProvider>("ollama");
+  const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = useState("");
+  const [rebuildAfterWebConfig, setRebuildAfterWebConfig] = useState(false);
   const rules = networkRules?.rules ?? [];
   const allPendingRules = useMemo(
     () => rules.filter((rule) => rule.status === "pending"),
@@ -320,6 +364,10 @@ export default function PoliciesTab({
   );
   const allApprovedRules = useMemo(
     () => rules.filter((rule) => rule.status === "approved"),
+    [rules],
+  );
+  const allRejectedRules = useMemo(
+    () => rules.filter((rule) => rule.status === "rejected"),
     [rules],
   );
   const hiddenHistoryCount = useMemo(
@@ -350,6 +398,23 @@ export default function PoliciesTab({
     [showRuleHistory, visibleRules],
   );
 
+  useEffect(() => {
+    const provider = (webSearchStatus?.host_provider || webSearchStatus?.effective_provider || "ollama") as OpenClawWebSearchProvider;
+    if (PROVIDER_OPTIONS.includes(provider)) setWebProviderDraft(provider);
+    setOllamaBaseUrlDraft(
+      webSearchStatus?.host_ollama_base_url
+        || webSearchStatus?.default_ollama_base_url
+        || "http://host.openshell.internal:11434",
+    );
+    setRebuildAfterWebConfig(Boolean(webSearchStatus?.needs_rebuild));
+  }, [
+    webSearchStatus?.default_ollama_base_url,
+    webSearchStatus?.effective_provider,
+    webSearchStatus?.host_ollama_base_url,
+    webSearchStatus?.host_provider,
+    webSearchStatus?.needs_rebuild,
+  ]);
+
   const handleClearPending = () => {
     if (!clearPendingConfirm) {
       setClearPendingConfirm(true);
@@ -367,6 +432,14 @@ export default function PoliciesTab({
       setCopyNotice("Could not copy automatically.");
     }
     window.setTimeout(() => setCopyNotice(null), 2200);
+  };
+
+  const submitWebSearchConfig = () => {
+    onWebSearchConfigure?.(
+      webProviderDraft,
+      webProviderDraft === "ollama" ? ollamaBaseUrlDraft.trim() : null,
+      rebuildAfterWebConfig,
+    );
   };
 
   return (
@@ -412,10 +485,128 @@ export default function PoliciesTab({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
+              OpenClaw web search provider
+            </div>
+            <div className="mt-1 text-[12px] leading-5 text-white/65">
+              This controls the OpenClaw `web_search` provider inherited by rebuilt sandboxes. It does not approve network egress; OpenShell rules below still surface provider traffic for approve/reject.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onWebSearchReload ?? onReload}
+            disabled={webSearchBusy}
+            className="shrink-0 rounded-md bg-white/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white/70 hover:bg-white/[0.16] disabled:opacity-40"
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+          <span className={`rounded-full border px-2.5 py-0.5 font-semibold uppercase tracking-wide ${providerBadgeClass(webSearchStatus?.host_provider)}`}>
+            host desired: {providerLabel(webSearchStatus?.host_provider)}
+          </span>
+          <span className={`rounded-full border px-2.5 py-0.5 font-semibold uppercase tracking-wide ${providerBadgeClass(webSearchStatus?.sandbox_provider, webSearchStatus?.needs_rebuild)}`}>
+            sandbox active: {providerLabel(webSearchStatus?.sandbox_provider)}
+          </span>
+          <span className={`rounded-full border px-2.5 py-0.5 font-semibold uppercase tracking-wide ${
+            webSearchStatus?.needs_rebuild
+              ? "border-amber-300/28 bg-amber-300/[0.10] text-amber-50"
+              : "border-emerald-300/20 bg-emerald-300/[0.07] text-emerald-50"
+          }`}>
+            {webSearchStatus?.needs_rebuild ? "rebuild needed" : "sandbox in sync"}
+          </span>
+          <span className={`rounded-full border px-2.5 py-0.5 font-semibold uppercase tracking-wide ${
+            webSearchStatus?.ollama?.service_ok === false
+              ? "border-rose-300/24 bg-rose-300/[0.08] text-rose-50"
+              : webSearchStatus?.ollama?.service_ok === true
+                ? "border-cyan-300/22 bg-cyan-300/[0.08] text-cyan-50"
+                : "border-white/10 bg-white/[0.05] text-white/60"
+          }`}>
+            ollama: {webSearchStatus?.ollama?.service_ok === true ? "reachable" : webSearchStatus?.ollama?.service_ok === false ? "not reachable" : "not probed"}
+          </span>
+        </div>
+
+        {(webSearchError || webSearchStatus?.error) && (
+          <div className="mt-3 rounded-lg border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-[12px] text-rose-100">
+            {webSearchError || webSearchStatus?.error}
+          </div>
+        )}
+        {!webSearchError && !webSearchStatus?.error && providerLabel(webSearchStatus?.sandbox_provider) === "auto" && (
+          <div className="mt-3 rounded-lg border border-amber-300/24 bg-amber-300/[0.08] px-3 py-2 text-[12px] leading-5 text-amber-50/80">
+            Auto is not a provider guarantee. Older sandboxes may still choose Brave and require BRAVE_API_KEY; use explicit DuckDuckGo for no-key search demos, or save Ollama and rebuild a sandbox before relying on Ollama web_search.
+          </div>
+        )}
+        {webSearchNotice && (
+          <div className="mt-3 rounded-lg border border-cyan-300/24 bg-cyan-300/10 px-3 py-2 text-[12px] text-cyan-100">
+            {webSearchNotice}
+          </div>
+        )}
+
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto]">
+          <label className="min-w-0">
+            <span className="block text-[10px] font-bold uppercase tracking-wide text-white/40">
+              Provider
+            </span>
+            <select
+              value={webProviderDraft}
+              onChange={(event) => setWebProviderDraft(event.target.value as OpenClawWebSearchProvider)}
+              className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-slate-950/40 px-2.5 text-[12px] font-semibold text-white outline-none focus:border-cyan-200/40"
+            >
+              {PROVIDER_OPTIONS.map((provider) => (
+                <option key={provider} value={provider}>
+                  {providerLabel(provider)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="min-w-0">
+            <span className="block text-[10px] font-bold uppercase tracking-wide text-white/40">
+              Ollama base URL for sandbox
+            </span>
+            <input
+              value={ollamaBaseUrlDraft}
+              onChange={(event) => setOllamaBaseUrlDraft(event.target.value)}
+              disabled={webProviderDraft !== "ollama"}
+              placeholder="http://host.openshell.internal:11434"
+              className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-slate-950/40 px-2.5 font-mono text-[12px] text-white outline-none placeholder:text-white/25 focus:border-cyan-200/40 disabled:opacity-45"
+            />
+          </label>
+
+          <div className="flex items-end gap-2">
+            <label className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 text-[11px] font-semibold text-white/68">
+              <input
+                type="checkbox"
+                checked={rebuildAfterWebConfig}
+                onChange={(event) => setRebuildAfterWebConfig(event.target.checked)}
+                className="accent-cyan-200"
+              />
+              Rebuild
+            </label>
+            <button
+              type="button"
+              onClick={submitWebSearchConfig}
+              disabled={!onWebSearchConfigure || webSearchBusy}
+              className="h-9 rounded-lg bg-cyan-300/20 px-3 text-[11px] font-bold uppercase tracking-wide text-cyan-50 hover:bg-cyan-300/32 disabled:opacity-40"
+            >
+              {webSearchBusy ? "Saving" : rebuildAfterWebConfig ? "Save + rebuild" : "Save host"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-2 text-[11px] leading-4 text-white/45">
+          For the demo station, use Ollama when the local Ollama service is signed in and reachable. Use DuckDuckGo for key-free fallback. Brave only works when BRAVE_API_KEY is configured.
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-white/40">
               OpenShell network rules
             </div>
             <div className="mt-1 text-[12px] leading-5 text-white/65">
-              OpenShell denies first, records the attempted outbound access, then proposes a minimal policy rule. Approving lets future retries through after policy hot-reload.
+              OpenShell denies first, records the attempted outbound access, then proposes a minimal policy rule. Approving lets future fetch/curl retries through after policy hot-reload; Brave-style web_search still needs its own search credential/provider.
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
@@ -464,7 +655,7 @@ export default function PoliciesTab({
           </div>
         )}
 
-        {networkRules && !networkRulesError && rules.length > 0 && (
+            {networkRules && !networkRulesError && rules.length > 0 && (
           <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/24 px-3 py-2">
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -496,7 +687,12 @@ export default function PoliciesTab({
             </div>
             {!showRuleHistory && hiddenHistoryCount > 0 && (
               <div className="mt-1.5 text-[11px] font-medium text-white/45">
-                Showing pending requests only. Approved and rejected rule history remains available but hidden for demo clarity.
+                Showing pending requests only. Approved and rejected rule history remains available but hidden for demo clarity; decisions can take 5-15 seconds to hot-reload.
+              </div>
+            )}
+            {!showRuleHistory && allPendingRules.length === 0 && allRejectedRules.length > 0 && (
+              <div className="mt-1.5 text-[11px] font-medium text-amber-100/72">
+                If a request seems blocked but no new card appears, show history: a matching rejected rule can keep blocking future attempts without creating a fresh pending request.
               </div>
             )}
             {copyNotice && (
@@ -509,7 +705,7 @@ export default function PoliciesTab({
 
         {allPendingRules.length > 0 && (
           <div className="mt-3 rounded-lg border border-amber-300/24 bg-amber-300/[0.08] px-3 py-2 text-[12px] leading-5 text-amber-50/82">
-            {allPendingRules.length} OpenShell rule{allPendingRules.length === 1 ? "" : "s"} need a decision. Approving allows future retries; it does not automatically replay a failed request.
+            {allPendingRules.length} OpenShell rule{allPendingRules.length === 1 ? "" : "s"} need a decision. Approving allows future retries after policy hot-reload; it does not automatically replay a failed request.
           </div>
         )}
 

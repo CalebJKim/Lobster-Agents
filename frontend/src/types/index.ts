@@ -370,6 +370,54 @@ export interface OpenShellNetworkRuleActionResult {
   error?: string | null;
 }
 
+export type OpenClawWebSearchProvider =
+  | "auto"
+  | "brave"
+  | "duckduckgo"
+  | "ollama"
+  | "searxng"
+  | "google"
+  | "tavily";
+
+export interface OpenClawWebSearchStatus {
+  ok?: boolean;
+  sandbox_name?: string;
+  supported_providers?: OpenClawWebSearchProvider[];
+  host_provider?: OpenClawWebSearchProvider | string;
+  sandbox_provider?: OpenClawWebSearchProvider | string;
+  effective_provider?: OpenClawWebSearchProvider | string;
+  needs_rebuild?: boolean;
+  host_ollama_base_url?: string | null;
+  sandbox_ollama_base_url?: string | null;
+  default_ollama_base_url?: string | null;
+  ollama?: {
+    base_url?: string | null;
+    probe_url?: string | null;
+    service_ok?: boolean | null;
+    status_code?: number | null;
+    message?: string | null;
+  };
+  notes?: string[];
+  errors?: Record<string, string | null | undefined>;
+  error?: string | null;
+}
+
+export interface OpenClawWebSearchUpdateResult {
+  ok?: boolean;
+  sandbox_name?: string;
+  provider?: OpenClawWebSearchProvider | string;
+  ollama_base_url?: string | null;
+  rebuild?: {
+    ok?: boolean;
+    timed_out?: boolean;
+    output?: string;
+    error?: string | null;
+  } | null;
+  status?: OpenClawWebSearchStatus;
+  output?: string;
+  error?: string | null;
+}
+
 export type DemoReadinessStatus = "ok" | "warn" | "fail";
 
 export interface DemoReadinessCheck {
