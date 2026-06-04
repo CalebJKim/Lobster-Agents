@@ -81,6 +81,7 @@ async def run_openclaw(
     role_label: str | None = None,
     personality: str | None = None,
     tools: list[str] | None = None,
+    speech_language: str = "en",
     # Coordinated mode — prior teammates' outputs so this lobster can build
     # on what came before, not just produce a parallel isolated turn.
     prior_turns: list[dict[str, str]] | None = None,
@@ -122,6 +123,7 @@ async def run_openclaw(
             role_label=role_label,
             personality=personality,
             tools=tools or [],
+            speech_language=speech_language,
             prior_turns=prior_turns or [],
         )
     )
@@ -529,6 +531,7 @@ def _format_openclaw_message(
     role_label: str | None,
     personality: str | None,
     tools: list[str],
+    speech_language: str,
     prior_turns: list[dict[str, str]],
 ) -> str:
     """Build the message handed to `openclaw agent --message`.
@@ -566,6 +569,14 @@ def _format_openclaw_message(
         "This is a fresh sandbox task turn. Treat the Task below as authoritative; "
         "do not answer an older task from session history or unrelated leftover files."
     )
+    if speech_language == "zh":
+        parts.append(
+            "Use Mandarin Chinese with Simplified Chinese characters for user-facing "
+            "answers, summaries, and status text. Keep OpenClaw, NemoClaw, URLs, "
+            "commands, code, filenames, and product names in English."
+        )
+    else:
+        parts.append("Use English for user-facing answers, summaries, and status text.")
 
     if prior_turns:
         parts.append("")

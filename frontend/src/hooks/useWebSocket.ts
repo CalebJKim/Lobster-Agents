@@ -45,6 +45,7 @@ function createInitialState(): OfficeState {
     bulletin: [],
     whiteboard: [],
     current_query: null,
+    speech_language: "en",
     thinking_agents: [],
     sandbox_consoles: {},
   };
@@ -309,6 +310,8 @@ export function useWebSocket() {
         );
         const currentQuery =
           office.current_query === undefined ? prev.current_query : office.current_query ?? null;
+        const speechLanguage =
+          event.speech_language ?? office.speech_language ?? prev.speech_language;
         const sandboxAssignments = event.sandbox_assignments
           ? sanitizeAssignments(event.sandbox_assignments)
           : {};
@@ -328,6 +331,7 @@ export function useWebSocket() {
           ...prev,
           agents: nextAgents,
           current_query: currentQuery,
+          speech_language: speechLanguage,
           bulletin: Array.isArray(office.bulletin_posts) ? office.bulletin_posts : prev.bulletin,
           whiteboard: Array.isArray(office.whiteboard) ? office.whiteboard : prev.whiteboard,
         };
@@ -452,6 +456,10 @@ export function useWebSocket() {
 
       if (event.type === "agents_thinking") {
         return { ...prev, thinking_agents: event.agents ?? [] };
+      }
+
+      if (event.type === "speech_language_status") {
+        return { ...prev, speech_language: event.language };
       }
 
       if (event.type === "sandbox_team_updated") {
@@ -781,7 +789,9 @@ export function useWebSocket() {
           id: generateId(),
           agent: "Captain Claw",
           target: "all",
-          message: `On it. Free claws, let's gather in the war room.`,
+          message: prev.speech_language === "zh"
+            ? "收到。空闲的爪子们，我们到 war room 集合。"
+            : "On it. Free claws, let's gather in the war room.",
           timestamp: new Date().toISOString(),
           type: "speak" as const,
         };
@@ -809,11 +819,19 @@ export function useWebSocket() {
 
   const resetOffice = useCallback(() => {
     sendClient({ type: "reset" });
-    setOfficeState(createInitialState());
+    setOfficeState((prev) => ({
+      ...createInitialState(),
+      speech_language: prev.speech_language,
+    }));
   }, [sendClient]);
 
   const setWaterCooler = useCallback((opts: { enabled?: boolean; topic?: string | null }) => {
     sendClient({ type: "water_cooler", ...opts });
+  }, [sendClient]);
+
+  const setSpeechLanguage = useCallback((language: "en" | "zh") => {
+    sendClient({ type: "speech_language", language });
+    setOfficeState((prev) => ({ ...prev, speech_language: language }));
   }, [sendClient]);
 
   const refreshOfficeState = useCallback(async () => {
@@ -832,6 +850,7 @@ export function useWebSocket() {
           "replace"
         ),
         current_query: state.current_query ?? null,
+        speech_language: state.speech_language ?? prev.speech_language,
         bulletin: Array.isArray(state.bulletin_posts) ? state.bulletin_posts : prev.bulletin,
         whiteboard: Array.isArray(state.whiteboard) ? state.whiteboard : prev.whiteboard,
       }));
@@ -858,6 +877,7 @@ export function useWebSocket() {
     sendQuery,
     resetOffice,
     setWaterCooler,
+    setSpeechLanguage,
     refreshOfficeState,
     applySandboxAssignments,
   };

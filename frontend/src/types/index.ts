@@ -133,6 +133,7 @@ export interface OfficeState {
   bulletin: BulletinPost[];
   whiteboard: WhiteboardEntry[];
   current_query: string | null;
+  speech_language: "en" | "zh";
   thinking_agents: string[];  // agents currently doing LLM calls
   /** Live console lines streamed from OpenClaw subprocesses, keyed by sandbox name.
    *  Used by the Task Monitor to render what's actually happening during a run. */

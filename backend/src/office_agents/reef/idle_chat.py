@@ -72,6 +72,14 @@ Rules:
   Never invent a name. If unsure, leave it empty.
 """
 
+LANGUAGE_INSTRUCTIONS = {
+    "en": "Write content in English.",
+    "zh": (
+        "Write content in Mandarin Chinese using Simplified Chinese characters. "
+        "Keep OpenClaw, NemoClaw, and product names in English."
+    ),
+}
+
 BANNED_IDLE_TERMS = (
     "coffee", "oat milk", "lunch", "keyboard", "keyboards", "mechanical",
     "switches", "cat", "dog", "pet", "pets", "monitor", "desk", "office",
@@ -551,6 +559,7 @@ class IdleChat:
             f"Scene: {sandbox_label}. Topic: {topic}.\n"
             f"Lobsters in this chat right now: {roster}.\n"
             f"You are {speaker.name}.\n"
+            f"{LANGUAGE_INSTRUCTIONS.get(self._office_state.speech_language, LANGUAGE_INSTRUCTIONS['en'])}\n"
             f"{history_block}"
             f"{last_line_callout}"
             f"{direction}"
@@ -607,6 +616,14 @@ class IdleChat:
         # in that case.
         system_prompt = IDLE_SYSTEM_PROMPT.replace(
             "<listener>", listener_name or "(any lobster in the room or empty)"
+        )
+        system_prompt = (
+            system_prompt
+            + "\n"
+            + LANGUAGE_INSTRUCTIONS.get(
+                self._office_state.speech_language,
+                LANGUAGE_INSTRUCTIONS["en"],
+            )
         )
         llm_task = asyncio.create_task(speaker.llm.chat(
             system_prompt=system_prompt,

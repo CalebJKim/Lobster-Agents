@@ -123,6 +123,8 @@ function HeaderCluster({
   workflowPhase,
   agents,
   onSetWaterCooler,
+  speechLanguage,
+  onSetSpeechLanguage,
   onTogglePresentation,
   presentationMode,
   onReset,
@@ -135,6 +137,8 @@ function HeaderCluster({
   workflowPhase: string;
   agents: { name: string; state: string }[];
   onSetWaterCooler: (opts: { enabled?: boolean; topic?: string | null }) => void;
+  speechLanguage: "en" | "zh";
+  onSetSpeechLanguage: (language: "en" | "zh") => void;
   onTogglePresentation: () => void;
   presentationMode: boolean;
   onReset: () => void;
@@ -160,6 +164,17 @@ function HeaderCluster({
         <span className="text-[10px] uppercase tracking-wider text-white/45">Model</span>
         <span className="max-w-[180px] truncate">Model Endpoints</span>
       </button>
+      <HeaderButton
+        onClick={() => onSetSpeechLanguage(speechLanguage === "zh" ? "en" : "zh")}
+        title={
+          speechLanguage === "zh"
+            ? "Switch lobster speech back to English"
+            : "Switch lobster speech to Mandarin Chinese"
+        }
+        className="hidden md:block"
+      >
+        {speechLanguage === "zh" ? "Mandarin" : "English"}
+      </HeaderButton>
       <HeaderButton
         onClick={onOpenReadiness}
         title="Check demo readiness across backend, sandboxes, policies, and runtime"
@@ -200,6 +215,7 @@ export default function App() {
     sendQuery,
     resetOffice,
     setWaterCooler,
+    setSpeechLanguage,
     refreshOfficeState,
     applySandboxAssignments,
   } = useWebSocket();
@@ -400,6 +416,8 @@ export default function App() {
           workflowPhase={workflowPhase}
           agents={officeState.agents}
           onSetWaterCooler={setWaterCooler}
+          speechLanguage={officeState.speech_language}
+          onSetSpeechLanguage={setSpeechLanguage}
           onTogglePresentation={togglePresentation}
           presentationMode={presentationMode}
           onReset={resetOffice}

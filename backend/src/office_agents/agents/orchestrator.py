@@ -427,13 +427,17 @@ class Orchestrator:
         """
         query_text = self.office_state.current_query or ""
         self._finish_general_query_state()
+        if self.office_state.speech_language == "zh":
+            completion_message = f"答案已经写在白板上。请查看 Answer 标签页，那里有我们关于这个问题的结论：{query_text}"
+        else:
+            completion_message = f"The answer is on the whiteboard. Check the Whiteboard tab for our findings on: {query_text}"
 
         await self.broadcast({
             "type": "agent_action",
             "agent": "Captain Claw",
             "role": "lead",
             "action": "speak",
-            "content": f"The answer is on the whiteboard. Check the Whiteboard tab for our findings on: {query_text}",
+            "content": completion_message,
             "target": "all",
             "reasoning": "Query complete",
             "state": "presenting",

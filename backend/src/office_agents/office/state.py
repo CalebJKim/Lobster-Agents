@@ -42,6 +42,7 @@ class OfficeState:
         self.whiteboard: list[dict[str, Any]] = []
         self.current_query: str | None = None
         self.current_files: list[str] = []
+        self.speech_language: str = "en"
         self.agent_states: dict[str, dict[str, Any]] = {}
         self._store = store
 
@@ -195,6 +196,7 @@ class OfficeState:
         return {
             "current_query": self.current_query,
             "current_files": self.current_files,
+            "speech_language": self.speech_language,
             "agents": self.agent_states,
             "bulletin_posts": self.bulletin_posts[-50:],
             "whiteboard": self.whiteboard[-20:],

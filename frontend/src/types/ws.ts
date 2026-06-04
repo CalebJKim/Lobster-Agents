@@ -43,6 +43,7 @@ export interface SandboxViolation {
 // backend serializes (currently a subset of the in-memory state).
 export interface BackendOfficeSnapshot {
   current_query?: string | null;
+  speech_language?: "en" | "zh";
   bulletin_posts?: BulletinPost[];
   whiteboard?: WhiteboardEntry[];
 }
@@ -80,6 +81,7 @@ export type WSServerEvent =
       agents?: BackendAgentSnapshot[];
       office?: BackendOfficeSnapshot;
       sandbox_assignments?: Record<string, string[]>;
+      speech_language?: "en" | "zh";
       tick?: number;
     }
 
@@ -194,6 +196,7 @@ export type WSServerEvent =
 
   // Misc.
   | { type: "water_cooler_status"; enabled: boolean; topic: string | null }
+  | { type: "speech_language_status"; language: "en" | "zh" }
   | { type: "system_warning"; message: string }
   | { type: "error"; message: string }
   | { type: "pong" };
@@ -213,4 +216,5 @@ export type WSClientMessage =
   | { type: "reply"; message: string }
   | { type: "reset" }
   | { type: "water_cooler"; enabled?: boolean; topic?: string | null }
+  | { type: "speech_language"; language: "en" | "zh" }
   | { type: "ping" };
