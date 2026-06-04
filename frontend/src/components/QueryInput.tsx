@@ -144,7 +144,7 @@ export default function QueryInput({
   return (
     <div
       ref={dropRef}
-      className={`rounded-lg border border-white/30 bg-[#f8fbfb]/72 shadow-[0_18px_55px_rgba(4,22,31,0.18)] backdrop-blur-md transition-colors ${
+      className={`rounded-lg border border-white/25 bg-[#f8fbfb]/62 shadow-[0_14px_44px_rgba(4,22,31,0.16)] backdrop-blur-md transition-colors ${
         isDragging ? "border-rose-400/50 bg-white/84" : ""
       }`}
       onDrop={handleDrop}
@@ -211,12 +211,12 @@ export default function QueryInput({
 
       {/* Demo prompt suggestions */}
       {showSuggestions && (
-        <div className="scrollbar-hide flex gap-1 overflow-x-auto border-b border-slate-950/[0.06] px-3 py-2 max-md:hidden">
+        <div className="scrollbar-hide flex gap-1 overflow-x-auto border-b border-slate-950/[0.05] px-3 py-1 max-md:hidden">
           {DEMO_PROMPTS.slice(0, 4).map((p, i) => (
             <button
               key={i}
               onClick={() => handlePromptClick(p.prompt)}
-              className="shrink-0 rounded px-2.5 py-1.5 text-[11px] font-semibold leading-4 text-slate-500 transition hover:bg-white/54 hover:text-slate-900"
+              className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium leading-4 text-slate-500/90 transition hover:bg-white/54 hover:text-slate-900"
               title={p.prompt}
             >
               {p.label}
