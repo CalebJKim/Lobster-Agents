@@ -21,6 +21,7 @@ from office_agents.models import (
     SandboxPolicyRequest,
     SandboxTaskRequest,
     SandboxTeamRequest,
+    WebSearchProviderRequest,
 )
 from office_agents.sandbox_runtime.nemoclaw import (
     approve_all_network_rules,
@@ -32,9 +33,11 @@ from office_agents.sandbox_runtime.nemoclaw import (
     get_network_rules,
     get_openclaw_approvals,
     get_policy_presets,
+    get_web_search_status,
     list_task_artifacts,
     read_task_artifact,
     set_policy_preset,
+    set_web_search_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -609,6 +612,30 @@ async def clear_sandbox_pending_network_rules(sandbox_name: str) -> dict[str, ob
             status_code=400,
             detail=result.get("error") or "Network rule clear failed",
         )
+    return result
+
+
+@router.get("/sandboxes/{sandbox_name}/web-search")
+async def get_sandbox_web_search(sandbox_name: str) -> dict[str, object]:
+    result = await get_web_search_status(sandbox_name)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "Web search status failed")
+    return result
+
+
+@router.post("/sandboxes/{sandbox_name}/web-search")
+async def update_sandbox_web_search(
+    sandbox_name: str,
+    req: WebSearchProviderRequest,
+) -> dict[str, object]:
+    result = await set_web_search_provider(
+        sandbox_name,
+        provider=req.provider,
+        ollama_base_url=req.ollama_base_url,
+        rebuild_sandbox=req.rebuild_sandbox,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "Web search setup failed")
     return result
 
 

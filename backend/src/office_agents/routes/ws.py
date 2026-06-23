@@ -37,6 +37,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             "agents": [a.to_info() for a in orch.agents],
             "office": office.to_dict(),
             "sandbox_assignments": orch.get_sandbox_assignments(),
+            "speech_language": office.speech_language,
             "timestamp": datetime.now().isoformat(),
         })
 
@@ -105,6 +106,24 @@ async def _handle_message(ws: WebSocket, msg: dict) -> None:
         })
         return
 
+    if msg_type == "speech_language" and orch and office:
+        language = str(msg.get("language") or "en").strip().lower()
+        if language not in {"en", "zh"}:
+            await ws.send_json({"type": "error", "message": "Unsupported speech language"})
+            return
+        office.speech_language = language
+        orch._idle_chat.reset()
+        payload = {
+            "type": "speech_language_status",
+            "language": office.speech_language,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if broadcaster:
+            await broadcaster.broadcast(payload)
+        else:
+            await ws.send_json(payload)
+        return
+
     if msg_type == "ping":
         await ws.send_json({"type": "pong"})
         return
@@ -154,6 +173,7 @@ async def _reset_simulation(orch, office, broadcaster) -> None:
         "agents": [a.to_info() for a in orch.agents],
         "office": office.to_dict(),
         "sandbox_assignments": orch.get_sandbox_assignments(),
+        "speech_language": office.speech_language,
         "timestamp": datetime.now().isoformat(),
     })
     logger.info("Office reset - all agents back to shared reef")

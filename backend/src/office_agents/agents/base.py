@@ -285,6 +285,16 @@ class Agent:
         lines.append(f"- Location: {self.location}")
         lines.append(f"- Working on: {self.current_task or 'nothing specific'}")
         lines.append(f"- Your state: {self.state.value}")
+        speech_language = str(office_state.get("speech_language") or "en").lower()
+        if speech_language == "zh":
+            lines.append(
+                "- Speech language: Mandarin Chinese. Put all user-facing "
+                "speech, announcements, and whiteboard answers in Simplified "
+                "Chinese. Keep OpenClaw, NemoClaw, URLs, commands, and product "
+                "names in English."
+            )
+        else:
+            lines.append("- Speech language: English.")
         lines.append("")
 
         lines.extend(self._movement_hints(office_state))

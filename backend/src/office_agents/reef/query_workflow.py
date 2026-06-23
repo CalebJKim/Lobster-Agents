@@ -99,12 +99,17 @@ class QueryIntake:
         if not available:
             # Every lobster is sandbox-bound — nothing left for the reef commons.
             self.finish_general_query()
+            content = (
+                "所有爪子目前都被分配到 NemoClaw 沙盒里，所以 reef commons 没有空闲团队处理这个通用提示。"
+                if self._office_state.speech_language == "zh"
+                else "All claws are currently assigned to NemoClaw sandboxes, so the reef commons has no free team for this general prompt."
+            )
             await self._broadcast({
                 "type": "agent_action",
                 "agent": "Captain Claw",
                 "role": "lead",
                 "action": "announce",
-                "content": "All claws are currently assigned to NemoClaw sandboxes, so the reef commons has no free team for this general prompt.",
+                "content": content,
                 "target": "all",
                 "reasoning": "General prompt has no free OpenClaw profiles",
                 "state": "idle",
@@ -123,12 +128,17 @@ class QueryIntake:
 
         if reserved:
             busy_names = ", ".join(sorted(reserved))
+            content = (
+                f"通用提示已接收。已分配到沙盒的爪子会留在原位：{busy_names}。"
+                if self._office_state.speech_language == "zh"
+                else f"General prompt accepted. Sandbox-assigned claws stay in place: {busy_names}."
+            )
             await self._broadcast({
                 "type": "agent_action",
                 "agent": "Captain Claw",
                 "role": "lead",
                 "action": "announce",
-                "content": f"General prompt accepted. Sandbox-assigned claws stay in place: {busy_names}.",
+                "content": content,
                 "target": "all",
                 "reasoning": "Sandbox teams are isolated from general war-room prompts",
                 "state": "idle",

@@ -999,6 +999,7 @@ class SandboxManager:
             role_label=agent.role,
             personality=getattr(agent, "personality", None),
             tools=list(agent.tools),
+            speech_language=self._office_state.speech_language,
             prior_turns=prior_turns or None,
             session_id=f"{run_id}-{agent.claw_id}",
             on_chunk=emit_console,
