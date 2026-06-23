@@ -376,7 +376,7 @@ export default function SandboxOrchestrator({
   const handleCleanupDemo = useCallback(async () => {
     if (!cleanupConfirm) {
       setCleanupConfirm(true);
-      setNotice("Click Clean Demo again to delete visitor agents, clear workspaces, clear pending policy requests, and return to four starter sandboxes.");
+      setNotice("Click Clean Demo again to delete visitor agents, clear workspaces, clear pending policy requests, and return to four starter sandboxes. OpenShell approved/rejected rule history stays unless the sandbox is rebuilt.");
       return;
     }
     setCleanupBusy(true);
@@ -387,7 +387,7 @@ export default function SandboxOrchestrator({
       const pendingClears = result.pending_rule_clears ?? [];
       const clearedSandboxes = pendingClears.filter((item) => item?.ok !== false).length;
       setNotice(
-        `Clean demo complete. Removed ${(result.deleted_agents ?? []).length} visitor profile(s), ${result.removed_dynamic_sandboxes ?? 0} extra sandbox registration(s), and cleared pending policy requests in ${clearedSandboxes} sandbox(es).`,
+        `Clean demo complete. Removed ${(result.deleted_agents ?? []).length} visitor profile(s), ${result.removed_dynamic_sandboxes ?? 0} extra sandbox registration(s), and cleared pending policy requests in ${clearedSandboxes} sandbox(es). OpenShell approved/rejected rule history is retained.`,
       );
       await load();
       await onStateRefresh?.();
@@ -963,7 +963,7 @@ export default function SandboxOrchestrator({
               ? "bg-amber-300/22 text-amber-50 hover:bg-amber-300/32"
               : "bg-white/[0.08] text-white/62 hover:bg-white/[0.13] hover:text-white"
           }`}
-          title="Delete visitor profiles, clear sandbox files, clear pending policy requests, and return to four starter sandboxes"
+          title="Delete visitor profiles, clear sandbox files, clear pending policy requests, and return to four starter sandboxes. Approved/rejected OpenShell rule history is retained."
         >
           {cleanupBusy ? "Cleaning" : cleanupConfirm ? "Confirm Clean" : "Clean Demo"}
         </button>

@@ -8,6 +8,8 @@ import type {
   NemoClawRunStatus,
   NemoClawSandbox,
   OpenClawApprovalsStatus,
+  OpenClawWebSearchProvider,
+  OpenClawWebSearchStatus,
   OpenShellNetworkRule,
   OpenShellNetworkRulesStatus,
   SandboxRunDiagnostics,
@@ -22,9 +24,11 @@ import {
   fetchNetworkRules,
   fetchPolicies,
   fetchRunDiagnostics,
+  fetchWebSearchStatus,
   setPolicy,
+  setWebSearchProvider,
 } from "../utils/sandboxApi";
-import { DEMO_SCENARIOS } from "../utils/demoScenarios";
+import { DEMO_SCENARIOS, materializeDemoTask } from "../utils/demoScenarios";
 import { statusDot } from "./sandbox/format";
 import StatusTab from "./sandbox/StatusTab";
 import PoliciesTab from "./sandbox/PoliciesTab";
@@ -110,6 +114,19 @@ function missingCredentialNames(readiness: DemoReadiness): string[] {
     .map((check) => check.name);
 }
 
+function activeSearchProvider(status: OpenClawWebSearchStatus | null): string {
+  return String(
+    status?.sandbox_provider
+      || status?.effective_provider
+      || status?.host_provider
+      || "auto",
+  ).toLowerCase();
+}
+
+function providerDisplay(provider?: string | null): string {
+  return provider ? provider.replace(/_/g, " ") : "auto";
+}
+
 function isHermesAgent(agent: AgentInfo): boolean {
   return agent.runtime === "hermes" || agent.species === "crab";
 }
@@ -127,6 +144,27 @@ function accessoryLabel(agent: AgentInfo): string {
     ? appearance.eyewear.replace(/_/g, " ")
     : "";
   return [headwear, eyewear].filter(Boolean).join(" + ") || "no accessories";
+}
+
+function endpointHost(endpoint: string): string | null {
+  const clean = endpoint.replace(/\s*\[[^\]]+\]\s*/g, "").trim();
+  if (!clean) return null;
+  const withoutScheme = clean.replace(/^[a-z]+:\/\//i, "");
+  const host = withoutScheme.split("/")[0]?.split(":")[0]?.trim().toLowerCase();
+  return host || null;
+}
+
+function networkRuleHosts(rules?: OpenShellNetworkRule[] | null): Set<string> {
+  const hosts = new Set<string>();
+  for (const rule of rules ?? []) {
+    for (const endpoint of rule.endpoints ?? []) {
+      const host = endpointHost(endpoint);
+      if (host) hosts.add(host);
+    }
+    const rawHost = endpointHost(rule.endpoints_raw ?? "");
+    if (rawHost) hosts.add(rawHost);
+  }
+  return hosts;
 }
 
 /**
@@ -151,6 +189,10 @@ export default function SandboxRunPanel({
   const [networkRules, setNetworkRules] = useState<OpenShellNetworkRulesStatus | null>(null);
   const [networkRulesError, setNetworkRulesError] = useState<string | null>(null);
   const [networkRulesBusy, setNetworkRulesBusy] = useState<string | null>(null);
+  const [webSearchStatus, setWebSearchStatus] = useState<OpenClawWebSearchStatus | null>(null);
+  const [webSearchError, setWebSearchError] = useState<string | null>(null);
+  const [webSearchNotice, setWebSearchNotice] = useState<string | null>(null);
+  const [webSearchBusy, setWebSearchBusy] = useState(false);
   const [diagnostics, setDiagnostics] = useState<SandboxRunDiagnostics | null>(null);
   const [policiesError, setPoliciesError] = useState<string | null>(null);
   const [policyBusy, setPolicyBusy] = useState<string | null>(null);
@@ -170,6 +212,13 @@ export default function SandboxRunPanel({
   const [runPreflight, setRunPreflight] = useState<RunPreflight | null>(null);
   const [optimisticRun, setOptimisticRun] = useState<NemoClawRunStatus | null>(null);
 
+  const backendRun = sandbox.run_status ?? null;
+  const run =
+    optimisticRun && backendRun?.run_id !== optimisticRun.run_id
+      ? optimisticRun
+      : backendRun;
+  const runActive = Boolean(run?.running || run?.status === "running" || run?.status === "stopping");
+
   // Close on Escape.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -183,10 +232,11 @@ export default function SandboxRunPanel({
   const loadPolicies = useCallback(async () => {
     setNetworkRulesBusy((current) => current ?? "reload");
     try {
-      const [data, approvalData, networkData] = await Promise.allSettled([
+      const [data, approvalData, networkData, webSearchData] = await Promise.allSettled([
         fetchPolicies(sandbox.name),
         fetchApprovals(sandbox.name),
         fetchNetworkRules(sandbox.name),
+        fetchWebSearchStatus(sandbox.name),
       ]);
       if (data.status === "fulfilled") {
         setPolicies(data.value.policies ?? []);
@@ -211,10 +261,45 @@ export default function SandboxRunPanel({
             : "Could not load OpenShell network rules",
         );
       }
+      if (webSearchData.status === "fulfilled") {
+        setWebSearchStatus(webSearchData.value);
+        setWebSearchError(webSearchData.value.error ?? null);
+      } else {
+        setWebSearchStatus(null);
+        setWebSearchError(
+          webSearchData.reason instanceof Error
+            ? webSearchData.reason.message
+            : "Could not load OpenClaw web search setup",
+        );
+      }
     } catch (err) {
       setPoliciesError(err instanceof Error ? err.message : "Could not load policies");
     } finally {
       setNetworkRulesBusy((current) => (current === "reload" ? null : current));
+    }
+  }, [sandbox.name]);
+
+  const refreshNetworkRules = useCallback(async () => {
+    try {
+      const networkData = await fetchNetworkRules(sandbox.name);
+      setNetworkRules(networkData);
+      setNetworkRulesError(networkData.error ?? null);
+    } catch (err) {
+      setNetworkRulesError(
+        err instanceof Error ? err.message : "Could not load OpenShell network rules",
+      );
+    }
+  }, [sandbox.name]);
+
+  const refreshWebSearchStatus = useCallback(async () => {
+    try {
+      const status = await fetchWebSearchStatus(sandbox.name);
+      setWebSearchStatus(status);
+      setWebSearchError(status.error ?? null);
+    } catch (err) {
+      setWebSearchError(
+        err instanceof Error ? err.message : "Could not load OpenClaw web search setup",
+      );
     }
   }, [sandbox.name]);
 
@@ -223,6 +308,13 @@ export default function SandboxRunPanel({
       loadPolicies();
     }
   }, [tab, policies.length, policiesError, loadPolicies]);
+
+  useEffect(() => {
+    if (tab !== "policies" && !runActive) return;
+    refreshNetworkRules();
+    const id = window.setInterval(refreshNetworkRules, 5000);
+    return () => window.clearInterval(id);
+  }, [tab, runActive, refreshNetworkRules]);
 
   const handlePreviewPolicy = useCallback(
     async (preset: string, nextEnabled: boolean) => {
@@ -276,9 +368,9 @@ export default function SandboxRunPanel({
       }
       const actionLabel =
         decision === "approve"
-          ? "approved. Retry the blocked request or rerun the task if it already failed."
+          ? "approved. Wait 5-15 seconds for policy hot-reload, then retry the blocked request or rerun the task if it already failed."
           : rule.status === "approved"
-            ? "revoked. Future retries will be denied unless another policy allows them."
+            ? "revoked. Wait 5-15 seconds for policy hot-reload; future retries will be denied unless another policy allows them."
             : "rejected. Future retries will stay blocked unless you approve this rule.";
       setPolicyNotice(
         result.output || `${rule.rule_name || rule.id} ${actionLabel}`,
@@ -298,7 +390,7 @@ export default function SandboxRunPanel({
       setPolicyNotice(result.error);
       return;
     }
-    setPolicyNotice(result.output || "Pending OpenShell network rules approved. Retry blocked requests or rerun failed tasks.");
+    setPolicyNotice(result.output || "Pending OpenShell network rules approved. Wait 5-15 seconds for policy hot-reload, then retry blocked requests or rerun failed tasks.");
     await loadPolicies();
     await onAfterChange?.();
   }, [loadPolicies, onAfterChange, sandbox.name]);
@@ -317,12 +409,39 @@ export default function SandboxRunPanel({
     await onAfterChange?.();
   }, [loadPolicies, onAfterChange, sandbox.name]);
 
-  const backendRun = sandbox.run_status ?? null;
-  const run =
-    optimisticRun && backendRun?.run_id !== optimisticRun.run_id
-      ? optimisticRun
-      : backendRun;
-  const runActive = Boolean(run?.running || run?.status === "running" || run?.status === "stopping");
+  const handleWebSearchConfigure = useCallback(
+    async (
+      provider: OpenClawWebSearchProvider,
+      ollamaBaseUrl: string | null,
+      rebuildSandbox: boolean,
+    ) => {
+      setWebSearchBusy(true);
+      setWebSearchError(null);
+      setWebSearchNotice(null);
+      const result = await setWebSearchProvider(sandbox.name, provider, {
+        ollamaBaseUrl,
+        rebuildSandbox,
+      });
+      setWebSearchBusy(false);
+      if (result.error) {
+        setWebSearchError(result.error);
+        return;
+      }
+      if (result.status) {
+        setWebSearchStatus(result.status);
+      } else {
+        await refreshWebSearchStatus();
+      }
+      setWebSearchNotice(
+        rebuildSandbox
+          ? "OpenClaw web_search provider saved and sandbox rebuild completed. Test web_search again from this sandbox."
+          : "OpenClaw web_search provider saved on the host. Rebuild this sandbox before expecting the active provider to change.",
+      );
+      await onAfterChange?.();
+    },
+    [onAfterChange, refreshWebSearchStatus, sandbox.name],
+  );
+
   const clearDisabled = clearBusy || runActive || !sandbox.live;
   const outputs = useMemo(() => Object.entries(run?.outputs ?? {}), [run]);
   const errors = useMemo(() => Object.entries(run?.errors ?? {}), [run]);
@@ -504,7 +623,28 @@ export default function SandboxRunPanel({
     setPreflightBusy(true);
     setTaskNotice(null);
     try {
-      const readiness = await fetchDemoReadiness(sandbox.name);
+      const [readinessResult, webSearchResult] = await Promise.allSettled([
+        fetchDemoReadiness(sandbox.name),
+        fetchWebSearchStatus(sandbox.name),
+      ]);
+      if (readinessResult.status !== "fulfilled") {
+        throw readinessResult.reason;
+      }
+      const readiness = readinessResult.value;
+      const currentWebSearch =
+        webSearchResult.status === "fulfilled"
+          ? webSearchResult.value
+          : webSearchStatus;
+      if (webSearchResult.status === "fulfilled") {
+        setWebSearchStatus(webSearchResult.value);
+        setWebSearchError(webSearchResult.value.error ?? null);
+      } else {
+        setWebSearchError(
+          webSearchResult.reason instanceof Error
+            ? webSearchResult.reason.message
+            : "Could not load OpenClaw web search setup",
+        );
+      }
       const blockers: PreflightIssue[] = [];
       const warnings: PreflightIssue[] = [];
 
@@ -544,12 +684,39 @@ export default function SandboxRunPanel({
       }
 
       const missingCredentials = missingCredentialNames(readiness);
-      if (taskNeedsExternalWeb(task) && missingCredentials.includes("BRAVE_API_KEY")) {
-        blockers.push({
-          id: "web_credentials",
-          label: "Web research credential missing",
-          detail: "This task appears to need external web search, but BRAVE_API_KEY is missing. Use a local/no-web scenario or configure Brave before running.",
-        });
+      if (taskNeedsExternalWeb(task)) {
+        const provider = activeSearchProvider(currentWebSearch);
+        if (currentWebSearch?.needs_rebuild) {
+          blockers.push({
+            id: "web_search_rebuild",
+            label: "Web search provider needs sandbox rebuild",
+            detail: `Host desired provider is ${providerDisplay(currentWebSearch.host_provider)}, but this sandbox is still using ${providerDisplay(currentWebSearch.sandbox_provider)}. Rebuild this sandbox from Policies before testing web_search.`,
+          });
+        } else if (provider === "brave" && missingCredentials.includes("BRAVE_API_KEY")) {
+          blockers.push({
+            id: "web_credentials",
+            label: "Brave web_search credential missing",
+            detail: "This sandbox is configured for Brave web_search, but BRAVE_API_KEY is missing. Switch to Ollama/DuckDuckGo or configure Brave before running.",
+          });
+        } else if (provider === "ollama" && currentWebSearch?.ollama?.service_ok === false) {
+          blockers.push({
+            id: "web_search_ollama_unreachable",
+            label: "Ollama web_search is not reachable",
+            detail: currentWebSearch.ollama.message || "The configured local Ollama service did not respond.",
+          });
+        } else if (provider === "auto" && missingCredentials.includes("BRAVE_API_KEY")) {
+          warnings.push({
+            id: "web_search_auto",
+            label: "Web search provider is auto",
+            detail: "BRAVE_API_KEY is missing. Auto may use key-free DuckDuckGo/Ollama if OpenClaw detects them; configure Ollama/DuckDuckGo explicitly for a more reliable demo.",
+          });
+        } else if (webSearchResult.status !== "fulfilled") {
+          warnings.push({
+            id: "web_search_status_unavailable",
+            label: "Web search provider status unavailable",
+            detail: "Could not verify the active OpenClaw web_search provider before the run.",
+          });
+        }
       }
 
       setRunPreflight({
@@ -576,7 +743,7 @@ export default function SandboxRunPanel({
     } finally {
       setPreflightBusy(false);
     }
-  }, [assignedNames, hermesAssigned, preflightBusy, runActive, sandbox.live, sandbox.name, taskBusy, taskDraft]);
+  }, [assignedNames, hermesAssigned, preflightBusy, runActive, sandbox.live, sandbox.name, taskBusy, taskDraft, webSearchStatus]);
 
   const confirmRunTask = useCallback(async () => {
     if (!runPreflight || runPreflight.blockers.length > 0) return;
@@ -821,7 +988,9 @@ export default function SandboxRunPanel({
               <button
                 key={scenario.id}
                 type="button"
-                onClick={() => setTaskDraft(scenario.task)}
+                onClick={() => setTaskDraft(materializeDemoTask(scenario, {
+                  avoidPolicyHosts: networkRuleHosts(networkRules?.rules),
+                }))}
                 disabled={taskBusy || preflightBusy || runActive}
                 className="rounded-md border border-white/10 bg-white/[0.045] px-2 py-1 text-[10px] font-semibold text-white/62 transition hover:border-cyan-200/28 hover:bg-cyan-300/[0.08] hover:text-cyan-50 disabled:opacity-40"
                 title={scenario.description}
@@ -1121,6 +1290,12 @@ export default function SandboxRunPanel({
               onReload={loadPolicies}
               credentialChecks={credentialChecks}
               approvals={approvals}
+              webSearchStatus={webSearchStatus}
+              webSearchBusy={webSearchBusy}
+              webSearchNotice={webSearchNotice}
+              webSearchError={webSearchError}
+              onWebSearchReload={refreshWebSearchStatus}
+              onWebSearchConfigure={handleWebSearchConfigure}
               networkRules={networkRules}
               networkRulesError={networkRulesError}
               networkRulesBusy={networkRulesBusy}
