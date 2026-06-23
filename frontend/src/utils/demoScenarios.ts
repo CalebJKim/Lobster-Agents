@@ -30,7 +30,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
     badge: "Safety",
     description: "Ask for blocked outbound access so OpenShell recommendations are easy to explain.",
     task:
-      "Try to fetch https://example.com from inside the sandbox. If access is denied, report the exact policy or network-rule reason and stop.",
+      "Use a shell command such as curl from inside the sandbox to fetch {{POLICY_DEMO_URL}}. Do not use Brave or a search provider. Prefer `curl -I -L --max-time 12 {{POLICY_DEMO_URL}}` so the result is a short real-site status check. Run the curl once, then stop even if curl reports HTTP 403, TLS failure, or a proxy/network error. Tell the operator to wait up to 30 seconds, open Policies, and approve or reject the new OpenShell rule. This target is a real NVIDIA site; after approval, wait 5-15 seconds for policy hot-reload, then rerun. The retry should reach the site even if the site returns a non-200 HTTP status.",
   },
   {
     id: "local-inference",
@@ -58,3 +58,42 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
       "As a tiny NemoClaw product team, propose three high-impact demo moments for Lobster Agents. Keep the final answer tight and specific.",
   },
 ];
+
+const REAL_POLICY_DEMO_URLS = [
+  "https://developer.nvidia.com/",
+  "https://docs.nvidia.com/",
+  "https://blogs.nvidia.com/",
+  "https://nvidianews.nvidia.com/",
+  "https://build.nvidia.com/",
+  "https://catalog.ngc.nvidia.com/",
+  "https://forums.developer.nvidia.com/",
+  "https://developer.download.nvidia.com/",
+];
+
+function freshPolicyDemoUrl(avoidHosts?: Iterable<string>): string {
+  const avoided = new Set(Array.from(avoidHosts ?? [], (host) => host.toLowerCase()));
+  const available = REAL_POLICY_DEMO_URLS.filter((raw) => {
+    try {
+      return !avoided.has(new URL(raw).hostname.toLowerCase());
+    } catch {
+      return true;
+    }
+  });
+  const candidates = available.length > 0 ? available : REAL_POLICY_DEMO_URLS;
+  const index = Math.floor(Math.random() * candidates.length);
+  const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const url = new URL(candidates[index]);
+  url.searchParams.set("lobster_policy_demo", nonce);
+  return url.toString();
+}
+
+export function materializeDemoTask(
+  scenario: DemoScenario,
+  options?: { avoidPolicyHosts?: Iterable<string> },
+): string {
+  if (scenario.id !== "policy-denial") return scenario.task;
+  return scenario.task.replace(
+    /\{\{POLICY_DEMO_URL\}\}/g,
+    freshPolicyDemoUrl(options?.avoidPolicyHosts),
+  );
+}
