@@ -16,13 +16,64 @@ import type {
   SandboxRunArtifacts,
   SandboxRunDiagnostics,
 } from "../types";
+import { SANDBOX_API_TIMEOUT_MS } from "./config";
+
+
+const API_TIMEOUT_MS = SANDBOX_API_TIMEOUT_MS;
+
+function apiUrls(path: string): string[] {
+  const urls = [path];
+  const host = window.location.hostname;
+  const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  if (host && !loopback) urls.push(`http://${host}:8001${path}`);
+  return Array.from(new Set(urls));
+}
+
+function requestHeaders(init?: RequestInit): Headers {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Accept")) headers.set("Accept", "application/json");
+  return headers;
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const errors: string[] = [];
+
+  for (const url of apiUrls(path)) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        ...init,
+        cache: "no-store",
+        headers: requestHeaders(init),
+        signal: controller.signal,
+      });
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!res.ok) {
+        let detail = "";
+        if (contentType.includes("application/json")) {
+          const body = await res.json().catch(() => null);
+          detail = typeof body?.detail === "string" ? `: ${body.detail}` : "";
+        }
+        throw new Error(`${url} failed: ${res.status}${detail}`);
+      }
+      if (!contentType.includes("application/json")) {
+        const preview = (await res.text()).slice(0, 60).replace(/\s+/g, " ");
+        throw new Error(`${url} returned ${contentType || "non-JSON"}: ${preview}`);
+      }
+      return res.json();
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  throw new Error(errors.join(" | ") || `Could not fetch ${path}`);
+}
 
 export async function fetchSandboxes(): Promise<NemoClawStatus> {
-  const res = await fetch("/sandboxes", {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Could not load sandboxes (${res.status})`);
-  return res.json();
+  return fetchJson<NemoClawStatus>("/sandboxes");
 }
 
 export async function fetchDemoReadiness(sandboxName?: string | null): Promise<DemoReadiness> {
@@ -58,6 +109,58 @@ export async function createSandbox(displayName: string): Promise<{
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+export async function cleanupDemoBooth(): Promise<{
+  status: string;
+  deleted_agents?: string[];
+  removed_dynamic_sandboxes?: number;
+  pending_rule_clears?: { ok?: boolean }[];
+}> {
+  return fetchJson("/demo/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mode: "booth",
+      clear_sandbox_files: true,
+      delete_visitor_agents: true,
+      reset_to_default_sandboxes: true,
+      clear_pending_rules: true,
+    }),
+  });
+}
+
+export async function assignTeam(
+  sandboxName: string,
+  agentNames: string[],
+): Promise<{ status: string; assignments: Record<string, string[]> }> {
+  return fetchJson(`/sandboxes/${encodeURIComponent(sandboxName)}/team`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_names: agentNames }),
+  });
+}
+
+export async function runSandboxTask(
+  sandboxName: string,
+  task: string,
+  agentNames: string[],
+): Promise<{ status: string; run_id?: string }> {
+  return fetchJson(`/sandboxes/${encodeURIComponent(sandboxName)}/task`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task, agent_names: agentNames }),
+  });
+}
+
+export async function cancelSandboxTask(
+  sandboxName: string,
+  runId: string,
+): Promise<{ status: string; cancelled: boolean; run_id: string }> {
+  return fetchJson(
+    `/sandboxes/${encodeURIComponent(sandboxName)}/task/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
 }
 
 /** Throws on non-2xx; otherwise parses JSON. Use when the caller has try/catch. */

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safe end-to-end validation for the Lobster Agents demo.
+"""Safe end-to-end validation for the NemoClaw Reef demo.
 
 The default path creates temporary lobster/crab profiles, validates sandbox
 assignment, toggles one policy with restore, runs a two-lobster relay task,
@@ -62,7 +62,7 @@ class Context:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the Lobster Agents demo E2E flow.")
+    parser = argparse.ArgumentParser(description="Run the NemoClaw Reef demo E2E flow.")
     parser.add_argument("--base", default=DEFAULT_BASE, help="Frontend/proxy base URL.")
     parser.add_argument("--sandbox", help="Existing sandbox name to reuse.")
     parser.add_argument("--display", help="Display name when creating a sandbox.")

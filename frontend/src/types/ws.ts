@@ -1,10 +1,10 @@
 // WebSocket event types — discriminated union mirroring backend emissions.
 //
 // Keep in sync with the broadcast() / send_json() call sites in:
-//   backend/src/office_agents/agents/orchestrator.py
-//   backend/src/office_agents/sandbox_runtime/manager.py
-//   backend/src/office_agents/reef/{idle_chat,query_workflow}.py
-//   backend/src/office_agents/routes/{ws,sandbox}.py
+//   backend/src/nemoclaw_reef/agents/orchestrator.py
+//   backend/src/nemoclaw_reef/integrations/manager.py
+//   backend/src/nemoclaw_reef/reef/{idle_chat,query_workflow}.py
+//   backend/src/nemoclaw_reef/routes/{ws,sandbox}.py
 //
 // Inbound (client -> server) types are in `WSClientMessage`.
 
@@ -18,7 +18,7 @@ import type {
 } from "./index";
 
 // Action verbs the orchestrator emits inside an `agent_action` payload.
-// Keep aligned with backend/src/office_agents/models.py::ActionType.
+// Keep aligned with backend/src/nemoclaw_reef/models.py::ActionType.
 export type AgentAction =
   | "move_to"
   | "speak"
@@ -39,9 +39,9 @@ export interface SandboxViolation {
   snippet: string;
 }
 
-// `office` payload nested inside `full_state`. Mirrors OfficeState fields the
+// `office` is the stable websocket key for the reef snapshot. Mirrors ReefState fields the
 // backend serializes (currently a subset of the in-memory state).
-export interface BackendOfficeSnapshot {
+export interface BackendReefSnapshot {
   current_query?: string | null;
   speech_language?: "en" | "zh";
   bulletin_posts?: BulletinPost[];
@@ -79,7 +79,7 @@ export type WSServerEvent =
   | {
       type: "full_state";
       agents?: BackendAgentSnapshot[];
-      office?: BackendOfficeSnapshot;
+      office?: BackendReefSnapshot;
       sandbox_assignments?: Record<string, string[]>;
       speech_language?: "en" | "zh";
       tick?: number;
@@ -156,7 +156,7 @@ export type WSServerEvent =
     }
   | {
       // Backend emits one event per violation, not one event with a list.
-      // See _detect_and_broadcast_violations in sandbox_runtime/manager.py.
+      // See _detect_and_broadcast_violations in integrations/manager.py.
       type: "sandbox_violation";
       sandbox_name: string;
       run_id: string;

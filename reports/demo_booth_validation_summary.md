@@ -32,7 +32,7 @@ Validated against the Spark demo stack through the local frontend proxy at `http
   - Evidence: `reports/demo_booth_validation_0601002705.md`, run `nemoclaw-demo-e2e-0530182359-9e9c25ad`.
   - The UI can truthfully show `coding-agent` as requested/discoverable, but live readiness reports `needs_setup` and `install_failed`.
 - Hermes crab execution is not configured.
-  - Crabs are useful visually and can be assigned to sandboxes, but the app should continue warning that Hermes execution needs `OFFICE_AGENTS_HERMES_COMMAND`.
+  - Crabs are useful visually and can be assigned to sandboxes, but the app should continue warning that Hermes execution needs `NEMOCLAW_REEF_HERMES_COMMAND`.
 - Deep research with live web search needs `BRAVE_API_KEY`.
   - The guard is working, but the booth should not present external search as available until that key is configured in the sandbox environment.
 - Multi-agent report writing is reliable but too slow for a 5-minute booth slot unless the prompt is very constrained or a single-agent version is used.

@@ -1,5 +1,5 @@
 {
-  "name": "office-agents-frontend",
+  "name": "nemoclaw-reef",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,8 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@pixi/react": "^8.0.0",
-    "pixi.js": "^8.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",

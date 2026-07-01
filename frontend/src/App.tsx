@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
-import { useOfficeState, type SidebarTab } from "./hooks/useOfficeState";
+import { useReefState, type SidebarTab } from "./hooks/useReefState";
 import ThreeUnderwaterMap from "./components/ThreeUnderwaterMap";
 import HealthBanner from "./components/HealthBanner";
 import ChatPanel from "./components/ChatPanel";
@@ -211,12 +211,12 @@ function HeaderCluster({
 export default function App() {
   const {
     connected,
-    officeState,
+    reefState,
     sendQuery,
-    resetOffice,
+    resetReef,
     setWaterCooler,
     setSpeechLanguage,
-    refreshOfficeState,
+    refreshReefState,
     applySandboxAssignments,
   } = useWebSocket();
   const {
@@ -233,7 +233,7 @@ export default function App() {
     getAgent,
     sortedBulletin,
     workflowPhase,
-  } = useOfficeState(officeState);
+  } = useReefState(reefState);
 
   const [presentationMode, setPresentationMode] = useState(false);
   const [commsDockOpen, setCommsDockOpen] = useState(false);
@@ -280,8 +280,8 @@ export default function App() {
     }
   }, []);
   const refreshSandboxSurfaces = useCallback(async () => {
-    await Promise.all([refreshOfficeState(), refreshSandboxesIndex()]);
-  }, [refreshOfficeState, refreshSandboxesIndex]);
+    await Promise.all([refreshReefState(), refreshSandboxesIndex()]);
+  }, [refreshReefState, refreshSandboxesIndex]);
 
   useEffect(() => {
     refreshSandboxesIndex();
@@ -329,7 +329,7 @@ export default function App() {
   // For the canvas speech bubbles - pass all recent "speak" messages
   const recentSpeakMessages = useMemo(
     () =>
-      withoutLandOfficeIdleMessages(officeState.messages).map((m) => ({
+      withoutLandOfficeIdleMessages(reefState.messages).map((m) => ({
           id: m.id,
           agent: m.agent,
           target: m.target,
@@ -337,9 +337,9 @@ export default function App() {
           type: m.type,
           timestamp: m.timestamp,
         })),
-    [officeState.messages]
+    [reefState.messages]
   );
-  const sandboxBusyCount = officeState.agents.filter(
+  const sandboxBusyCount = reefState.agents.filter(
     (agent) => agent.state === "coding" && Boolean(agent.sandbox_name)
   ).length;
   const sandboxSceneKey = useMemo(
@@ -373,7 +373,7 @@ export default function App() {
         if (!assignRes.ok) throw new Error(`Could not assign ${agentName} (${assignRes.status})`);
         const result = await assignRes.json();
         applySandboxAssignments(result.assignments ?? { [sandboxName]: nextTeam });
-        await refreshOfficeState();
+        await refreshReefState();
         setSandboxDockOpen(true);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not assign lobster to sandbox";
@@ -381,7 +381,7 @@ export default function App() {
         setSandboxNotice(message);
       }
     },
-    [applySandboxAssignments, refreshOfficeState]
+    [applySandboxAssignments, refreshReefState]
   );
 
   return (
@@ -390,14 +390,14 @@ export default function App() {
         <ErrorBoundary label="Scene">
           <ThreeUnderwaterMap
             key={sandboxSceneKey}
-            agents={officeState.agents}
+            agents={reefState.agents}
             sandboxes={sandboxesIndex}
             selectedAgent={selectedAgent}
             onSelectAgent={selectAgent}
             onAssignAgentToSandbox={assignAgentToSandbox}
             onOpenSandbox={setOpenSandboxName}
             messages={recentSpeakMessages}
-            hasActiveQuery={!!officeState.current_query}
+            hasActiveQuery={!!reefState.current_query}
           />
         </ErrorBoundary>
       </div>
@@ -414,13 +414,13 @@ export default function App() {
         <HeaderCluster
           connected={connected}
           workflowPhase={workflowPhase}
-          agents={officeState.agents}
+          agents={reefState.agents}
           onSetWaterCooler={setWaterCooler}
-          speechLanguage={officeState.speech_language}
+          speechLanguage={reefState.speech_language}
           onSetSpeechLanguage={setSpeechLanguage}
           onTogglePresentation={togglePresentation}
           presentationMode={presentationMode}
-          onReset={resetOffice}
+          onReset={resetReef}
           onOpenLobsterBuilder={() => setBuilderOpen(true)}
           onOpenModelMenu={() => setModelMenuOpen(true)}
           onOpenReadiness={() => setReadinessOpen(true)}
@@ -487,7 +487,7 @@ export default function App() {
                 const count =
                   tab.id === "chat" ? filteredMessages.length :
                   tab.id === "activity" ? filteredActivity.length :
-                  tab.id === "whiteboard" ? officeState.whiteboard.length :
+                  tab.id === "whiteboard" ? reefState.whiteboard.length :
                   0;
                 const isWhiteboard = tab.id === "whiteboard" && count > 0;
 
@@ -524,7 +524,7 @@ export default function App() {
                     messages={filteredMessages}
                     agentFilter={agentFilter}
                     onFilterChange={setAgentFilter}
-                    thinkingAgents={officeState.thinking_agents}
+                    thinkingAgents={reefState.thinking_agents}
                   />
                 )}
                 {activeTab === "activity" && (
@@ -541,7 +541,7 @@ export default function App() {
                   <HistoryPanel />
                 )}
                 {activeTab === "whiteboard" && (
-                  <Whiteboard entries={officeState.whiteboard} />
+                  <Whiteboard entries={reefState.whiteboard} />
                 )}
               </div>
             </div>
@@ -559,10 +559,10 @@ export default function App() {
         {sandboxDockOpen ? (
           <ErrorBoundary label="Sandbox Dock">
             <SandboxOrchestrator
-              agents={officeState.agents}
-              messages={officeState.messages}
+              agents={reefState.agents}
+              messages={reefState.messages}
               onCollapse={() => setSandboxDockOpen(false)}
-              onStateRefresh={refreshOfficeState}
+              onStateRefresh={refreshReefState}
               onSandboxAssignments={applySandboxAssignments}
               onOpenMonitor={setOpenSandboxName}
               onSandboxesChange={setSandboxesIndex}
@@ -595,7 +595,7 @@ export default function App() {
       <div className="absolute bottom-5 left-1/2 z-20 w-[min(760px,calc(100vw-2.5rem))] -translate-x-1/2 max-md:bottom-3 max-md:w-[calc(100vw-1.5rem)]">
         <QueryInput
           onSubmit={sendQuery}
-          currentQuery={officeState.current_query}
+          currentQuery={reefState.current_query}
           connected={connected}
           sandboxBusyCount={sandboxBusyCount}
         />
@@ -604,10 +604,10 @@ export default function App() {
       {openSandboxName && (() => {
         const sandbox = sandboxesIndex.find((s) => s.name === openSandboxName);
         if (!sandbox) return null;
-        const messages: ChatMessage[] = officeState.messages.filter(
+        const messages: ChatMessage[] = reefState.messages.filter(
           (m) => m.sandbox_name === openSandboxName
         );
-        const consoleLines = officeState.sandbox_consoles[openSandboxName] ?? [];
+        const consoleLines = reefState.sandbox_consoles[openSandboxName] ?? [];
         return (
           <ErrorBoundary label="Task Monitor">
             <SandboxRunPanel
@@ -643,7 +643,7 @@ export default function App() {
         <LobsterBuilder
           open={builderOpen}
           onClose={() => setBuilderOpen(false)}
-          onSpawned={refreshOfficeState}
+          onSpawned={refreshReefState}
         />
       </ErrorBoundary>
 

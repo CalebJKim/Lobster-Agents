@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rigorous demo-booth validation for Lobster Agents.
+"""Rigorous demo-booth validation for NemoClaw Reef.
 
 This is broader than scripts/demo_e2e.py. It runs the kinds of things a
 five-minute booth visitor may try: visual profile creation, assignment edge
@@ -62,7 +62,7 @@ class Context:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run broad Lobster Agents demo-booth validation.")
+    parser = argparse.ArgumentParser(description="Run broad NemoClaw Reef demo-booth validation.")
     parser.add_argument("--base", default=DEFAULT_BASE, help="Frontend/proxy base URL.")
     parser.add_argument("--sandbox", default="nemoclaw-demo-e2e-0530182359", help="Live NemoClaw sandbox to use.")
     parser.add_argument("--task-timeout-seconds", type=int, default=900, help="Timeout per real OpenClaw task.")
@@ -526,7 +526,7 @@ def scenario_report(ctx: Context) -> Scenario:
 
 def scenario_coding(ctx: Context) -> Scenario:
     task = (
-        "Build a tiny static web app for a Lobster Agents booth visitor. Do not use web search and do not start "
+        "Build a tiny static web app for a NemoClaw Reef booth visitor. Do not use web search and do not start "
         "a long-running server. In your current working directory, create index.html, styles.css, and app.js. "
         "The page should look polished, explain NemoClaw sandboxes, OpenShell policies, and OpenClaw lobster teams, "
         "and include one small interactive button or toggle. Do not paste the source code in your final answer. "
@@ -766,7 +766,7 @@ def write_reports(ctx: Context, cleanup_results: list[dict[str, Any]]) -> tuple[
         "## Operator Notes",
         "",
         "- Keep Relay Check and the static website workflow as the primary executable demo path.",
-        "- Use Hermes crabs visually unless `OFFICE_AGENTS_HERMES_COMMAND` is configured.",
+        "- Use Hermes crabs visually unless `NEMOCLAW_REEF_HERMES_COMMAND` is configured.",
         "- Use OpenShell network rules to explain approve-after-deny behavior; approving a rule enables future retries, not replay.",
         "- Use the Run artifacts panel to open generated HTML/CSS artifacts after coding workflows.",
         "",

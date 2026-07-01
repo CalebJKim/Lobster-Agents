@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Launch an OpenAI-compatible vLLM server for Lobster Agents on a GB300 demo
+# Launch an OpenAI-compatible vLLM server for NemoClaw Reef on a GB300 demo
 # host. Defaults target the large GB300 GPU when the host also has a smaller
 # display GPU. Override via env vars instead of editing this file.
 

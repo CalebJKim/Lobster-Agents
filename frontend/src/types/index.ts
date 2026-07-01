@@ -126,7 +126,7 @@ export interface ActivityEntry {
   timestamp: string;
 }
 
-export interface OfficeState {
+export interface ReefState {
   agents: AgentInfo[];
   messages: ChatMessage[];
   activity: ActivityEntry[];

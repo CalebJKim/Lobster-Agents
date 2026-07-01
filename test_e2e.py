@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end test for Office Agents via WebSocket."""
+"""End-to-end test for NemoClaw Reef via WebSocket."""
 
 import asyncio
 import json
@@ -13,7 +13,7 @@ async def e2e_test():
     uri = "ws://127.0.0.1:8001/ws"
 
     print("=" * 60)
-    print("E2E TEST: Office Agents")
+    print("E2E TEST: NemoClaw Reef")
     print("=" * 60)
 
     # 1. Connect via WebSocket

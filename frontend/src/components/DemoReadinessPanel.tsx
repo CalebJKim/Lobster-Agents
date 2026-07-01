@@ -48,7 +48,7 @@ function CheckRow({ check }: { check: DemoReadinessCheck }) {
 
 function readinessSummaryText(readiness: DemoReadiness) {
   const lines = [
-    "Lobster Agents demo readiness",
+    "NemoClaw Reef demo readiness",
     `sandbox: ${readiness.selected_sandbox ?? "default"}`,
     `ok: ${readiness.summary.ok}`,
     `warnings: ${readiness.summary.warn}`,

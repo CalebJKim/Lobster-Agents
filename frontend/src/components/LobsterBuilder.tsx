@@ -686,7 +686,7 @@ export default function LobsterBuilder({ open, onClose, onSpawned }: LobsterBuil
             </div>
 
             {/* Mission / extra system prompt. OpenClaw has no per-profile
-                "soul" file — instead, sandbox_runtime/openclaw.py splices
+                "soul" file — instead, integrations/openclaw.py splices
                 Agent.personality into the message of every openclaw turn.
                 Anything typed here gets bolted onto that personality at
                 spawn time so it carries into both the reef LLM tick and

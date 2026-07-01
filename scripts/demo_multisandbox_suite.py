@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-sandbox booth validation for Lobster Agents.
+"""Multi-sandbox booth validation for NemoClaw Reef.
 
 This focuses on the core booth claim: unique OpenClaw agent teams work inside
 separate NemoClaw/OpenShell sandboxes at the same time. It creates temporary
@@ -51,7 +51,7 @@ class Result:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run multi-sandbox Lobster Agents validation.")
+    parser = argparse.ArgumentParser(description="Run multi-sandbox NemoClaw Reef validation.")
     parser.add_argument("--base", default=DEFAULT_BASE)
     parser.add_argument(
         "--sandboxes",
@@ -195,7 +195,7 @@ def build_workflows(sandboxes: list[str], stamp: str) -> list[Workflow]:
                 ),
             ],
             task=(
-                "Create a tiny static website about Lobster Agents. The first lobster should make "
+                "Create a tiny static website about NemoClaw Reef. The first lobster should make "
                 "index.html and styles.css in its working directory. The second lobster should reply "
                 "with one sentence confirming the files were produced from the teammate context. "
                 "Do not use web search."

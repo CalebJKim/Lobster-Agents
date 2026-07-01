@@ -7,14 +7,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from office_agents.sandbox_runtime import nemoclaw
-from office_agents.sandbox_runtime._subprocess import CapturedRun
-from office_agents.sandbox_runtime.nemoclaw import (
+from nemoclaw_reef.integrations import nemoclaw
+from nemoclaw_reef.integrations.process import CapturedRun
+from nemoclaw_reef.integrations.nemoclaw_cli import (
     _parse_network_rule_list,
     _parse_policy_list,
     _redact_sensitive,
 )
-from office_agents.sandbox_runtime.openclaw import _parse_openclaw_result, _parse_skill_status
+from nemoclaw_reef.integrations.openclaw_cli import _parse_openclaw_result, _parse_skill_status
 
 
 def test_openclaw_timeout_preserves_partial_output() -> None:

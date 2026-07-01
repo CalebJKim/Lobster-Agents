@@ -679,7 +679,7 @@ export default function SandboxRunPanel({
         warnings.push({
           id: "hermes_assigned",
           label: "Hermes crab runtime is not configured",
-          detail: "Crabs can be displayed and assigned, but they will not execute Hermes turns until OFFICE_AGENTS_HERMES_COMMAND is set.",
+          detail: "Crabs can be displayed and assigned, but they will not execute Hermes turns until NEMOCLAW_REEF_HERMES_COMMAND is set.",
         });
       }
 

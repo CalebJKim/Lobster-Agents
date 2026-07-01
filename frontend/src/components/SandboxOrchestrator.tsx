@@ -9,8 +9,19 @@ import type {
   OpenClawApprovalsStatus,
 } from "../types";
 import { SQUADS, type Squad } from "../utils/claws";
-import { SANDBOX_API_TIMEOUT_MS, SANDBOX_POLL_INTERVAL_MS } from "../utils/config";
-import { createSandbox as createSandboxRequest, fetchDemoReadiness } from "../utils/sandboxApi";
+import { SANDBOX_POLL_INTERVAL_MS } from "../utils/config";
+import {
+  assignTeam,
+  cancelSandboxTask,
+  cleanupDemoBooth,
+  createSandbox as createSandboxRequest,
+  fetchApprovals,
+  fetchDemoReadiness,
+  fetchPolicies,
+  fetchSandboxes,
+  runSandboxTask,
+  setPolicyOrThrow as setPolicy,
+} from "../utils/sandboxApi";
 import { AGENT_COLORS, ROLE_LABELS } from "../utils/sprites";
 import AgentChip from "./sandbox/AgentChip";
 import SandboxCard from "./sandbox/SandboxCard";
@@ -34,7 +45,6 @@ interface SandboxOrchestratorProps {
 const DEFAULT_TASK =
   "Work as a tiny NemoClaw sandbox team. Inspect your sandbox, propose one useful improvement for the reef demo, and return a concise implementation plan.";
 
-const API_TIMEOUT_MS = SANDBOX_API_TIMEOUT_MS;
 type RunUiStatus = "running" | "stopping" | "cancelled" | "finished" | "error";
 
 type SandboxRunStatus = {
@@ -169,122 +179,6 @@ function formatChatTime(timestamp: string): string {
   }
 }
 
-function apiUrls(path: string): string[] {
-  const urls = [path];
-  const host = window.location.hostname;
-  const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
-  if (host && !loopback) urls.push(`http://${host}:8001${path}`);
-  return Array.from(new Set(urls));
-}
-
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const errors: string[] = [];
-
-  for (const url of apiUrls(path)) {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-    try {
-      const res = await fetch(url, {
-        ...init,
-        cache: "no-store",
-        headers: requestHeaders(init),
-        signal: controller.signal,
-      });
-      const contentType = res.headers.get("content-type") ?? "";
-      if (!res.ok) {
-        let detail = "";
-        if (contentType.includes("application/json")) {
-          const body = await res.json().catch(() => null);
-          detail = typeof body?.detail === "string" ? `: ${body.detail}` : "";
-        }
-        throw new Error(`${url} failed: ${res.status}${detail}`);
-      }
-      if (!contentType.includes("application/json")) {
-        const preview = (await res.text()).slice(0, 60).replace(/\s+/g, " ");
-        throw new Error(`${url} returned ${contentType || "non-JSON"}: ${preview}`);
-      }
-      return res.json();
-    } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err));
-    } finally {
-      window.clearTimeout(timeout);
-    }
-  }
-
-  throw new Error(errors.join(" | ") || `Could not fetch ${path}`);
-}
-
-function requestHeaders(init?: RequestInit): Headers {
-  const headers = new Headers(init?.headers);
-  if (!headers.has("Accept")) headers.set("Accept", "application/json");
-  return headers;
-}
-
-async function fetchSandboxes(): Promise<NemoClawStatus> {
-  return fetchJson<NemoClawStatus>("/sandboxes");
-}
-
-async function cleanupDemoBooth() {
-  return fetchJson<{
-    status: string;
-    deleted_agents?: string[];
-    removed_dynamic_sandboxes?: number;
-    pending_rule_clears?: { ok?: boolean }[];
-  }>(
-    "/demo/cleanup",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mode: "booth",
-        clear_sandbox_files: true,
-        delete_visitor_agents: true,
-        reset_to_default_sandboxes: true,
-        clear_pending_rules: true,
-      }),
-    },
-  );
-}
-
-async function assignTeam(sandboxName: string, agentNames: string[]) {
-  return fetchJson<{ status: string; assignments: Record<string, string[]> }>(`/sandboxes/${encodeURIComponent(sandboxName)}/team`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent_names: agentNames }),
-  });
-}
-
-async function runSandboxTask(sandboxName: string, task: string, agentNames: string[]) {
-  return fetchJson<{ status: string; run_id?: string }>(`/sandboxes/${encodeURIComponent(sandboxName)}/task`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task, agent_names: agentNames }),
-  });
-}
-
-async function cancelSandboxTask(sandboxName: string, runId: string) {
-  return fetchJson<{ status: string; cancelled: boolean; run_id: string }>(
-    `/sandboxes/${encodeURIComponent(sandboxName)}/task/${encodeURIComponent(runId)}/cancel`,
-    { method: "POST" }
-  );
-}
-
-async function fetchPolicies(sandboxName: string): Promise<NemoClawPolicyStatus> {
-  return fetchJson<NemoClawPolicyStatus>(`/sandboxes/${encodeURIComponent(sandboxName)}/policies`);
-}
-
-async function setPolicy(sandboxName: string, preset: string, enabled: boolean, dryRun: boolean) {
-  return fetchJson<{ output?: string; ok?: boolean }>(`/sandboxes/${encodeURIComponent(sandboxName)}/policies`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ preset, enabled, dry_run: dryRun }),
-  });
-}
-
-async function fetchApprovals(sandboxName: string | null): Promise<OpenClawApprovalsStatus> {
-  const suffix = sandboxName ? `?sandbox_name=${encodeURIComponent(sandboxName)}` : "";
-  return fetchJson<OpenClawApprovalsStatus>(`/approvals${suffix}`);
-}
 
 
 export default function SandboxOrchestrator({

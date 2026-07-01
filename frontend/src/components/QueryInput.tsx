@@ -20,33 +20,6 @@ async function uploadFile(file: File): Promise<{ path: string; name: string } | 
   }
 }
 
-const DEMO_PROMPTS = [
-  {
-    label: "My Finances",
-    prompt: "Read my expenses file at /home/nvidia/documents/demo-files/expenses-q1-2025.csv and analyze my Q1 spending. Where am I wasting money? What subscriptions can I cut? How much am I spending on food delivery vs groceries?",
-  },
-  {
-    label: "Job Offers",
-    prompt: "I have two job offers I need to compare. Read /home/nvidia/documents/demo-files/offer-aurora-tech.md and /home/nvidia/documents/demo-files/offer-meridian-ai.md — compare total comp, equity risk, career growth, and tell me which one to take.",
-  },
-  {
-    label: "Perf Review",
-    prompt: "Read my performance review notes at /home/nvidia/documents/demo-files/perf-review-notes.md and help me prepare for my review. Am I ready for Staff promotion? Write a strong self-assessment summary and talking points for my manager.",
-  },
-  {
-    label: "Trip Plan",
-    prompt: "I have 5 days in Tokyo next month. Build me a day-by-day itinerary covering must-see spots, hidden gems, and the best food neighborhoods.",
-  },
-  {
-    label: "Build App",
-    prompt: "Write a Python CLI tool that monitors my Downloads folder and auto-organizes files into subfolders by type (images, documents, videos, archives).",
-  },
-  {
-    label: "Research",
-    prompt: "What are the top 3 local LLMs for running on consumer GPUs in 2025? Compare performance, memory usage, and best use cases.",
-  },
-];
-
 export default function QueryInput({
   onSubmit,
   currentQuery,
@@ -129,18 +102,6 @@ export default function QueryInput({
     [input, onSubmit]
   );
 
-  const handlePromptClick = useCallback(
-    (prompt: string) => {
-      unlockAudio();
-      playQuerySubmit();
-      onSubmit(prompt);
-    },
-    [onSubmit]
-  );
-
-  const showSuggestions =
-    !currentQuery && connected && input.trim().length === 0 && droppedFiles.length === 0;
-
   return (
     <div
       ref={dropRef}
@@ -206,22 +167,6 @@ export default function QueryInput({
           <span className="min-w-0 truncate font-medium text-slate-600">
             {sandboxBusyCount} lobster{sandboxBusyCount === 1 ? "" : "s"} working in sandboxes. General prompts use the available team.
           </span>
-        </div>
-      )}
-
-      {/* Demo prompt suggestions */}
-      {showSuggestions && (
-        <div className="scrollbar-hide flex gap-1 overflow-x-auto border-b border-slate-950/[0.05] px-3 py-1 max-md:hidden">
-          {DEMO_PROMPTS.slice(0, 4).map((p, i) => (
-            <button
-              key={i}
-              onClick={() => handlePromptClick(p.prompt)}
-              className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium leading-4 text-slate-500/90 transition hover:bg-white/54 hover:text-slate-900"
-              title={p.prompt}
-            >
-              {p.label}
-            </button>
-          ))}
         </div>
       )}
 

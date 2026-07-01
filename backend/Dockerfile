@@ -11,8 +11,8 @@ RUN pip install --no-cache-dir .
 
 # Data directory for SQLite
 RUN mkdir -p /data
-ENV OFFICE_AGENTS_DB_PATH=/data/office_agents.db
+ENV NEMOCLAW_REEF_DB_PATH=/data/nemoclaw_reef.db
 
 EXPOSE 8001
 
-CMD ["uvicorn", "office_agents.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "nemoclaw_reef.main:app", "--host", "0.0.0.0", "--port", "8001"]
